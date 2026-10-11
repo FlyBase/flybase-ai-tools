@@ -17,7 +17,8 @@ const SESSION_SETUP: &str = "set default_transaction_read_only = on; set stateme
 
 impl Chado {
     pub async fn connect(cfg: &Config) -> anyhow::Result<Self> {
-        let pg: tokio_postgres::Config = cfg.chado_url.parse()?;
+        let mut pg: tokio_postgres::Config = cfg.chado_url.parse()?;
+        pg.connect_timeout(POOL_WAIT);
         let mgr = Manager::from_config(
             pg,
             NoTls,
@@ -30,6 +31,7 @@ impl Chado {
                 max_size: cfg.pool_size,
                 timeouts: Timeouts {
                     wait: Some(POOL_WAIT),
+                    create: Some(POOL_WAIT),
                     ..Timeouts::default()
                 },
                 ..PoolConfig::default()
@@ -67,7 +69,7 @@ impl Chado {
         let c = self.get(tool).await?;
         c.query(crate::backends::sql::get(name), params)
             .await
-            .map_err(|e| ToolError::db(tool, e))
+            .map_err(|e| ToolError::db(tool, &e))
     }
 
     /// Verify privileges on every relation the server reads and that all expected migrations are logged.

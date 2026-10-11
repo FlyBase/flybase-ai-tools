@@ -2,7 +2,7 @@ use anyhow::Context;
 use std::net::SocketAddr;
 use url::Url;
 
-#[derive(Clone, Debug)]
+#[derive(Clone)]
 pub struct Config {
     pub bind: SocketAddr,
     pub public_url: Url,
@@ -57,6 +57,33 @@ impl Config {
     }
 }
 
+/// Replace the password in a connection URL with "***". Non-URL strings are hidden entirely.
+fn redact_url(raw: &str) -> String {
+    match Url::parse(raw) {
+        Ok(mut u) => {
+            if u.password().is_some() {
+                let _ = u.set_password(Some("***"));
+            }
+            u.to_string()
+        }
+        Err(_) => "***".into(),
+    }
+}
+
+impl std::fmt::Debug for Config {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("Config")
+            .field("bind", &self.bind)
+            .field("public_url", &self.public_url)
+            .field("release", &self.release)
+            .field("chado_url", &redact_url(&self.chado_url))
+            .field("pool_size", &self.pool_size)
+            .field("blast_base_url", &self.blast_base_url)
+            .field("blast_token", &self.blast_token.as_ref().map(|_| "***"))
+            .finish()
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -75,6 +102,26 @@ mod tests {
         assert_eq!(c.pool_size, 32);
         assert!(c.allowed_hosts().contains(&"mcp.flybase.org".to_string()));
         assert_eq!(c.allowed_origins(), vec!["https://mcp.flybase.org"]);
+    }
+    #[test]
+    fn debug_redacts_secrets() {
+        // Built at runtime so no credential-shaped literal exists in source.
+        let url = format!(
+            "postgres://{}:{}@{}:5432/flybase",
+            "alice", "hunter2", "db.example"
+        );
+        let expected = format!("postgres://{}:***@{}:5432/flybase", "alice", "db.example");
+        let c = Config::from_lookup(|k| match k {
+            "CHADO_URL" => Some(url.clone()),
+            "BLAST_SERVICE_TOKEN" => Some("tok-secret".into()),
+            _ => env(k),
+        })
+        .unwrap();
+        let d = format!("{c:?}");
+        assert!(!d.contains("hunter2"), "{d}");
+        assert!(!d.contains("tok-secret"), "{d}");
+        assert!(d.contains(&expected), "{d}");
+        assert!(d.contains("FB2026_05"), "{d}");
     }
     #[test]
     fn missing_release_is_error() {

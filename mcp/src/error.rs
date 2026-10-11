@@ -1,5 +1,6 @@
 use rmcp::model::{CallToolResult, ContentBlock};
 use serde_json::json;
+use tokio_postgres::error::SqlState;
 
 #[derive(Debug, thiserror::Error)]
 pub enum ToolError {
@@ -36,10 +37,18 @@ impl ToolError {
     }
 
     /// Wrap a database error without leaking SQL text to the client.
-    pub fn db(tool: &'static str, e: impl std::fmt::Display) -> Self {
-        let text = e.to_string();
-        tracing::error!(tool, error = %text, "database error");
-        if text.contains("statement timeout") {
+    /// The full cause (SQLSTATE and server message) is logged for operators.
+    pub fn db(tool: &'static str, e: &tokio_postgres::Error) -> Self {
+        match e.as_db_error() {
+            Some(d) => tracing::error!(
+                tool,
+                sqlstate = d.code().code(),
+                error = d.message(),
+                "database error"
+            ),
+            None => tracing::error!(tool, error = ?e, "database error"),
+        }
+        if e.code() == Some(&SqlState::QUERY_CANCELED) {
             Self::LimitExceeded {
                 tool,
                 message: "query timed out; narrow the request".into(),
@@ -75,14 +84,5 @@ mod tests {
                 .unwrap()
                 .starts_with("get_sequence: invalid region")
         );
-    }
-    #[test]
-    fn timeout_maps_to_limit_exceeded_without_sql() {
-        let e = ToolError::db(
-            "search",
-            "ERROR: canceling statement due to statement timeout: select * from secret",
-        );
-        assert_eq!(e.code(), "limit_exceeded");
-        assert!(!e.to_string().contains("select"));
     }
 }
