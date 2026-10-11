@@ -182,3 +182,21 @@ async fn band_range_must_share_an_arm() {
         .unwrap();
     assert_eq!(r.structured_content.unwrap()["error"], "not_found");
 }
+
+/// Insertion sites are zero-length in chado (fmin == fmax); they are reported as points, never start > end.
+#[tokio::test]
+async fn point_insertions_have_start_equal_end() {
+    let c = client().await;
+    let s = call(&c, "map_features", json!({"region": {"chromosome": "3L", "start": 3337600, "end": 3337700}, "feature_types": ["insertion"], "limit": 100})).await;
+    let f = s["features"].as_array().unwrap();
+    let p = f
+        .iter()
+        .find(|x| x["id"] == "FBti0000488")
+        .expect("FBti0000488 is at 3L:3337664 in both databases");
+    assert_eq!(p["start"], 3337664);
+    assert_eq!(p["end"], 3337664);
+    assert!(
+        f.iter()
+            .all(|x| x["start"].as_i64().unwrap() <= x["end"].as_i64().unwrap())
+    );
+}

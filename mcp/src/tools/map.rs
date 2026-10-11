@@ -142,7 +142,7 @@ pub struct MapParams {
     pub padding: Option<u32>,
     /// Species for `region` (default Dmel).
     pub species: Option<String>,
-    /// Features per page (default 25, max 100).
+    /// Features per page (default 25, max 100). Each feature carries start/end (1-based inclusive; insertion sites are points with start = end), strand, and overlap.
     pub limit: Option<u32>,
     /// Features to skip; offset + limit may not exceed 10,000.
     pub offset: Option<u32>,
@@ -177,12 +177,21 @@ impl Range {
     }
 }
 
+/// One feature as `{id, symbol, type, start, end, strand, overlap, link}`. Chado's fmin is 0-based half-open, so
+/// start = fmin + 1; a zero-length location (an insertion site between two bases) is reported as the point
+/// start = end = fmax rather than start > end.
 pub fn feature_row(r: &tokio_postgres::Row) -> Value {
     let id: String = r.get("id");
     let fmin: Option<i32> = r.get("fmin");
+    let fmax: Option<i32> = r.get("fmax");
+    let start = match (fmin, fmax) {
+        (Some(a), Some(b)) if a >= b => Some(b),
+        (Some(a), _) => Some(a + 1),
+        (None, _) => None,
+    };
     json!({
         "id": id, "symbol": r.get::<_, Option<String>>("symbol"), "type": r.get::<_, String>("type"),
-        "start": fmin.map(|x| x + 1), "end": r.get::<_, Option<i32>>("fmax"), "strand": r.get::<_, Option<i16>>("strand").unwrap_or(0),
+        "start": start, "end": fmax, "strand": r.get::<_, Option<i16>>("strand").unwrap_or(0),
         "overlap": r.get::<_, String>("overlap"), "link": if id.starts_with("FB") { Some(report_link(&id)) } else { None },
     })
 }
@@ -217,7 +226,7 @@ pub async fn overlaps(
 impl FlyBaseServer {
     #[tool(
         name = "map_features",
-        description = "List genome features (genes, transcripts, exons, insertions, regulatory regions, reagents, ...) overlapping a genomic range or the span of a located FlyBase feature, with coordinates, strand, and overlap kind. Use when you need what lies in a region; use cytosearch for cytological bands and get_sequence for the bases."
+        description = "List genome features (genes, transcripts, exons, insertions, regulatory regions, reagents, ...) overlapping a genomic range or the span of a located FlyBase feature, with coordinates, strand, and overlap kind (within, contains, partial). Insertion sites are points (start = end). Use when you need what lies in a region; use cytosearch for cytological bands and get_sequence for the bases."
     )]
     pub async fn map_features(
         &self,
@@ -289,6 +298,21 @@ impl FlyBaseServer {
                     Some(s) => normalize_species(&self.chado, T, s).await?,
                     None => "Dmel".to_string(),
                 };
+                // An unknown arm would otherwise return an empty success from the overlap query.
+                let arms = self
+                    .chado
+                    .query(T, "map/golden_path", &[&species, &r.chromosome])
+                    .await?;
+                if arms.is_empty() {
+                    return Err(ToolError::InvalidInput {
+                        tool: T,
+                        arg: "region.chromosome",
+                        message: format!(
+                            "unknown chromosome arm '{}' for {species}; use X, 2L, 2R, 3L, 3R, 4, Y",
+                            r.chromosome
+                        ),
+                    });
+                }
                 Range::from_region(species, &r, padding)
             }
             (None, Some(id)) => {

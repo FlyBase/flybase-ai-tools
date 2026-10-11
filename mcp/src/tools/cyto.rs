@@ -26,9 +26,9 @@ pub struct CytoParams {
     pub location: String,
     /// Feature types to return (default gene, insertion); see map_features list_options.
     pub feature_types: Option<Vec<FeatureType>>,
-    /// Also list aberrations (deficiencies, duplications, inversions) whose cytological extent overlaps (default true).
+    /// Also list aberrations (deficiencies, duplications, inversions) whose cytological extent overlaps (default true). Only aberrations with mapped breakpoints appear.
     pub include_aberrations: Option<bool>,
-    /// Keep features that only partly overlap the range (default true).
+    /// Keep features that only partly overlap the range (default true). When false, pages may be shorter than limit; follow has_more.
     pub include_partial: Option<bool>,
     /// Features per page (default 25, max 100); aberrations use the same page size.
     pub limit: Option<u32>,
@@ -133,7 +133,7 @@ async fn band(tx: &Transaction<'_>, t: &'static str, name: &str) -> ToolResult<B
 impl FlyBaseServer {
     #[tool(
         name = "cytosearch",
-        description = "Find genes, insertions, other features, and aberrations in a cytological location: a band (91A1), subdivision (91A), division (91), band range (91A1-91B2), or genomic range (3R:18268611..18297020). Bands resolve to genome coordinates. Use when a paper gives a cytological position; use map_features when you already have coordinates."
+        description = "Find genes, insertions, other features, and aberrations in a cytological location: a band (91A1), subdivision (91A), division (91), band range (91A1-91B2), or genomic range (3R:18268611..18297020). Bands resolve to genome coordinates; aberrations are those with mapped breakpoints only; insertion sites are points (start = end). Use when a paper gives a cytological position; use map_features when you already have coordinates."
     )]
     pub async fn cytosearch(
         &self,

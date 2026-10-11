@@ -38,6 +38,7 @@ pub fn get(name: &str) -> &'static str {
             include_str!("../../sql/queries/interactions/genetic_gene.sql")
         }
         "interactions/physical" => include_str!("../../sql/queries/interactions/physical.sql"),
+        "map/golden_path" => include_str!("../../sql/queries/map/golden_path.sql"),
         "map/overlaps" => include_str!("../../sql/queries/map/overlaps.sql"),
         "orthologs/by_gene" => include_str!("../../sql/queries/orthologs/by_gene.sql"),
         "orthologs/by_human" => include_str!("../../sql/queries/orthologs/by_human.sql"),

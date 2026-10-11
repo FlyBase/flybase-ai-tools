@@ -63,7 +63,7 @@ Download chosen fields for up to 500 FlyBase IDs at once as rows (JSON or TSV): 
 
 ## `cytosearch`
 
-Find genes, insertions, other features, and aberrations in a cytological location: a band (91A1), subdivision (91A), division (91), band range (91A1-91B2), or genomic range (3R:18268611..18297020). Bands resolve to genome coordinates. Use when a paper gives a cytological position; use map_features when you already have coordinates.
+Find genes, insertions, other features, and aberrations in a cytological location: a band (91A1), subdivision (91A), division (91), band range (91A1-91B2), or genomic range (3R:18268611..18297020). Bands resolve to genome coordinates; aberrations are those with mapped breakpoints only; insertion sites are points (start = end). Use when a paper gives a cytological position; use map_features when you already have coordinates.
 
 ```json
 {
@@ -108,14 +108,14 @@ Find genes, insertions, other features, and aberrations in a cytological locatio
       ]
     },
     "include_aberrations": {
-      "description": "Also list aberrations (deficiencies, duplications, inversions) whose cytological extent overlaps (default true).",
+      "description": "Also list aberrations (deficiencies, duplications, inversions) whose cytological extent overlaps (default true). Only aberrations with mapped breakpoints appear.",
       "type": [
         "boolean",
         "null"
       ]
     },
     "include_partial": {
-      "description": "Keep features that only partly overlap the range (default true).",
+      "description": "Keep features that only partly overlap the range (default true). When false, pages may be shorter than limit; follow has_more.",
       "type": [
         "boolean",
         "null"
@@ -546,7 +546,7 @@ List the sequenced species in FlyBase with their abbreviations (Dmel, Dsim, ...)
 
 ## `map_features`
 
-List genome features (genes, transcripts, exons, insertions, regulatory regions, reagents, ...) overlapping a genomic range or the span of a located FlyBase feature, with coordinates, strand, and overlap kind. Use when you need what lies in a region; use cytosearch for cytological bands and get_sequence for the bases.
+List genome features (genes, transcripts, exons, insertions, regulatory regions, reagents, ...) overlapping a genomic range or the span of a located FlyBase feature, with coordinates, strand, and overlap kind (within, contains, partial). Insertion sites are points (start = end). Use when you need what lies in a region; use cytosearch for cytological bands and get_sequence for the bases.
 
 ```json
 {
@@ -635,7 +635,7 @@ List genome features (genes, transcripts, exons, insertions, regulatory regions,
       ]
     },
     "limit": {
-      "description": "Features per page (default 25, max 100).",
+      "description": "Features per page (default 25, max 100). Each feature carries start/end (1-based inclusive; insertion sites are points with start = end), strand, and overlap.",
       "format": "uint32",
       "minimum": 0,
       "type": [
