@@ -66,6 +66,15 @@ Every tool handler has the same shape:
 
 `src/tools/species.rs` is the smallest example.
 
+### Heavy tools
+
+Five tools can scan large annotation sets: `batch_download`, `map_features`, `entities_for_term`, `cytosearch`,
+and `get_disease_models` when its input is a DOID term. They take `self.limits.heavy(T)` instead of the light
+permit and run their queries inside `self.chado.heavy(T, async |tx| { ... Chado::query_tx(tx, ...) })`, which
+sets the 45 s statement timeout for that read-only transaction only; everything else keeps the 10 s session
+default. The `cvterm::MAX_DESCENDANTS` guard refuses a term whose descendant set would make the closure join
+too wide. `src/tools/entities.rs` is the reference shape.
+
 ## Adding a tool
 
 1. Create `src/tools/<tool>.rs` with a params struct (`Deserialize`, `JsonSchema`,
@@ -93,7 +102,9 @@ Every tool handler has the same shape:
 
 Sections shared by many types (identity, location, props, references, synonyms, external links,
 relationships, stocks, stock count) have helpers in `src/report/mod.rs` over `sql/queries/report/common/`;
-call those rather than re-querying. A section that fails with anything but `NotFound` is returned as
+call those rather than re-querying. Non-feature types (gene groups, disease models, cell lines, strains,
+libraries, references) have their own `references` and `synonyms` queries because `report/common/*.sql` join
+`feature`. A section that fails with anything but `NotFound` is returned as
 `{"error", "message"}` and listed in `section_errors`, so the rest of the report still answers.
 
 A new ID prefix needs a new `ReportType` module, an arm in `report::for_id`, and its label from

@@ -19,6 +19,7 @@ async fn lists_tools_and_calls_list_species() {
     let c = client().await;
     let tools = c.list_all_tools().await.unwrap();
     assert!(tools.iter().any(|t| t.name == "list_species"));
+    assert_eq!(tools.len(), 17, "Plan 2 tool count");
     let s = call(&c, "list_species", json!({})).await;
     assert_eq!(s["release"], "FB_TEST");
     assert!(

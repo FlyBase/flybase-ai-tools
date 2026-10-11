@@ -220,6 +220,75 @@ List the genes, alleles, disease models, or gene groups annotated to a vocabular
 }
 ```
 
+## `get_disease_models`
+
+Human disease models: for a gene or allele, its Disease Ontology annotations with qualifiers (model of, ameliorates, exacerbates), evidence, and references, plus disease-variant alleles and the FlyBase disease model entries (FBhh) that cite it; for an FBhh entry, its human gene, DO terms, fly models, and variants; for a DOID term, the entries and alleles annotated to it or its descendants. Use for disease questions; use get_orthologs for the human gene itself.
+
+```json
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "id": {
+      "description": "A gene (FBgn), allele (FBal), human disease model entry (FBhh), or Disease Ontology term (DOID:162).",
+      "type": "string"
+    },
+    "limit": {
+      "description": "Items per paged list (default 25, max 100).",
+      "format": "uint32",
+      "minimum": 0,
+      "type": [
+        "integer",
+        "null"
+      ]
+    },
+    "offset": {
+      "description": "Items to skip in paged lists.",
+      "format": "uint32",
+      "minimum": 0,
+      "type": [
+        "integer",
+        "null"
+      ]
+    }
+  },
+  "required": [
+    "id"
+  ],
+  "type": "object"
+}
+```
+
+## `get_gene_groups_and_pathways`
+
+For a gene: the FlyBase gene groups and signaling pathways it belongs to. For a gene group or pathway ID (FBgg): its description, members, and parent and child groups. Use when a question is about families, complexes, or pathways; use get_report with an FBgg for references and GO terms too.
+
+```json
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "id": {
+      "description": "A gene (FBgn) for its groups and pathways, or a gene group or pathway (FBgg) for its members and hierarchy.",
+      "type": "string"
+    },
+    "limit": {
+      "description": "Max members to list for a group (default 25, max 100).",
+      "format": "uint32",
+      "minimum": 0,
+      "type": [
+        "integer",
+        "null"
+      ]
+    }
+  },
+  "required": [
+    "id"
+  ],
+  "type": "object"
+}
+```
+
 ## `get_interactions`
 
 Physical (protein-protein) and genetic interactions for a gene, or allele-level genetic interactions for an allele, with partners, roles, detection methods, outcomes, and references. A self-interaction lists the gene as its own partner; allele comparisons give genotype (whose phenotype is described), compared_with, and side (which of the two carries the allele). One hop only; call again on a partner to go further. Use get_report sections for everything else about the gene.
@@ -498,6 +567,77 @@ Return FASTA sequence for a FlyBase ID (gene span, transcripts, CDS, protein, UT
       ]
     }
   },
+  "type": "object"
+}
+```
+
+## `get_stocks`
+
+Fly stocks available from stock centres (Bloomington, Kyoto, VDRC, NIG-Fly, Korea, FlyORF, NDSSC) for a gene, allele, insertion, aberration, balancer, construct, or stock ID, with stock numbers and genotypes; optionally GAL4 drivers only or one provider. Use when someone wants to order or find flies; use get_report for the entity itself.
+
+```json
+{
+  "$defs": {
+    "Provider": {
+      "enum": [
+        "bloomington",
+        "kyoto",
+        "vdrc",
+        "nig_fly",
+        "korea",
+        "flyorf",
+        "ndssc"
+      ],
+      "type": "string"
+    }
+  },
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "gal4_only": {
+      "description": "Keep GAL4 driver stocks only: for a gene, stocks of Scer\\GAL4 alleles driven by the gene's regulatory region; for an allele,\ninsertion, aberration, balancer, or construct, stocks that also carry a Scer\\GAL4 allele. Ignored for a stock ID.",
+      "type": [
+        "boolean",
+        "null"
+      ]
+    },
+    "id": {
+      "description": "A gene (FBgn), allele (FBal), insertion (FBti), aberration (FBab), balancer (FBba) or balancer symbol (FM7c), construct (FBtp), or stock (FBst).",
+      "type": "string"
+    },
+    "limit": {
+      "description": "Stocks per page (default 25, max 100).",
+      "format": "uint32",
+      "minimum": 0,
+      "type": [
+        "integer",
+        "null"
+      ]
+    },
+    "offset": {
+      "description": "Stocks to skip; offset + limit may not exceed 10,000.",
+      "format": "uint32",
+      "minimum": 0,
+      "type": [
+        "integer",
+        "null"
+      ]
+    },
+    "provider": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/Provider"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "description": "Stock centre."
+    }
+  },
+  "required": [
+    "id"
+  ],
   "type": "object"
 }
 ```

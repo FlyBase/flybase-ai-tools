@@ -30,7 +30,14 @@ pub fn get(name: &str) -> &'static str {
         "batch/type" => include_str!("../../sql/queries/batch/type.sql"),
         "cyto/aberrations" => include_str!("../../sql/queries/cyto/aberrations.sql"),
         "cyto/band" => include_str!("../../sql/queries/cyto/band.sql"),
+        "disease/allele_annotations" => {
+            include_str!("../../sql/queries/disease/allele_annotations.sql")
+        }
+        "disease/gene_fbhh" => include_str!("../../sql/queries/disease/gene_fbhh.sql"),
+        "disease/gene_models" => include_str!("../../sql/queries/disease/gene_models.sql"),
+        "disease/term_models" => include_str!("../../sql/queries/disease/term_models.sql"),
         "disease/variants" => include_str!("../../sql/queries/disease/variants.sql"),
+        "groups/for_gene" => include_str!("../../sql/queries/groups/for_gene.sql"),
         "interactions/genetic_allele" => {
             include_str!("../../sql/queries/interactions/genetic_allele.sql")
         }
@@ -230,6 +237,11 @@ pub fn get(name: &str) -> &'static str {
         "vocab/search" => include_str!("../../sql/queries/vocab/search.sql"),
         "species/list" => include_str!("../../sql/queries/species/list.sql"),
         "species/normalize" => include_str!("../../sql/queries/species/normalize.sql"),
+        "stocks/allele" => include_str!("../../sql/queries/stocks/allele.sql"),
+        "stocks/feature" => include_str!("../../sql/queries/stocks/feature.sql"),
+        "stocks/gene" => include_str!("../../sql/queries/stocks/gene.sql"),
+        "stocks/gene_count" => include_str!("../../sql/queries/stocks/gene_count.sql"),
+        "stocks/split_system" => include_str!("../../sql/queries/stocks/split_system.sql"),
         "startup/functions" => include_str!("../../sql/queries/startup/functions.sql"),
         "startup/migrations" => include_str!("../../sql/queries/startup/migrations.sql"),
         "startup/ping" => include_str!("../../sql/queries/startup/ping.sql"),
