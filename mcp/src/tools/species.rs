@@ -13,6 +13,7 @@ pub struct ListSpeciesParams {
     pub include_unsequenced: Option<bool>,
 }
 
+// Source: https://flybase.org/maps/synteny (fetched 2026-10-11).
 const SYNTENY: &str = include_str!("../../data/muller_synteny.tsv");
 
 pub fn synteny_rows() -> Vec<serde_json::Value> {
@@ -62,12 +63,23 @@ impl FlyBaseServer {
             })
             .collect();
         let total = rows.len();
+        let with_assembly = rows
+            .iter()
+            .filter(|r| r.get::<_, bool>("has_assembly"))
+            .count();
         Ok(Envelope::new("list_species", &self.release)
-            .summary(format!(
-                "{} species with genome assemblies ({} organisms in total). Use the abbreviation (for example Dmel) as the species argument in other tools.",
-                species.len(),
-                total
-            ))
+            .summary(if include_all {
+                format!(
+                    "{} organisms in FlyBase, {} with genome assemblies. Use the abbreviation (for example Dmel) as the species argument in other tools.",
+                    total, with_assembly
+                )
+            } else {
+                format!(
+                    "{} species with genome assemblies ({} organisms in total). Use the abbreviation (for example Dmel) as the species argument in other tools.",
+                    species.len(),
+                    total
+                )
+            })
             .field("species", json!(species))
             .field("organisms_total", json!(total))
             .field("muller_synteny", json!(synteny_rows()))
@@ -83,5 +95,21 @@ mod tests {
         let rows = synteny_rows();
         assert_eq!(rows.len(), 6);
         assert_eq!(rows[0]["Dmel"], "X");
+        let row = |m: &str| {
+            rows.iter()
+                .find(|r| r["muller_element"] == m)
+                .unwrap()
+                .clone()
+        };
+        assert_eq!(row("D")["Dwil"], "XR");
+        assert_eq!(row("F")["Dwil"], "3");
+        assert_eq!(row("E")["Dvir"], "2");
+        assert_eq!(row("C")["Dgri"], "2");
+        assert_eq!(row("D")["Dpse"], "XR");
+        assert_eq!(row("B")["Dyak"], "2");
+        assert!(
+            rows.iter()
+                .all(|r| r.get("notes").is_some_and(|n| n.is_string()))
+        );
     }
 }

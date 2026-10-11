@@ -24,8 +24,9 @@ async fn main() -> anyhow::Result<()> {
         .json()
         .with_env_filter(tracing_subscriber::EnvFilter::from_default_env())
         .init();
+    let cli = Cli::parse();
     let cfg = flybase_mcp::config::Config::from_env()?;
-    match Cli::parse().cmd.unwrap_or(Cmd::Serve) {
+    match cli.cmd.unwrap_or(Cmd::Serve) {
         Cmd::Serve => flybase_mcp::server::run(cfg).await,
         Cmd::Migrate { diopt } => flybase_mcp::migrate::run(&cfg, diopt).await,
     }

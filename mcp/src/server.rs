@@ -11,7 +11,19 @@ use rmcp::{
     },
 };
 use serde_json::json;
-use std::sync::Arc;
+use std::sync::{Arc, OnceLock};
+
+static PROM: OnceLock<Option<metrics_exporter_prometheus::PrometheusHandle>> = OnceLock::new();
+
+/// Install the Prometheus recorder once per process; later `app()` calls reuse the handle.
+fn prometheus() -> Option<metrics_exporter_prometheus::PrometheusHandle> {
+    PROM.get_or_init(|| {
+        metrics_exporter_prometheus::PrometheusBuilder::new()
+            .install_recorder()
+            .ok()
+    })
+    .clone()
+}
 
 pub const INSTRUCTIONS: &str = "FlyBase MCP server. Start with `resolve` to turn a gene, allele, or other symbol into a FlyBase ID (FBgn..., FBal...). \
 Use `get_report` with that ID and request only the sections you need. Use `search` for free text. IDs in results link to https://flybase.org/reports/<id>; cite them. \
@@ -68,9 +80,7 @@ pub fn app(cfg: &Config, chado: Chado) -> Router {
         .with_max_request_body_bytes(1024 * 1024);
     let mcp =
         StreamableHttpService::new(factory, Arc::new(NeverSessionManager::default()), mcp_cfg);
-    let prom = metrics_exporter_prometheus::PrometheusBuilder::new()
-        .install_recorder()
-        .ok();
+    let prom = prometheus();
     Router::new()
         .nest_service("/mcp", mcp)
         .route(
@@ -107,6 +117,31 @@ pub async fn run(cfg: Config) -> anyhow::Result<()> {
     chado.startup_check(&crate::migrate::names()).await?;
     let listener = tokio::net::TcpListener::bind(cfg.bind).await?;
     tracing::info!(bind = %cfg.bind, release = %cfg.release, "flybase-mcp listening");
-    axum::serve(listener, app(&cfg, chado)).await?;
+    axum::serve(listener, app(&cfg, chado))
+        .with_graceful_shutdown(shutdown_signal())
+        .await?;
+    tracing::info!("flybase-mcp stopped");
     Ok(())
+}
+
+/// Resolve on Ctrl-C or SIGTERM (the binary is PID 1 in a container).
+async fn shutdown_signal() {
+    let ctrl_c = async {
+        tokio::signal::ctrl_c()
+            .await
+            .expect("install Ctrl-C handler");
+    };
+    #[cfg(unix)]
+    let terminate = async {
+        tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate())
+            .expect("install SIGTERM handler")
+            .recv()
+            .await;
+    };
+    #[cfg(not(unix))]
+    let terminate = std::future::pending::<()>();
+    tokio::select! {
+        _ = ctrl_c => tracing::info!("received Ctrl-C, shutting down"),
+        _ = terminate => tracing::info!("received SIGTERM, shutting down"),
+    }
 }

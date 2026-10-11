@@ -36,6 +36,18 @@ async fn lists_tools_and_calls_list_species() {
             .all(|x| x["has_assembly"] == true)
     );
     assert!(s["muller_synteny"].as_array().unwrap().len() >= 6);
+    let all = call(&c, "list_species", json!({"include_unsequenced": true})).await;
+    assert!(
+        all["species"].as_array().unwrap().len() > s["species"].as_array().unwrap().len(),
+        "include_unsequenced must add organisms without assemblies"
+    );
+    assert!(
+        all["species"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|x| x["has_assembly"] == false)
+    );
 }
 
 #[tokio::test]
