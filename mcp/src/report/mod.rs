@@ -1,5 +1,7 @@
 //! Report page sections for `get_report`. One `ReportType` per FlyBase ID prefix.
+pub mod aberration;
 pub mod allele;
+pub mod balancer;
 pub mod construct;
 pub mod gene;
 pub mod insertion;
@@ -84,6 +86,8 @@ pub fn for_id(id: &str) -> Option<Box<dyn ReportType>> {
         "FBtp" => Some(Box::new(construct::Construct)),
         "FBtr" => Some(Box::new(transcript::Transcript)),
         "FBpp" => Some(Box::new(polypeptide::Polypeptide)),
+        "FBab" => Some(Box::new(aberration::Aberration)),
+        "FBba" => Some(Box::new(balancer::Balancer)),
         _ => None,
     }
 }
@@ -315,6 +319,36 @@ pub async fn stock_count_section(ctx: &SectionCtx) -> ToolResult<Value> {
     Ok(json!(r.first().map(|r| r.get::<_, i64>("n")).unwrap_or(0)))
 }
 
+/// `phenotype_summary` and `phenotypes` for any feature that appears in genotypes (alleles, aberrations, balancers).
+pub async fn phenotype_section(ctx: &SectionCtx, name: &str) -> ToolResult<Value> {
+    Ok(match name {
+        "phenotype_summary" => {
+            let r = ctx
+                .query("report/allele/phenotype_summary", &[&ctx.id, &ctx.fetch])
+                .await?;
+            paged(
+                rows_to_json(
+                    &r,
+                    |r| json!({"phenotype": r.get::<_, String>("term"), "term_id": r.get::<_, Option<String>>("term_id"), "statements": r.get::<_, i64>("statements")}),
+                ),
+                ctx.limit,
+            )
+        }
+        _ => {
+            let r = ctx
+                .query("report/allele/phenotypes", &[&ctx.id, &ctx.fetch])
+                .await?;
+            paged(
+                rows_to_json(&r, |r| {
+                    json!({"genotype": strip_markup(&r.get::<_, String>("genotype")), "phenotype": r.get::<_, Option<String>>("phenotype"),
+                           "qualifiers": r.get::<_, Option<String>>("qualifiers"), "reference": r.get::<_, String>("reference"), "citation": r.get::<_, Option<String>>("miniref")})
+                }),
+                ctx.limit,
+            )
+        }
+    })
+}
+
 /// Test-only section that exceeds the light statement timeout, so tests can see a per-section error.
 pub async fn timeout_probe(ctx: &SectionCtx) -> ToolResult<Value> {
     let r = ctx.query("report/common/timeout_probe", &[]).await?;
@@ -361,6 +395,8 @@ mod tests {
         assert_eq!(for_id("FBtp0000743").unwrap().name(), "construct");
         assert_eq!(for_id("FBtr0070507").unwrap().name(), "transcript");
         assert_eq!(for_id("FBpp0070483").unwrap().name(), "polypeptide");
+        assert_eq!(for_id("FBab0000001").unwrap().name(), "aberration");
+        assert_eq!(for_id("FBba0000003").unwrap().name(), "balancer");
         assert!(for_id("x").is_none());
     }
 }

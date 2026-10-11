@@ -1,5 +1,6 @@
 use super::{
-    ReportType, SectionCtx, paged, references_section, rows_to_json, strip_markup, synonyms_section,
+    ReportType, SectionCtx, paged, phenotype_section, references_section, rows_to_json,
+    strip_markup, synonyms_section,
 };
 use crate::error::{ToolError, ToolResult};
 use serde_json::{Value, json};
@@ -78,38 +79,7 @@ impl ReportType for Allele {
                     |r| json!({"name": r.get::<_, Option<String>>("name"), "term_id": r.get::<_, Option<String>>("fbcv_id")})
                 ))
             }
-            "phenotype_summary" => {
-                let r = ctx
-                    .query("report/allele/phenotype_summary", &[id, &ctx.fetch])
-                    .await?;
-                paged(
-                    rows_to_json(&r, |r| {
-                        json!({
-                            "phenotype": r.get::<_, String>("term"),
-                            "term_id": r.get::<_, Option<String>>("term_id"),
-                            "statements": r.get::<_, i64>("statements"),
-                        })
-                    }),
-                    ctx.limit,
-                )
-            }
-            "phenotypes" => {
-                let r = ctx
-                    .query("report/allele/phenotypes", &[id, &ctx.fetch])
-                    .await?;
-                paged(
-                    rows_to_json(&r, |r| {
-                        json!({
-                            "genotype": strip_markup(&r.get::<_, String>("genotype")),
-                            "phenotype": r.get::<_, Option<String>>("phenotype"),
-                            "qualifiers": r.get::<_, Option<String>>("qualifiers"),
-                            "reference": r.get::<_, String>("reference"),
-                            "citation": r.get::<_, Option<String>>("miniref"),
-                        })
-                    }),
-                    ctx.limit,
-                )
-            }
+            "phenotype_summary" | "phenotypes" => phenotype_section(ctx, name).await?,
             "transgenic_product_class" => {
                 let r = ctx
                     .query("report/allele/transgenic_product_class", &[id])

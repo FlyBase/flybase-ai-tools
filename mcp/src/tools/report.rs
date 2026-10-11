@@ -30,7 +30,7 @@ pub struct ReportParams {
 impl FlyBaseServer {
     #[tool(
         name = "get_report",
-        description = "Return the data shown on a FlyBase report page for an ID. Supported: genes, alleles, insertions, constructs, transcripts, polypeptides, stocks, references. Choose sections to keep responses small; use list_options=true to see section names. Use resolve first if you only have a symbol."
+        description = "Return the data shown on a FlyBase report page for an ID. Supported: genes, alleles, insertions, constructs, transcripts, polypeptides, aberrations, balancers, stocks, references. Choose sections to keep responses small; use list_options=true to see section names. Use resolve first if you only have a symbol."
     )]
     pub async fn get_report(
         &self,

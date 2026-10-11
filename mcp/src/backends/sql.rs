@@ -1,6 +1,7 @@
 /// Named SQL loaded at compile time. Add one arm per query file.
 pub fn get(name: &str) -> &'static str {
     match name {
+        "report/aberration/genes" => include_str!("../../sql/queries/report/aberration/genes.sql"),
         "report/allele/classes" => include_str!("../../sql/queries/report/allele/classes.sql"),
         "report/allele/constructs" => {
             include_str!("../../sql/queries/report/allele/constructs.sql")
@@ -23,6 +24,9 @@ pub fn get(name: &str) -> &'static str {
         "report/allele/stocks" => include_str!("../../sql/queries/report/allele/stocks.sql"),
         "report/allele/transgenic_product_class" => {
             include_str!("../../sql/queries/report/allele/transgenic_product_class.sql")
+        }
+        "report/balancer/components" => {
+            include_str!("../../sql/queries/report/balancer/components.sql")
         }
         "report/common/cvterms" => include_str!("../../sql/queries/report/common/cvterms.sql"),
         "report/common/feature_identity" => {
