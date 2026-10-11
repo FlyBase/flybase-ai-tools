@@ -115,3 +115,26 @@ async fn fbte_is_invalid_input_and_upstream_needs_padding() {
     .unwrap();
     assert_eq!(r.structured_content.unwrap()["error"], "invalid_input");
 }
+
+#[tokio::test]
+async fn unsequenced_scaffold_is_not_found_not_a_crash() {
+    let c = client().await;
+    // 3_groupMISC is a Dmel golden_path feature with NULL seqlen and NULL residues.
+    let r = call_raw(
+        &c,
+        "get_sequence",
+        json!({"region": {"chromosome": "3_groupMISC", "start": 1, "end": 10}}),
+    )
+    .await
+    .unwrap();
+    assert_eq!(r.is_error, Some(true));
+    let s = r.structured_content.unwrap();
+    assert_eq!(s["error"], "not_found");
+    assert!(
+        s["message"]
+            .as_str()
+            .unwrap()
+            .contains("3_groupMISC has no stored sequence"),
+        "{s}"
+    );
+}

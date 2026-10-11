@@ -182,18 +182,26 @@ impl FlyBaseServer {
             tool: t,
             message: format!("no chromosome arm '{}' for {species}", r.chromosome),
         })?;
-        let seqlen: i32 = row.get("seqlen");
-        if r.end > seqlen as u64 {
+        // seqlen and residues are nullable in chado (a few unsequenced golden_path scaffolds have neither).
+        let seqlen: Option<i32> = row.get("seqlen");
+        let seq: Option<String> = row.get("seq");
+        let mut seq = seq.ok_or_else(|| ToolError::NotFound {
+            tool: t,
+            message: format!("{} has no stored sequence", r.chromosome),
+        })?;
+        let known_end = seqlen
+            .map(|n| n as u64)
+            .unwrap_or(r.start - 1 + seq.len() as u64);
+        if r.end > known_end {
             return Err(ToolError::InvalidInput {
                 tool: t,
                 arg: "region.end",
                 message: format!(
-                    "{} is beyond the end of {} ({seqlen} bp)",
+                    "{} is beyond the end of {} ({known_end} bp)",
                     r.end, r.chromosome
                 ),
             });
         }
-        let mut seq: String = row.get("seq");
         if strand < 0 {
             seq = reverse_complement(&seq);
         }
@@ -245,7 +253,8 @@ impl FlyBaseServer {
                     message: format!("{id} has no stored sequence"),
                 })?;
                 let name: Option<String> = row.get("name");
-                let species: String = row.get("species");
+                let species: Option<String> = row.get("species");
+                let species = species.unwrap_or_default();
                 let header = format!(
                     "{id} {} {species} {}",
                     name.clone().unwrap_or_default(),
@@ -306,7 +315,19 @@ impl FlyBaseServer {
             tool: t,
             message: format!("{id} is not located on a chromosome arm"),
         })?;
-        let (fmin, fmax): (i32, i32) = (row.get("fmin"), row.get("fmax"));
+        // fmin and fmax are nullable; a feature placed on an arm without coordinates has no span.
+        let (fmin, fmax) = match (
+            row.get::<_, Option<i32>>("fmin"),
+            row.get::<_, Option<i32>>("fmax"),
+        ) {
+            (Some(a), Some(b)) => (a, b),
+            _ => {
+                return Err(ToolError::NotFound {
+                    tool: t,
+                    message: format!("{id} has no coordinates on its chromosome arm"),
+                });
+            }
+        };
         let strand = row.get::<_, Option<i16>>("strand").unwrap_or(1) as i8;
         let pad = match (kind, padding) {
             (SeqKind::Upstream | SeqKind::Downstream, None) => {
@@ -352,8 +373,9 @@ impl FlyBaseServer {
             end: e0.max(1) as u64,
             strand: Some(strand),
         };
-        let species: String = row.get("species");
-        self.region_seq(conn, t, region, &species, Some(id)).await
+        let species: Option<String> = row.get("species");
+        self.region_seq(conn, t, region, &species.unwrap_or_default(), Some(id))
+            .await
     }
 
     async fn gene_kind_seq(
@@ -373,7 +395,7 @@ impl FlyBaseServer {
         }
         let loc = Chado::query_on(conn, t, "sequence/gene_location", &[&id]).await?;
         let (chromosome, species): (Option<String>, Option<String>) = match loc.first() {
-            Some(r) => (Some(r.get("chromosome")), Some(r.get("species"))),
+            Some(r) => (Some(r.get("chromosome")), r.get("species")),
             None => (None, None),
         };
         let mut records: Vec<Value> = Vec::new();
