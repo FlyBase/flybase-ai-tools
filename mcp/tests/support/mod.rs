@@ -1,4 +1,5 @@
 #![allow(dead_code)]
+pub mod server;
 use flybase_mcp::config::Config;
 
 pub fn test_config() -> Config {
