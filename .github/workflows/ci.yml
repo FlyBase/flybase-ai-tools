@@ -13,6 +13,7 @@ jobs:
       - run: cargo fmt --check
       - run: cargo clippy --all-targets -- -D warnings
       - run: cargo test --lib
+      - run: cargo run --bin tool-catalog > /tmp/tools.md && diff -q /tmp/tools.md ../docs/tools.md
   fixture-tests:
     runs-on: ubuntu-latest
     steps:
