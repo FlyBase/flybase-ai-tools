@@ -3,7 +3,9 @@ pub mod aberration;
 pub mod allele;
 pub mod balancer;
 pub mod construct;
+pub mod disease;
 pub mod gene;
+pub mod group;
 pub mod insertion;
 pub mod polypeptide;
 pub mod reference;
@@ -88,6 +90,8 @@ pub fn for_id(id: &str) -> Option<Box<dyn ReportType>> {
         "FBpp" => Some(Box::new(polypeptide::Polypeptide)),
         "FBab" => Some(Box::new(aberration::Aberration)),
         "FBba" => Some(Box::new(balancer::Balancer)),
+        "FBgg" => Some(Box::new(group::Group)),
+        "FBhh" => Some(Box::new(disease::Disease)),
         _ => None,
     }
 }
@@ -397,6 +401,8 @@ mod tests {
         assert_eq!(for_id("FBpp0070483").unwrap().name(), "polypeptide");
         assert_eq!(for_id("FBab0000001").unwrap().name(), "aberration");
         assert_eq!(for_id("FBba0000003").unwrap().name(), "balancer");
+        assert_eq!(for_id("FBgg0000040").unwrap().name(), "gene_group");
+        assert_eq!(for_id("FBhh0000679").unwrap().name(), "disease_model");
         assert!(for_id("x").is_none());
     }
 }

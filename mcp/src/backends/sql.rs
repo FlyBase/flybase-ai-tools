@@ -1,6 +1,22 @@
 /// Named SQL loaded at compile time. Add one arm per query file.
 pub fn get(name: &str) -> &'static str {
     match name {
+        "disease/variants" => include_str!("../../sql/queries/disease/variants.sql"),
+        "report/disease/do_terms" => include_str!("../../sql/queries/report/disease/do_terms.sql"),
+        "report/disease/genes" => include_str!("../../sql/queries/report/disease/genes.sql"),
+        "report/disease/identity" => include_str!("../../sql/queries/report/disease/identity.sql"),
+        "report/disease/props" => include_str!("../../sql/queries/report/disease/props.sql"),
+        "report/disease/references" => {
+            include_str!("../../sql/queries/report/disease/references.sql")
+        }
+        "report/disease/related" => include_str!("../../sql/queries/report/disease/related.sql"),
+        "report/disease/synonyms" => include_str!("../../sql/queries/report/disease/synonyms.sql"),
+        "report/group/cvterms" => include_str!("../../sql/queries/report/group/cvterms.sql"),
+        "report/group/hierarchy" => include_str!("../../sql/queries/report/group/hierarchy.sql"),
+        "report/group/identity" => include_str!("../../sql/queries/report/group/identity.sql"),
+        "report/group/members" => include_str!("../../sql/queries/report/group/members.sql"),
+        "report/group/references" => include_str!("../../sql/queries/report/group/references.sql"),
+        "report/group/synonyms" => include_str!("../../sql/queries/report/group/synonyms.sql"),
         "report/aberration/genes" => include_str!("../../sql/queries/report/aberration/genes.sql"),
         "report/allele/classes" => include_str!("../../sql/queries/report/allele/classes.sql"),
         "report/allele/constructs" => {
