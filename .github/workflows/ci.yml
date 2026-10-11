@@ -13,7 +13,7 @@ jobs:
       - run: cargo fmt --check
       - run: cargo clippy --all-targets -- -D warnings
       - run: cargo test --lib
-      - run: cargo run --bin tool-catalog > /tmp/tools.md && diff -q /tmp/tools.md ../docs/tools.md
+      - run: cargo run --bin tool-catalog > /tmp/tools.md && diff -u ../docs/tools.md /tmp/tools.md
   fixture-tests:
     runs-on: ubuntu-latest
     steps:
@@ -31,3 +31,5 @@ jobs:
         run: fixture/export.sh
       - run: fixture/load.sh
       - run: cd mcp && cargo test --tests
+        env:
+          CHADO_URL: postgres://flybase_mcp:flybase_mcp@127.0.0.1:5499/flybase

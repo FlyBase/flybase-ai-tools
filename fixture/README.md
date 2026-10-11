@@ -14,4 +14,8 @@ are not included: the plan's generic second hop reached 208k features because No
 `dbxref` holds only the rows referenced by exported feature, feature_dbxref, pub_dbxref and cvterm rows.
 Public chado drops connections on queries that run past about two minutes, so `export.sh` keeps every copy small.
 
-Known gaps: `stock_pub` is empty in public chado; `library_*` and `interaction` tables are not exported (Plans 2 and 3 extend this).
+`cell_line`, `strain` and `library` with their synonym tables are copied whole, and `synonym` holds the rows those and the
+feature, gene group and human health synonym tables reference. Golden paths are copied whole for Dmel X, 2L and 3R only,
+plus the unsequenced Dpse scaffold `3_groupMISC`.
+
+Known gaps: `stock_pub` is empty in public chado; other `library_*` and the `interaction` tables are not exported (Plans 2 and 3 extend this).

@@ -52,15 +52,19 @@ FIDS=$(q "with seed as (select feature_id, uniquename from feature where uniquen
  select string_agg(feature_id::text, ',') from (select feature_id from hop1 union select feature_id from tx_children union select feature_id from bands) x")
 echo "feature ids: $(echo "$FIDS" | tr ',' '\n' | wc -l), $((SECONDS - t0))s"
 
-# Feature rows, excluding golden paths (their residues are 20+ Mb each; a trimmed copy follows).
+# Feature rows, excluding golden paths (their residues are 20+ Mb each; a selected copy follows).
 cp_ "select * from feature where $(in_ feature_id "$FIDS") and type_id <> $GP" feature
-# Golden paths for Dmel X and 2L only, trimmed to the first 4 Mb (Notch is at X:3.13 Mb).
-cp_ "select feature_id, dbxref_id, organism_id, name, uniquename, substr(residues, 1, 4000000), 4000000, md5checksum, type_id, is_analysis, timeaccessioned, timelastmodified, is_obsolete
-     from feature where type_id = $GP and uniquename in ('X', '2L') and organism_id = (select organism_id from organism where abbreviation = 'Dmel')" zz_feature_golden_path
+# Golden paths, whole: Dmel X, 2L and 3R (about 79 Mb of residues; the sequence tests read X:3.13 Mb, X:21.5 Mb,
+# 2L:4.5 Mb and 3R:26.6 Mb), plus the Dpse scaffold 3_groupMISC, which has NULL residues and seqlen in chado.
+cp_ "select * from feature where type_id = $GP
+     and ((uniquename in ('X', '2L', '3R') and organism_id = (select organism_id from organism where abbreviation = 'Dmel'))
+       or (uniquename = '3_groupMISC' and organism_id = (select organism_id from organism where abbreviation = 'Dpse')))" zz_feature_golden_path
 cp_ "select * from featureloc where $(in_ feature_id "$FIDS")" featureloc
 cp_ "select * from feature_relationship where $(in_ subject_id "$FIDS") and $(in_ object_id "$FIDS")" feature_relationship
 cp_ "select * from feature_synonym where $(in_ feature_id "$FIDS")" feature_synonym
-cp_ "select * from synonym where synonym_id in (select synonym_id from feature_synonym where $(in_ feature_id "$FIDS"))" synonym
+cp_ "select * from synonym where synonym_id in (select synonym_id from feature_synonym where $(in_ feature_id "$FIDS")
+     union select synonym_id from cell_line_synonym union select synonym_id from strain_synonym union select synonym_id from library_synonym
+     union select synonym_id from grp_synonym union select synonym_id from humanhealth_synonym)" synonym
 cp_ "select * from featureprop where $(in_ feature_id "$FIDS")" featureprop
 cp_ "select * from feature_dbxref where $(in_ feature_id "$FIDS")" feature_dbxref
 cp_ "select * from feature_cvterm where $(in_ feature_id "$FIDS")" feature_cvterm
@@ -71,7 +75,8 @@ cp_ "select * from phenstatement where genotype_id in (select genotype_id from f
 
 # Whole small tables.
 for t in organism cv cvterm cvtermsynonym cvterm_relationship db pub pubauthor pubprop pub_dbxref stock stock_genotype genotype stockcollection stockcollection_stock \
-         phenotype phenotype_cvterm grp grpmember grp_synonym grpprop humanhealth humanhealth_synonym humanhealthprop; do
+         phenotype phenotype_cvterm grp grpmember grp_synonym grpprop humanhealth humanhealth_synonym humanhealthprop \
+         cell_line cell_line_synonym strain strain_synonym library library_synonym; do
   cp_ "select * from $t" "$t"
 done
 for t in dataclass.genev2 dataclass.allelev2 dataclass.diseasev2 dataclass_relationship.gene_allelev2 dataclass_relationship.gene_human_orthologv2 \
