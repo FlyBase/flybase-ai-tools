@@ -44,6 +44,22 @@ pub fn get(name: &str) -> &'static str {
         "report/balancer/components" => {
             include_str!("../../sql/queries/report/balancer/components.sql")
         }
+        "report/cell_line/cvterms" => {
+            include_str!("../../sql/queries/report/cell_line/cvterms.sql")
+        }
+        "report/cell_line/features" => {
+            include_str!("../../sql/queries/report/cell_line/features.sql")
+        }
+        "report/cell_line/identity" => {
+            include_str!("../../sql/queries/report/cell_line/identity.sql")
+        }
+        "report/cell_line/props" => include_str!("../../sql/queries/report/cell_line/props.sql"),
+        "report/cell_line/references" => {
+            include_str!("../../sql/queries/report/cell_line/references.sql")
+        }
+        "report/cell_line/synonyms" => {
+            include_str!("../../sql/queries/report/cell_line/synonyms.sql")
+        }
         "report/common/cvterms" => include_str!("../../sql/queries/report/common/cvterms.sql"),
         "report/common/feature_identity" => {
             include_str!("../../sql/queries/report/common/feature_identity.sql")
@@ -97,6 +113,17 @@ pub fn get(name: &str) -> &'static str {
             include_str!("../../sql/queries/report/insertion/construct.sql")
         }
         "report/insertion/genes" => include_str!("../../sql/queries/report/insertion/genes.sql"),
+        "report/library/cvterms" => include_str!("../../sql/queries/report/library/cvterms.sql"),
+        "report/library/feature_count" => {
+            include_str!("../../sql/queries/report/library/feature_count.sql")
+        }
+        "report/library/features" => include_str!("../../sql/queries/report/library/features.sql"),
+        "report/library/identity" => include_str!("../../sql/queries/report/library/identity.sql"),
+        "report/library/props" => include_str!("../../sql/queries/report/library/props.sql"),
+        "report/library/references" => {
+            include_str!("../../sql/queries/report/library/references.sql")
+        }
+        "report/library/synonyms" => include_str!("../../sql/queries/report/library/synonyms.sql"),
         "report/polypeptide/domains" => {
             include_str!("../../sql/queries/report/polypeptide/domains.sql")
         }
@@ -121,6 +148,12 @@ pub fn get(name: &str) -> &'static str {
         "report/reference/genes" => include_str!("../../sql/queries/report/reference/genes.sql"),
         "report/stock/components" => include_str!("../../sql/queries/report/stock/components.sql"),
         "report/stock/identity" => include_str!("../../sql/queries/report/stock/identity.sql"),
+        "report/strain/identity" => include_str!("../../sql/queries/report/strain/identity.sql"),
+        "report/strain/props" => include_str!("../../sql/queries/report/strain/props.sql"),
+        "report/strain/references" => {
+            include_str!("../../sql/queries/report/strain/references.sql")
+        }
+        "report/strain/synonyms" => include_str!("../../sql/queries/report/strain/synonyms.sql"),
         "report/transcript/gene" => include_str!("../../sql/queries/report/transcript/gene.sql"),
         "report/transcript/parts" => include_str!("../../sql/queries/report/transcript/parts.sql"),
         "report/transcript/polypeptide" => {

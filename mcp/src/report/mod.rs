@@ -4,10 +4,12 @@ pub mod allele;
 pub mod balancer;
 pub mod construct;
 pub mod disease;
+pub mod feature;
 pub mod gene;
 pub mod group;
 pub mod insertion;
 pub mod polypeptide;
+pub mod record;
 pub mod reference;
 pub mod stock;
 pub mod transcript;
@@ -92,6 +94,17 @@ pub fn for_id(id: &str) -> Option<Box<dyn ReportType>> {
         "FBba" => Some(Box::new(balancer::Balancer)),
         "FBgg" => Some(Box::new(group::Group)),
         "FBhh" => Some(Box::new(disease::Disease)),
+        "FBtc" => Some(Box::new(record::Record { kind: "cell_line" })),
+        "FBsn" => Some(Box::new(record::Record { kind: "strain" })),
+        "FBlc" => Some(Box::new(record::Record { kind: "library" })),
+        "FBcl" | "FBsf" | "FBte" | "FBch" | "FBog" => Some(Box::new(feature::GenericFeature {
+            name: crate::tools::resolve::class_of(id),
+            components: false,
+        })),
+        "FBco" | "FBmc" => Some(Box::new(feature::GenericFeature {
+            name: crate::tools::resolve::class_of(id),
+            components: true,
+        })),
         _ => None,
     }
 }
@@ -403,6 +416,32 @@ mod tests {
         assert_eq!(for_id("FBba0000003").unwrap().name(), "balancer");
         assert_eq!(for_id("FBgg0000040").unwrap().name(), "gene_group");
         assert_eq!(for_id("FBhh0000679").unwrap().name(), "disease_model");
+        assert_eq!(for_id("FBtc0000150").unwrap().name(), "cell_line");
+        assert_eq!(for_id("FBsn0000001").unwrap().name(), "strain");
+        assert_eq!(for_id("FBlc0000001").unwrap().name(), "library");
+        for (id, ty) in [
+            ("FBcl0000001", "clone"),
+            ("FBsf0000096789", "sequence_feature"),
+            ("FBte0000001", "transposable_element"),
+            ("FBch0000003", "chemical"),
+            ("FBog0000245780", "ortholog"),
+        ] {
+            let r = for_id(id).unwrap();
+            assert_eq!(r.name(), ty);
+            assert!(r.default_sections().contains(&"relationships"));
+        }
+        for (id, ty) in [
+            ("FBco0000001", "split_system_combination"),
+            ("FBmc0000001", "engineered_plasmid"),
+        ] {
+            let r = for_id(id).unwrap();
+            assert_eq!(r.name(), ty);
+            assert!(
+                r.default_sections().contains(&"components")
+                    && !r.default_sections().contains(&"relationships")
+            );
+        }
+        assert!(for_id("FBsn0000001").unwrap().optional_sections() == ["synonyms"]);
         assert!(for_id("x").is_none());
     }
 }
