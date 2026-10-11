@@ -13,6 +13,9 @@ use schemars::JsonSchema;
 use serde::Deserialize;
 use serde_json::{Value, json};
 
+/// Most orthologs the SQL returns for one gene; the queries fetch one more to detect the cap.
+const ORTHOLOG_CAP: usize = 1000;
+
 #[derive(Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct OrthologsParams {
@@ -28,26 +31,21 @@ pub struct OrthologsParams {
     pub limit: Option<u32>,
 }
 
-#[derive(Default)]
 struct Ortholog {
     id: String,
     symbol: Option<String>,
     species: String,
     detail: Option<String>,
     hgnc: Option<String>,
-    human_score: Option<i32>,
+    score: Option<i32>,
     omim: Option<String>,
 }
 
 impl Ortholog {
     fn json(&self) -> Value {
         let d = parse_detail(self.detail.as_deref());
-        let score = self
-            .human_score
-            .map(i64::from)
-            .or_else(|| (!d.methods.is_empty()).then_some(d.methods.len() as i64));
         json!({
-            "id": self.id, "symbol": self.symbol, "species": self.species, "score": score,
+            "id": self.id, "symbol": self.symbol, "species": self.species, "score": self.score,
             "best_score": d.best_score, "best_score_rev": d.best_score_rev, "methods": d.methods,
             "hgnc_id": self.hgnc.as_ref().map(|h| format!("HGNC:{h}")), "omim_phenotypes": self.omim, "link": report_link(&self.id),
         })
@@ -76,7 +74,7 @@ impl FlyBaseServer {
 
     async fn orthologs_impl(&self, p: OrthologsParams) -> ToolResult<CallToolResult> {
         const T: &str = "get_orthologs";
-        let limit = p.limit.unwrap_or(MAX_LIMIT).clamp(1, 1000) as usize;
+        let limit = p.limit.unwrap_or(MAX_LIMIT).clamp(1, ORTHOLOG_CAP as u32) as usize;
         let mut species: Vec<String> = Vec::new();
         for s in p.species.unwrap_or_default() {
             species.push(normalize_species(&self.chado, T, &s).await?);
@@ -90,6 +88,18 @@ impl FlyBaseServer {
                 message: "must be 1 to 100 characters".into(),
             });
         }
+        let min_score: Option<i32> = match p.min_score {
+            Some(m) if m > i32::MAX as u32 => {
+                return Err(ToolError::InvalidInput {
+                    tool: T,
+                    arg: "min_score",
+                    message: "too large".into(),
+                });
+            }
+            Some(m) => Some(m as i32),
+            None => None,
+        };
+        let best_only = p.best_only.unwrap_or(false);
         let conn = self.chado.get(T).await?;
         let file_loaded = Chado::query_on(&conn, T, "orthologs/file_loaded", &[])
             .await?
@@ -117,8 +127,13 @@ impl FlyBaseServer {
                 }
             };
             let conn = self.chado.get(T).await?;
-            let rows =
-                Chado::query_on(&conn, T, "orthologs/by_gene", &[&id, &species_filter]).await?;
+            let rows = Chado::query_on(
+                &conn,
+                T,
+                "orthologs/by_gene",
+                &[&id, &species_filter, &min_score, &best_only],
+            )
+            .await?;
             let list = rows
                 .iter()
                 .map(|r| Ortholog {
@@ -127,7 +142,7 @@ impl FlyBaseServer {
                     species: r.get("species"),
                     detail: r.get("detail"),
                     hgnc: r.get("hgnc"),
-                    human_score: r.get("human_score"),
+                    score: r.get("score"),
                     omim: r.get("omim_phenotypes"),
                 })
                 .collect();
@@ -136,7 +151,8 @@ impl FlyBaseServer {
                 list,
             )
         } else {
-            let acc = input.strip_prefix("HGNC:").unwrap_or(&input).to_string();
+            let is_hgnc = input.len() > 5 && input[..5].eq_ignore_ascii_case("HGNC:");
+            let acc = if is_hgnc { &input[5..] } else { &input[..] }.to_string();
             let h = Chado::query_on(&conn, T, "orthologs/human_gene", &[&acc]).await?;
             let h = h.first().ok_or_else(|| ToolError::NotFound {
                 tool: T,
@@ -157,7 +173,13 @@ impl FlyBaseServer {
                             .into(),
                 });
             }
-            let rows = Chado::query_on(&conn, T, "orthologs/by_human", &[&fbog]).await?;
+            let rows = Chado::query_on(
+                &conn,
+                T,
+                "orthologs/by_human",
+                &[&fbog, &min_score, &best_only],
+            )
+            .await?;
             let list = rows
                 .iter()
                 .map(|r| Ortholog {
@@ -165,8 +187,8 @@ impl FlyBaseServer {
                     symbol: r.get("symbol"),
                     species: "Dmel".into(),
                     detail: r.get("detail"),
-                    hgnc: input.starts_with("HGNC:").then_some(acc.clone()),
-                    human_score: r.get("human_score"),
+                    hgnc: is_hgnc.then_some(acc.clone()),
+                    score: r.get("score"),
                     omim: r.get("omim_phenotypes"),
                 })
                 .collect();
@@ -175,26 +197,15 @@ impl FlyBaseServer {
                 list,
             )
         };
-        let min_score = p.min_score.map(i64::from);
-        let best_only = p.best_only.unwrap_or(false);
-        let mut orthologs: Vec<Value> = rows.iter().map(Ortholog::json).collect();
-        orthologs.retain(|o| {
-            let score_ok = min_score.is_none_or(|m| o["score"].as_i64().is_some_and(|s| s >= m));
-            let best_ok = !best_only || o["best_score"] == true || o["best_score_rev"] == true;
-            score_ok && best_ok
-        });
-        orthologs.sort_by(|a, b| {
-            b["score"]
-                .as_i64()
-                .unwrap_or(-1)
-                .cmp(&a["score"].as_i64().unwrap_or(-1))
-                .then_with(|| a["species"].as_str().cmp(&b["species"].as_str()))
-                .then_with(|| a["symbol"].as_str().cmp(&b["symbol"].as_str()))
-        });
+        // The SQL filters, orders by score, and fetches one row past the cap so a capped list is reported as such.
+        let capped = rows.len() > ORTHOLOG_CAP;
+        let mut orthologs: Vec<Value> =
+            rows.iter().take(ORTHOLOG_CAP).map(Ortholog::json).collect();
         let count = orthologs.len();
         orthologs.truncate(limit);
         let summary = format!(
-            "{} ortholog(s) of {} ({}){}; showing {} by DIOPT score. Scores count supporting algorithms; Drosophila pairs from OrthoDB have no score.",
+            "{}{} ortholog(s) of {} ({}){}; showing {} by DIOPT score. Scores count supporting algorithms; Drosophila pairs from OrthoDB have no score.{}",
+            if capped { "more than " } else { "" },
             count,
             query["id"].as_str().unwrap_or(""),
             query["symbol"].as_str().unwrap_or(""),
@@ -202,7 +213,14 @@ impl FlyBaseServer {
                 Some(s) => format!(" in {}", s.join(", ")),
                 None => String::new(),
             },
-            orthologs.len()
+            orthologs.len(),
+            if capped {
+                format!(
+                    " Only the {ORTHOLOG_CAP} highest-scoring are available; narrow with species or min_score."
+                )
+            } else {
+                String::new()
+            }
         );
         Ok(Envelope::new(T, &self.release)
             .summary(summary)
@@ -210,6 +228,7 @@ impl FlyBaseServer {
             .field("query", query)
             .field("orthologs", json!(orthologs))
             .field("count", json!(count))
+            .field("capped", json!(capped))
             .field("diopt_file_loaded", json!(file_loaded))
             .finish())
     }

@@ -42,6 +42,7 @@ async fn all_species_and_best_only() {
     )
     .await;
     assert_eq!(s["count"], s["orthologs"].as_array().unwrap().len());
+    assert_eq!(s["capped"], false);
     let o = s["orthologs"].as_array().unwrap();
     assert!(o.iter().any(|x| x["species"] == "Mmus"));
     assert!(
@@ -67,7 +68,7 @@ async fn all_species_and_best_only() {
 #[tokio::test]
 async fn human_gene_query_by_symbol_and_hgnc() {
     let c = client().await;
-    for q in ["NOTCH1", "HGNC:7881", "notch1"] {
+    for q in ["NOTCH1", "HGNC:7881", "notch1", "hgnc:7881"] {
         let s = call(&c, "get_orthologs", json!({"id": q})).await;
         assert_eq!(s["query"]["id"], "FBog0000245780", "{q}");
         assert_eq!(s["query"]["species"], "Hsap");
@@ -96,4 +97,37 @@ async fn bad_species_and_unknown_gene() {
         .await
         .unwrap();
     assert_eq!(r.structured_content.unwrap()["error"], "not_found");
+}
+
+/// TkR86C has 1,496 orthologs, over the 1,000-row cap: the cap must apply after scoring and ordering, so no
+/// species is silently dropped, and `count` must describe what came back.
+#[tokio::test]
+async fn capped_gene_keeps_every_species() {
+    if !support::full_db() {
+        return;
+    }
+    let c = client().await;
+    let s = call(
+        &c,
+        "get_orthologs",
+        json!({"id": "FBgn0004841", "limit": 1000}),
+    )
+    .await;
+    let o = s["orthologs"].as_array().unwrap();
+    assert_eq!(s["count"], o.len());
+    assert_eq!(o.len(), 1000);
+    assert_eq!(s["capped"], true);
+    for sp in ["Xtro", "Rnor", "Hsap", "Cele"] {
+        assert!(o.iter().any(|x| x["species"] == sp), "{sp} present");
+    }
+    let scores: Vec<i64> = o.iter().filter_map(|x| x["score"].as_i64()).collect();
+    assert!(scores.windows(2).all(|w| w[0] >= w[1]), "ordered by score");
+    let x = call(
+        &c,
+        "get_orthologs",
+        json!({"id": "FBgn0004841", "species": ["Xtro"], "limit": 1000}),
+    )
+    .await;
+    assert_eq!(x["capped"], false);
+    assert_eq!(x["count"], 201);
 }
