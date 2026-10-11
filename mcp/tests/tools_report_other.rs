@@ -16,6 +16,34 @@ async fn allele_report() {
             .is_empty()
     );
     assert!(s["sections"]["stock_count"].as_u64().unwrap() >= 1);
+    // Homozygous genotypes list the allele twice in feature_genotype; each statement counts once (FB2026_02).
+    let visible = s["sections"]["phenotype_summary"]["items"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|i| i["phenotype"] == "visible")
+        .expect("visible phenotype");
+    assert_eq!(visible["statements"], 31);
+
+    let p = call(
+        &c,
+        "get_report",
+        json!({"id": "FBal0012701", "sections": ["phenotypes"], "limit_per_section": 100}),
+    )
+    .await;
+    let items = p["sections"]["phenotypes"]["items"].as_array().unwrap();
+    assert_eq!(items.len(), 100);
+    // Rows sharing genotype, phenotype, and reference legitimately differ by qualifiers.
+    let rows: std::collections::HashSet<String> = items
+        .iter()
+        .map(|i| {
+            format!(
+                "{}|{}|{}|{}",
+                i["genotype"], i["phenotype"], i["qualifiers"], i["reference"]
+            )
+        })
+        .collect();
+    assert_eq!(rows.len(), items.len(), "duplicate phenotype rows");
 }
 
 #[tokio::test]
