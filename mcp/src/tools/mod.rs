@@ -3,6 +3,7 @@ pub mod cyto;
 pub mod entities;
 pub mod interactions;
 pub mod map;
+pub mod orthologs;
 pub mod report;
 pub mod resolve;
 pub mod search;

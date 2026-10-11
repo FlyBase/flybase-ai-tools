@@ -39,6 +39,10 @@ pub fn get(name: &str) -> &'static str {
         }
         "interactions/physical" => include_str!("../../sql/queries/interactions/physical.sql"),
         "map/overlaps" => include_str!("../../sql/queries/map/overlaps.sql"),
+        "orthologs/by_gene" => include_str!("../../sql/queries/orthologs/by_gene.sql"),
+        "orthologs/by_human" => include_str!("../../sql/queries/orthologs/by_human.sql"),
+        "orthologs/file_loaded" => include_str!("../../sql/queries/orthologs/file_loaded.sql"),
+        "orthologs/human_gene" => include_str!("../../sql/queries/orthologs/human_gene.sql"),
         "report/disease/do_terms" => include_str!("../../sql/queries/report/disease/do_terms.sql"),
         "report/disease/genes" => include_str!("../../sql/queries/report/disease/genes.sql"),
         "report/disease/identity" => include_str!("../../sql/queries/report/disease/identity.sql"),

@@ -280,6 +280,62 @@ Physical (protein-protein) and genetic interactions for a gene, or allele-level 
 }
 ```
 
+## `get_orthologs`
+
+Orthologs of a fly gene in human, mouse, rat, zebrafish, frog, worm, mosquito, yeast, and other Drosophila species, with DIOPT scores, best-match flags, and supporting algorithms; or the fly orthologs of a human gene (symbol or HGNC ID) with OMIM phenotypes. Use for cross-species questions; use get_report for the fly gene itself.
+
+```json
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "best_only": {
+      "description": "Keep only best matches (best score in either direction).",
+      "type": [
+        "boolean",
+        "null"
+      ]
+    },
+    "id": {
+      "description": "A fly gene (FBgn), or a human gene as a symbol (NOTCH1) or HGNC ID (HGNC:7881).",
+      "type": "string"
+    },
+    "limit": {
+      "description": "Max orthologs to return (default 100, max 1000).",
+      "format": "uint32",
+      "minimum": 0,
+      "type": [
+        "integer",
+        "null"
+      ]
+    },
+    "min_score": {
+      "description": "Keep orthologs with a DIOPT score of at least this (number of supporting algorithms).",
+      "format": "uint32",
+      "minimum": 0,
+      "type": [
+        "integer",
+        "null"
+      ]
+    },
+    "species": {
+      "description": "Species abbreviations to keep (Hsap, Mmus, Drer, Cele, Scer, Dsim, ...). Default all.",
+      "items": {
+        "type": "string"
+      },
+      "type": [
+        "array",
+        "null"
+      ]
+    }
+  },
+  "required": [
+    "id"
+  ],
+  "type": "object"
+}
+```
+
 ## `get_report`
 
 Return the data shown on a FlyBase report page for an ID. Supported: genes, alleles, insertions, constructs, transcripts, polypeptides, aberrations, balancers, stocks, references, gene groups, disease models, cell lines, strains, libraries, vocabulary terms (GO, FBbt, FBcv, FBdv, DOID, SO, MI), clones, sequence features, natural transposons, chemicals, ortholog genes, split system combinations, plasmids. Choose sections to keep responses small; use list_options=true to see section names. Use resolve first if you only have a symbol.

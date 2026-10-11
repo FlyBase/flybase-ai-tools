@@ -22,6 +22,7 @@ pub const MIGRATIONS: &[(&str, &str)] = &[
         "004_band_coordinates",
         include_str!("../sql/migrations/004_band_coordinates.sql"),
     ),
+    ("006_diopt", include_str!("../sql/migrations/006_diopt.sql")),
     (
         "007_grants",
         include_str!("../sql/migrations/007_grants.sql"),
@@ -40,8 +41,8 @@ pub fn names() -> Vec<&'static str> {
     MIGRATIONS.iter().map(|(n, _)| *n).collect()
 }
 
-pub async fn run(cfg: &Config, _diopt: Option<std::path::PathBuf>) -> anyhow::Result<()> {
-    let (client, conn) = tokio_postgres::connect(&cfg.chado_url, NoTls).await?;
+pub async fn run(cfg: &Config, diopt: Option<std::path::PathBuf>) -> anyhow::Result<()> {
+    let (mut client, conn) = tokio_postgres::connect(&cfg.chado_url, NoTls).await?;
     tokio::spawn(async move {
         if let Err(e) = conn.await {
             tracing::error!(%e, "migration connection");
@@ -67,6 +68,10 @@ pub async fn run(cfg: &Config, _diopt: Option<std::path::PathBuf>) -> anyhow::Re
             elapsed_ms = started.elapsed().as_millis() as u64,
             "applied"
         );
+    }
+    if let Some(path) = diopt {
+        let n = crate::backends::diopt::load(&mut client, &path).await?;
+        tracing::info!(rows = n, path = %path.display(), "DIOPT orthologs loaded");
     }
     tracing::info!("migrations complete");
     Ok(())
