@@ -1,5 +1,8 @@
 //! Report page sections for `get_report`. One `ReportType` per FlyBase ID prefix.
+pub mod allele;
 pub mod gene;
+pub mod reference;
+pub mod stock;
 
 use crate::{backends::chado::Chado, error::ToolResult};
 use deadpool_postgres::Object;
@@ -38,7 +41,10 @@ pub trait ReportType: Send + Sync {
 
 pub fn for_id(id: &str) -> Option<Box<dyn ReportType>> {
     match id.get(..4).unwrap_or("") {
+        "FBal" => Some(Box::new(allele::Allele)),
         "FBgn" => Some(Box::new(gene::Gene)),
+        "FBrf" => Some(Box::new(reference::Reference)),
+        "FBst" => Some(Box::new(stock::Stock)),
         _ => None,
     }
 }
@@ -126,7 +132,10 @@ mod tests {
         let l = jbrowse_link("X", 100, 200);
         assert!(l.contains("loc=X:1..700"), "{l}");
         assert!(for_id("FBgn0004647").is_some());
-        assert!(for_id("FBal0012701").is_none());
+        assert_eq!(for_id("FBal0012701").unwrap().name(), "allele");
+        assert_eq!(for_id("FBrf0227604").unwrap().name(), "reference");
+        assert_eq!(for_id("FBst0028813").unwrap().name(), "stock");
+        assert!(for_id("FBti0014164").is_none());
         assert!(for_id("x").is_none());
     }
 }
