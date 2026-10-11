@@ -200,3 +200,24 @@ async fn point_insertions_have_start_equal_end() {
             .all(|x| x["start"].as_i64().unwrap() <= x["end"].as_i64().unwrap())
     );
 }
+
+/// An arm that is not a golden_path feature is rejected up front, not answered with an empty success.
+#[tokio::test]
+async fn map_rejects_unknown_chromosome() {
+    let c = client().await;
+    for chrom in ["chrX", "x", "3"] {
+        let r = call_raw(
+            &c,
+            "map_features",
+            json!({"region": {"chromosome": chrom, "start": 1, "end": 10}}),
+        )
+        .await
+        .unwrap();
+        assert_eq!(r.is_error, Some(true), "{chrom}");
+        let s = r.structured_content.unwrap();
+        assert_eq!(s["error"], "invalid_input", "{chrom}");
+        let msg = s["message"].as_str().unwrap();
+        assert!(msg.contains("region.chromosome"), "{chrom}: {msg}");
+        assert!(msg.contains(&format!("'{chrom}'")), "{chrom}: {msg}");
+    }
+}
