@@ -4,6 +4,8 @@ use serde_json::{Value, json};
 
 pub struct Disease;
 
+/// `human_genes` lists the Hsap genes linked to the disease model. `fly_models` lists every non-human model gene
+/// (not only Dmel), each with its `species` and `role`. Both carry only `gene` features (FBgn IDs).
 pub const DEFAULT: &[&str] = &["identity", "human_genes", "do_terms", "fly_models"];
 pub const OPTIONAL: &[&str] = &[
     "descriptions",

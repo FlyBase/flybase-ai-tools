@@ -150,3 +150,28 @@ async fn disease_variants() {
     assert_eq!(v[0]["allele_id"], "FBal0093284");
     assert_eq!(v[0]["designation"], "HTT:p.Gln18[75]");
 }
+
+#[tokio::test]
+async fn disease_fly_models_are_genes() {
+    let c = client().await;
+    let s = call(
+        &c,
+        "get_report",
+        json!({"id": "FBhh0000003", "sections": ["fly_models"]}),
+    )
+    .await;
+    // Shape holds everywhere; the fixture carries no humanhealth_feature rows for FBhh0000003, so it is empty there.
+    let models = s["sections"]["fly_models"]
+        .as_array()
+        .expect("fly_models is an array");
+    assert!(
+        models
+            .iter()
+            .all(|g| g["id"].as_str().unwrap().starts_with("FBgn")),
+        "{models:?}"
+    );
+    if support::full_db() {
+        // FBhh0000003 also links 18 'disease implicated variant' features (HGVS names such as HTT:p.Gln18[103]); none may appear.
+        assert_eq!(models.len(), 1, "{models:?}");
+    }
+}
