@@ -91,7 +91,7 @@ pub fn looks_like_fb_id(q: &str) -> bool {
 }
 
 /// Escape LIKE wildcards (backslash, percent, underscore) so the query matches literally with `escape '\'`.
-fn like_escape(q: &str) -> String {
+pub(crate) fn like_escape(q: &str) -> String {
     let mut out = String::with_capacity(q.len());
     for ch in q.chars() {
         if matches!(ch, '\\' | '%' | '_') {
