@@ -50,6 +50,7 @@ impl FlyBaseServer {
             + Self::tool_router_batch()
             + Self::tool_router_map()
             + Self::tool_router_cyto()
+            + Self::tool_router_entities()
     }
 
     pub fn new(chado: Chado, limits: Limits, release: String) -> Self {

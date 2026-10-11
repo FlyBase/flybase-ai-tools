@@ -151,6 +151,75 @@ Find genes, insertions, other features, and aberrations in a cytological locatio
 }
 ```
 
+## `entities_for_term`
+
+List the genes, alleles, disease models, or gene groups annotated to a vocabulary term (GO process, anatomy FBbt phenotype, DOID disease, ...), optionally including its descendant terms, with evidence or qualifier summaries and reference counts. Use after search_vocabulary or get_term; use get_report on a hit for details.
+
+```json
+{
+  "$defs": {
+    "EntityClass": {
+      "enum": [
+        "gene",
+        "allele",
+        "disease_model",
+        "gene_group"
+      ],
+      "type": "string"
+    }
+  },
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "data_class": {
+      "$ref": "#/$defs/EntityClass",
+      "description": "gene (feature_cvterm annotations such as GO), allele (disease annotations for DOID terms, otherwise phenotypes\nwhose anatomy or phenotypic class is the term), disease_model, or gene_group."
+    },
+    "include_descendants": {
+      "description": "Include terms below this one (is_a and part_of), default true. Sets over 5,000 terms are refused.",
+      "type": [
+        "boolean",
+        "null"
+      ]
+    },
+    "limit": {
+      "description": "Entities per page (default 25, max 100).",
+      "format": "uint32",
+      "minimum": 0,
+      "type": [
+        "integer",
+        "null"
+      ]
+    },
+    "offset": {
+      "description": "Entities to skip; offset + limit may not exceed 10,000.",
+      "format": "uint32",
+      "minimum": 0,
+      "type": [
+        "integer",
+        "null"
+      ]
+    },
+    "species": {
+      "description": "Species abbreviation (genes and alleles only).",
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "term_id": {
+      "description": "A vocabulary term ID (GO:0007219, FBbt:00004729, FBcv:..., DOID:162, SO:...).",
+      "type": "string"
+    }
+  },
+  "required": [
+    "term_id",
+    "data_class"
+  ],
+  "type": "object"
+}
+```
+
 ## `get_report`
 
 Return the data shown on a FlyBase report page for an ID. Supported: genes, alleles, insertions, constructs, transcripts, polypeptides, aberrations, balancers, stocks, references, gene groups, disease models, cell lines, strains, libraries, vocabulary terms (GO, FBbt, FBcv, FBdv, DOID, SO, MI), clones, sequence features, natural transposons, chemicals, ortholog genes, split system combinations, plasmids. Choose sections to keep responses small; use list_options=true to see section names. Use resolve first if you only have a symbol.

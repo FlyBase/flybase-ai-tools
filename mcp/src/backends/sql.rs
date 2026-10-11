@@ -225,6 +225,11 @@ pub fn get(name: &str) -> &'static str {
         "startup/timeout_setting" => {
             include_str!("../../sql/queries/startup/timeout_setting.sql")
         }
+        "term/alleles_annotated" => include_str!("../../sql/queries/term/alleles_annotated.sql"),
+        "term/alleles_phenotype" => include_str!("../../sql/queries/term/alleles_phenotype.sql"),
+        "term/disease_models" => include_str!("../../sql/queries/term/disease_models.sql"),
+        "term/gene_groups" => include_str!("../../sql/queries/term/gene_groups.sql"),
+        "term/genes" => include_str!("../../sql/queries/term/genes.sql"),
         "validate/external" => include_str!("../../sql/queries/validate/external.sql"),
         "validate/pubmed" => include_str!("../../sql/queries/validate/pubmed.sql"),
         "validate/symbols" => include_str!("../../sql/queries/validate/symbols.sql"),
