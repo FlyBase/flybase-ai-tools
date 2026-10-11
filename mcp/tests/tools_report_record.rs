@@ -67,6 +67,27 @@ async fn library_report_with_features() {
         assert!(f["total"].as_u64().unwrap() >= 3);
     }
     assert_eq!(f["items"][0]["type"], "cDNA_clone");
+    assert!(f["total"].as_u64().unwrap() >= f["items"].as_array().unwrap().len() as u64);
+}
+
+#[tokio::test]
+async fn library_total_excludes_obsolete_features() {
+    let c = client().await;
+    let s = call(
+        &c,
+        "get_report",
+        json!({"id": "FBlc0000418", "sections": ["features"], "limit_per_section": 50}),
+    )
+    .await;
+    let f = &s["sections"]["features"];
+    let shown = f["items"].as_array().unwrap().len() as u64;
+    assert!(f["total"].as_u64().unwrap() >= shown);
+    if support::full_db() {
+        // 16,933 library_feature rows, but only 29 link current features; total counts only what features can list.
+        assert_eq!(f["total"], 29);
+        assert_eq!(shown, 29);
+        assert_eq!(f["has_more"], false);
+    }
 }
 
 #[tokio::test]

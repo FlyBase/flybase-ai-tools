@@ -1,4 +1,6 @@
-use super::{ReportType, SectionCtx, paged, props_map, pub_row, rows_to_json, synonym_row};
+use super::{
+    ReportType, SectionCtx, paged, props_map, pub_row, rows_to_json, strip_markup, synonym_row,
+};
 use crate::error::{ToolError, ToolResult};
 use serde_json::{Value, json};
 
@@ -61,7 +63,7 @@ impl ReportType for Record {
                 let mut v = paged(
                     rows_to_json(
                         &r,
-                        |r| json!({"id": r.get::<_, String>("id"), "symbol": r.get::<_, Option<String>>("symbol"), "type": r.get::<_, String>("type")}),
+                        |r| json!({"id": r.get::<_, String>("id"), "symbol": r.get::<_, Option<String>>("symbol").map(|s| strip_markup(&s)), "type": r.get::<_, String>("type")}),
                     ),
                     ctx.limit,
                 );
