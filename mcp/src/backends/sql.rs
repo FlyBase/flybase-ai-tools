@@ -1,6 +1,26 @@
 /// Named SQL loaded at compile time. Add one arm per query file.
 pub fn get(name: &str) -> &'static str {
     match name {
+        "report/common/references" => {
+            include_str!("../../sql/queries/report/common/references.sql")
+        }
+        "report/common/synonyms" => include_str!("../../sql/queries/report/common/synonyms.sql"),
+        "report/gene/alleles" => include_str!("../../sql/queries/report/gene/alleles.sql"),
+        "report/gene/external_links" => {
+            include_str!("../../sql/queries/report/gene/external_links.sql")
+        }
+        "report/gene/go" => include_str!("../../sql/queries/report/gene/go.sql"),
+        "report/gene/identity" => include_str!("../../sql/queries/report/gene/identity.sql"),
+        "report/gene/location" => include_str!("../../sql/queries/report/gene/location.sql"),
+        "report/gene/ortholog_count" => {
+            include_str!("../../sql/queries/report/gene/ortholog_count.sql")
+        }
+        "report/gene/phenotype_summary" => {
+            include_str!("../../sql/queries/report/gene/phenotype_summary.sql")
+        }
+        "report/gene/snapshot" => include_str!("../../sql/queries/report/gene/snapshot.sql"),
+        "report/gene/stock_count" => include_str!("../../sql/queries/report/gene/stock_count.sql"),
+        "report/gene/transcripts" => include_str!("../../sql/queries/report/gene/transcripts.sql"),
         "resolve/candidates" => include_str!("../../sql/queries/resolve/candidates.sql"),
         "resolve/id_status" => include_str!("../../sql/queries/resolve/id_status.sql"),
         "search/names" => include_str!("../../sql/queries/search/names.sql"),

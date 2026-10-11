@@ -43,6 +43,7 @@ impl FlyBaseServer {
             + Self::tool_router_resolve()
             + Self::tool_router_search()
             + Self::tool_router_sequence()
+            + Self::tool_router_report()
     }
 
     pub fn new(chado: Chado, limits: Limits, release: String) -> Self {
