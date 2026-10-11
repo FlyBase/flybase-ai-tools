@@ -61,6 +61,96 @@ Download chosen fields for up to 500 FlyBase IDs at once as rows (JSON or TSV): 
 }
 ```
 
+## `cytosearch`
+
+Find genes, insertions, other features, and aberrations in a cytological location: a band (91A1), subdivision (91A), division (91), band range (91A1-91B2), or genomic range (3R:18268611..18297020). Bands resolve to genome coordinates. Use when a paper gives a cytological position; use map_features when you already have coordinates.
+
+```json
+{
+  "$defs": {
+    "FeatureType": {
+      "enum": [
+        "gene",
+        "mrna",
+        "ncrna",
+        "exon",
+        "cds",
+        "intron",
+        "insertion",
+        "tf_binding_site",
+        "regulatory_region",
+        "point_mutation",
+        "sgrna",
+        "rnai_reagent",
+        "chromosome_band",
+        "oligo",
+        "pcr_product",
+        "breakpoint",
+        "polya_site",
+        "tss",
+        "origin_of_replication",
+        "bac"
+      ],
+      "type": "string"
+    }
+  },
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "feature_types": {
+      "description": "Feature types to return (default gene, insertion); see map_features list_options.",
+      "items": {
+        "$ref": "#/$defs/FeatureType"
+      },
+      "type": [
+        "array",
+        "null"
+      ]
+    },
+    "include_aberrations": {
+      "description": "Also list aberrations (deficiencies, duplications, inversions) whose cytological extent overlaps (default true).",
+      "type": [
+        "boolean",
+        "null"
+      ]
+    },
+    "include_partial": {
+      "description": "Keep features that only partly overlap the range (default true).",
+      "type": [
+        "boolean",
+        "null"
+      ]
+    },
+    "limit": {
+      "description": "Features per page (default 25, max 100); aberrations use the same page size.",
+      "format": "uint32",
+      "minimum": 0,
+      "type": [
+        "integer",
+        "null"
+      ]
+    },
+    "location": {
+      "description": "A band (91A1), subdivision (91A), division (91), a band range on one arm (91A1-91B2), or a genomic range (3R:18268611..18297020).",
+      "type": "string"
+    },
+    "offset": {
+      "description": "Features and aberrations to skip.",
+      "format": "uint32",
+      "minimum": 0,
+      "type": [
+        "integer",
+        "null"
+      ]
+    }
+  },
+  "required": [
+    "location"
+  ],
+  "type": "object"
+}
+```
+
 ## `get_report`
 
 Return the data shown on a FlyBase report page for an ID. Supported: genes, alleles, insertions, constructs, transcripts, polypeptides, aberrations, balancers, stocks, references, gene groups, disease models, cell lines, strains, libraries, vocabulary terms (GO, FBbt, FBcv, FBdv, DOID, SO, MI), clones, sequence features, natural transposons, chemicals, ortholog genes, split system combinations, plasmids. Choose sections to keep responses small; use list_options=true to see section names. Use resolve first if you only have a symbol.
@@ -261,6 +351,153 @@ List the sequenced species in FlyBase with their abbreviations (Dmel, Dsim, ...)
       "description": "Include organisms without a genome assembly (default false).",
       "type": [
         "boolean",
+        "null"
+      ]
+    }
+  },
+  "type": "object"
+}
+```
+
+## `map_features`
+
+List genome features (genes, transcripts, exons, insertions, regulatory regions, reagents, ...) overlapping a genomic range or the span of a located FlyBase feature, with coordinates, strand, and overlap kind. Use when you need what lies in a region; use cytosearch for cytological bands and get_sequence for the bases.
+
+```json
+{
+  "$defs": {
+    "FeatureType": {
+      "enum": [
+        "gene",
+        "mrna",
+        "ncrna",
+        "exon",
+        "cds",
+        "intron",
+        "insertion",
+        "tf_binding_site",
+        "regulatory_region",
+        "point_mutation",
+        "sgrna",
+        "rnai_reagent",
+        "chromosome_band",
+        "oligo",
+        "pcr_product",
+        "breakpoint",
+        "polya_site",
+        "tss",
+        "origin_of_replication",
+        "bac"
+      ],
+      "type": "string"
+    },
+    "Region": {
+      "additionalProperties": false,
+      "properties": {
+        "chromosome": {
+          "description": "Chromosome arm name as in FlyBase (X, 2L, 2R, 3L, 3R, 4, Y).",
+          "type": "string"
+        },
+        "end": {
+          "description": "1-based inclusive end.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "start": {
+          "description": "1-based inclusive start.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "strand": {
+          "description": "1 or -1 (default 1).",
+          "format": "int8",
+          "maximum": 127,
+          "minimum": -128,
+          "type": [
+            "integer",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "chromosome",
+        "start",
+        "end"
+      ],
+      "type": "object"
+    }
+  },
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "feature_types": {
+      "description": "Feature types to return (default gene, mrna, insertion). Pass list_options=true to see them.",
+      "items": {
+        "$ref": "#/$defs/FeatureType"
+      },
+      "type": [
+        "array",
+        "null"
+      ]
+    },
+    "id": {
+      "description": "A located FlyBase feature (FBgn, FBti, FBtr, FBsf, ...) whose span is the range. Provide this or `region`.",
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "limit": {
+      "description": "Features per page (default 25, max 100).",
+      "format": "uint32",
+      "minimum": 0,
+      "type": [
+        "integer",
+        "null"
+      ]
+    },
+    "list_options": {
+      "description": "If true, return only the feature type names.",
+      "type": [
+        "boolean",
+        "null"
+      ]
+    },
+    "offset": {
+      "description": "Features to skip; offset + limit may not exceed 10,000.",
+      "format": "uint32",
+      "minimum": 0,
+      "type": [
+        "integer",
+        "null"
+      ]
+    },
+    "padding": {
+      "description": "Extra bases on each side of the range (max 100000).",
+      "format": "uint32",
+      "minimum": 0,
+      "type": [
+        "integer",
+        "null"
+      ]
+    },
+    "region": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/Region"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "description": "Genomic range, 1-based inclusive, max 500 kb. Provide this or `id`."
+    },
+    "species": {
+      "description": "Species for `region` (default Dmel).",
+      "type": [
+        "string",
         "null"
       ]
     }

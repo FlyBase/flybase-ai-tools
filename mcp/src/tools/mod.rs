@@ -1,4 +1,6 @@
 pub mod batch;
+pub mod cyto;
+pub mod map;
 pub mod report;
 pub mod resolve;
 pub mod search;

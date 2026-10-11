@@ -53,6 +53,19 @@ async fn migrations_apply_twice_and_populate() {
         .unwrap()
         .get(0);
     assert!(trgm);
+    let ab: (String, i32, i32) = c
+        .query_one(
+            "select arm, fmin, fmax from mcp.aberration_cyto where fbab_id = 'FBab0000001'",
+            &[],
+        )
+        .await
+        .map(|r| (r.get(0), r.get(1), r.get(2)))
+        .unwrap();
+    assert_eq!(ab, ("2R".to_string(), 14389491, 14872152));
+    if support::full_db() {
+        let multi: i64 = c.query_one("select count(*) from (select fbab_id from mcp.aberration_cyto group by 1 having count(*) > 1) x", &[]).await.unwrap().get(0);
+        assert!(multi > 1000, "translocations span several arms");
+    }
     let chado = flybase_mcp::backends::chado::Chado::connect(&cfg)
         .await
         .unwrap();

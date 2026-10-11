@@ -16,7 +16,7 @@ where (n.nspname, r.relname) in (
   ('public','library_synonym'),('public','libraryprop'),('public','library_pub'),('public','library_cvterm'),('public','library_feature'),
   ('public','interaction'),('public','feature_interaction'),('public','interaction_pub'),('public','interactionprop'),('public','interaction_cvterm'),
   ('public','feature_relationship_pub'),('public','feature_relationshipprop'),('public','phenotype_comparison'),('public','phenotype_comparison_cvterm'),('public','cvtermprop'),
-  ('mcp','cvterm_closure'),('mcp','band_coordinates'),
+  ('mcp','cvterm_closure'),('mcp','band_coordinates'),('mcp','aberration_cyto'),
   ('dataclass','diseasev2'),('dataclass_relationship','gene_diseasev2'),('dataclass_relationship','gene_human_orthologv2'),('humanhealth','allele_disease_variant'),
   ('gene','split_system_combination'),('gene','split_system_combination_component_allele'),('gene_group','pathway_member')
 )

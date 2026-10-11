@@ -28,7 +28,10 @@ pub fn get(name: &str) -> &'static str {
             include_str!("../../sql/queries/batch/transgenic_product_class.sql")
         }
         "batch/type" => include_str!("../../sql/queries/batch/type.sql"),
+        "cyto/aberrations" => include_str!("../../sql/queries/cyto/aberrations.sql"),
+        "cyto/band" => include_str!("../../sql/queries/cyto/band.sql"),
         "disease/variants" => include_str!("../../sql/queries/disease/variants.sql"),
+        "map/overlaps" => include_str!("../../sql/queries/map/overlaps.sql"),
         "report/disease/do_terms" => include_str!("../../sql/queries/report/disease/do_terms.sql"),
         "report/disease/genes" => include_str!("../../sql/queries/report/disease/genes.sql"),
         "report/disease/identity" => include_str!("../../sql/queries/report/disease/identity.sql"),

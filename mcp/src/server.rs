@@ -48,6 +48,8 @@ impl FlyBaseServer {
             + Self::tool_router_vocabulary()
             + Self::tool_router_validate()
             + Self::tool_router_batch()
+            + Self::tool_router_map()
+            + Self::tool_router_cyto()
     }
 
     pub fn new(chado: Chado, limits: Limits, release: String) -> Self {
