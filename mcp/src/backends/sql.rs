@@ -24,10 +24,36 @@ pub fn get(name: &str) -> &'static str {
         "report/allele/transgenic_product_class" => {
             include_str!("../../sql/queries/report/allele/transgenic_product_class.sql")
         }
+        "report/common/cvterms" => include_str!("../../sql/queries/report/common/cvterms.sql"),
+        "report/common/feature_identity" => {
+            include_str!("../../sql/queries/report/common/feature_identity.sql")
+        }
+        "report/common/location" => include_str!("../../sql/queries/report/common/location.sql"),
+        "report/common/props" => include_str!("../../sql/queries/report/common/props.sql"),
+        "report/common/props_all" => include_str!("../../sql/queries/report/common/props_all.sql"),
         "report/common/references" => {
             include_str!("../../sql/queries/report/common/references.sql")
         }
+        "report/common/relationships" => {
+            include_str!("../../sql/queries/report/common/relationships.sql")
+        }
+        "report/common/stock_count" => {
+            include_str!("../../sql/queries/report/common/stock_count.sql")
+        }
+        "report/common/stocks" => include_str!("../../sql/queries/report/common/stocks.sql"),
         "report/common/synonyms" => include_str!("../../sql/queries/report/common/synonyms.sql"),
+        "report/common/timeout_probe" => {
+            include_str!("../../sql/queries/report/common/timeout_probe.sql")
+        }
+        "report/construct/allele_genes" => {
+            include_str!("../../sql/queries/report/construct/allele_genes.sql")
+        }
+        "report/construct/components" => {
+            include_str!("../../sql/queries/report/construct/components.sql")
+        }
+        "report/construct/insertions" => {
+            include_str!("../../sql/queries/report/construct/insertions.sql")
+        }
         "report/gene/alleles" => include_str!("../../sql/queries/report/gene/alleles.sql"),
         "report/gene/external_links" => {
             include_str!("../../sql/queries/report/gene/external_links.sql")
@@ -44,6 +70,13 @@ pub fn get(name: &str) -> &'static str {
         "report/gene/snapshot" => include_str!("../../sql/queries/report/gene/snapshot.sql"),
         "report/gene/stock_count" => include_str!("../../sql/queries/report/gene/stock_count.sql"),
         "report/gene/transcripts" => include_str!("../../sql/queries/report/gene/transcripts.sql"),
+        "report/insertion/alleles" => {
+            include_str!("../../sql/queries/report/insertion/alleles.sql")
+        }
+        "report/insertion/construct" => {
+            include_str!("../../sql/queries/report/insertion/construct.sql")
+        }
+        "report/insertion/genes" => include_str!("../../sql/queries/report/insertion/genes.sql"),
         "report/reference/abstract" => {
             include_str!("../../sql/queries/report/reference/abstract.sql")
         }
@@ -80,6 +113,7 @@ pub fn get(name: &str) -> &'static str {
         }
         "species/list" => include_str!("../../sql/queries/species/list.sql"),
         "species/normalize" => include_str!("../../sql/queries/species/normalize.sql"),
+        "startup/functions" => include_str!("../../sql/queries/startup/functions.sql"),
         "startup/migrations" => include_str!("../../sql/queries/startup/migrations.sql"),
         "startup/ping" => include_str!("../../sql/queries/startup/ping.sql"),
         "startup/tables" => include_str!("../../sql/queries/startup/tables.sql"),

@@ -1,4 +1,6 @@
-use super::{ReportType, SectionCtx, paged, rows_to_json, strip_markup};
+use super::{
+    ReportType, SectionCtx, paged, references_section, rows_to_json, strip_markup, synonyms_section,
+};
 use crate::error::{ToolError, ToolResult};
 use serde_json::{Map, Value, json};
 use std::collections::HashSet;
@@ -185,32 +187,8 @@ impl ReportType for Gene {
                     ctx.limit,
                 )
             }
-            "synonyms" => {
-                let r = ctx.query("report/common/synonyms", &[id]).await?;
-                json!(rows_to_json(&r, |r| {
-                    json!({
-                        "name": r.get::<_, String>("name"),
-                        "kind": r.get::<_, String>("kind"),
-                        "is_current": r.get::<_, bool>("is_current"),
-                    })
-                }))
-            }
-            "references" => {
-                let r = ctx
-                    .query("report/common/references", &[id, &ctx.fetch])
-                    .await?;
-                paged(
-                    rows_to_json(&r, |r| {
-                        json!({
-                            "id": r.get::<_, String>("uniquename"),
-                            "citation": r.get::<_, Option<String>>("miniref"),
-                            "year": r.get::<_, Option<String>>("pyear"),
-                            "pubmed_id": r.get::<_, Option<String>>("pmid"),
-                        })
-                    }),
-                    ctx.limit,
-                )
-            }
+            "synonyms" => synonyms_section(ctx).await?,
+            "references" => references_section(ctx).await?,
             "external_links" => {
                 let r = ctx.query("report/gene/external_links", &[id]).await?;
                 json!(rows_to_json(&r, |r| {

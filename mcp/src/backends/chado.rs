@@ -8,7 +8,7 @@ use deadpool_postgres::{
 use tokio_postgres::{NoTls, Row, types::ToSql};
 
 /// Number of relations listed in `sql/queries/startup/tables.sql`.
-pub const STARTUP_RELATIONS: usize = 43;
+pub const STARTUP_RELATIONS: usize = 90;
 
 /// Pooled read-only chado access.
 ///
@@ -94,7 +94,7 @@ impl Chado {
         Self::query_on(&c, tool, name, params).await
     }
 
-    /// Verify privileges on every relation the server reads and that all expected migrations are logged.
+    /// Verify privileges on every relation and helper function the server uses and that all expected migrations are logged.
     pub async fn startup_check(&self, expected_migrations: &[&str]) -> anyhow::Result<()> {
         let rows = self
             .query("startup", "startup/tables", &[])
@@ -114,6 +114,20 @@ impl Chado {
             rows.len() == STARTUP_RELATIONS,
             "expected {STARTUP_RELATIONS} relations, found {}; run `flybase-mcp migrate` if mcp tables are missing",
             rows.len()
+        );
+        let fns = self
+            .query("startup", "startup/functions", &[])
+            .await
+            .map_err(|e| anyhow::anyhow!(e.to_string()))?;
+        let not_exec: Vec<String> = fns
+            .iter()
+            .filter(|r| !r.get::<_, bool>("ok"))
+            .map(|r| r.get::<_, String>("fn"))
+            .collect();
+        anyhow::ensure!(
+            not_exec.is_empty(),
+            "role cannot execute: {}; run migration 007_grants",
+            not_exec.join(", ")
         );
         let logged: Vec<String> = match self.query("startup", "startup/migrations", &[]).await {
             Ok(rows) => rows.iter().map(|r| r.get::<_, String>("name")).collect(),

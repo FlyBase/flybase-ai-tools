@@ -2,7 +2,7 @@ use crate::{
     error::{ToolError, ToolResult},
     limits::clamp_limit,
     output::{Envelope, complete, report_link},
-    report::{SectionCtx, for_id, jbrowse_link},
+    report::{SectionCtx, for_id, jbrowse_link, section_error},
     server::FlyBaseServer,
     tools::resolve::{normalize_fb_prefix, resolve_ids},
 };
@@ -16,7 +16,7 @@ use serde_json::{Map, Value, json};
 #[derive(Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct ReportParams {
-    /// A gene, allele, reference, or stock ID (FBgn, FBal, FBrf, FBst). Secondary and obsolete IDs are resolved first.
+    /// A FlyBase ID of a supported report type (see the tool description). Secondary and obsolete IDs are resolved first.
     pub id: String,
     /// Sections to return. Omit for the type's default summary set. Pass list_options=true to see valid names.
     pub sections: Option<Vec<String>>,
@@ -30,7 +30,7 @@ pub struct ReportParams {
 impl FlyBaseServer {
     #[tool(
         name = "get_report",
-        description = "Return the data shown on a FlyBase report page for a gene (FBgn), allele (FBal), reference (FBrf), or stock (FBst) ID; more report types arrive in later releases. Choose sections to keep responses small; use list_options=true to see section names. Use resolve first if you only have a symbol."
+        description = "Return the data shown on a FlyBase report page for an ID. Supported: genes, alleles, insertions, constructs, stocks, references. Choose sections to keep responses small; use list_options=true to see section names. Use resolve first if you only have a symbol."
     )]
     pub async fn get_report(
         &self,
@@ -134,13 +134,36 @@ impl FlyBaseServer {
         });
         let (results, location) =
             futures::join!(futures::future::join_all(futs), rt.location(&ctx));
+        // A section that fails with anything but NotFound becomes an error object so the rest of the report survives
+        // (a timed-out optional section must not hide the identity). NotFound means the entity is missing from its
+        // table, which is a whole-report answer.
         let mut sections = Map::new();
+        let mut section_errors: Vec<String> = Vec::new();
         for (name, res) in results {
-            sections.insert(name, res?);
+            match res {
+                Ok(v) => {
+                    sections.insert(name, v);
+                }
+                Err(e @ ToolError::NotFound { .. }) => return Err(e),
+                Err(e) => {
+                    tracing::warn!(tool = T, id = %id, section = %name, error = %e, "section failed");
+                    sections.insert(name.clone(), section_error(&e));
+                    section_errors.push(name);
+                }
+            }
         }
         let mut env = Envelope::new(T, &self.release).link("report", report_link(&id));
-        if let Some((chrom, fmin, fmax)) = location? {
-            env = env.link("jbrowse", jbrowse_link(&chrom, fmin, fmax));
+        match location {
+            Ok(Some((chrom, fmin, fmax))) => {
+                env = env.link("jbrowse", jbrowse_link(&chrom, fmin, fmax))
+            }
+            Ok(None) => {}
+            Err(e) => {
+                // The jbrowse link is not a section, but its failure is reported the same way so the caller can see it.
+                tracing::warn!(tool = T, id = %id, error = %e, "location lookup failed; no jbrowse link");
+                sections.insert("jbrowse".into(), section_error(&e));
+                section_errors.push("jbrowse".into());
+            }
         }
         let ident = sections.get("identity").cloned().unwrap_or(Value::Null);
         let label = match (ident["symbol"].as_str(), ident["name"].as_str()) {
@@ -148,19 +171,56 @@ impl FlyBaseServer {
             (Some(s), None) => format!(" ({s})"),
             _ => String::new(),
         };
-        let summary = format!(
-            "{} report for {id}{label}: sections {}.",
-            rt.name(),
-            wanted.join(", ")
-        );
+        let summary = if section_errors.is_empty() {
+            format!(
+                "{} report for {id}{label}: sections {}.",
+                rt.name(),
+                wanted.join(", ")
+            )
+        } else {
+            format!(
+                "{} report for {id}{label}: sections {}. Failed sections: {} (see their error objects).",
+                rt.name(),
+                wanted.join(", "),
+                section_errors.join(", ")
+            )
+        };
         env = env
             .summary(summary)
             .field("id", json!(id))
             .field("type", json!(rt.name()))
             .field("sections", Value::Object(sections));
+        if !section_errors.is_empty() {
+            env = env.field("section_errors", json!(section_errors));
+        }
         if st.status == "updated" {
             env = env.field("resolved_from", json!(input));
         }
         Ok(env.finish())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::report::{PREFIX_LABELS, for_id};
+    use crate::server::FlyBaseServer;
+
+    /// The description names a type exactly when `for_id` dispatches its prefix (Plan 1 deferred minor).
+    #[test]
+    fn description_lists_exactly_the_implemented_types() {
+        let tools = FlyBaseServer::all_tool_routers().list_all();
+        let t = tools
+            .iter()
+            .find(|t| t.name == "get_report")
+            .expect("get_report registered");
+        let desc = t.description.as_deref().unwrap_or("");
+        for (prefix, label) in PREFIX_LABELS {
+            let implemented = for_id(&format!("{prefix}000001")).is_some();
+            assert_eq!(
+                desc.contains(label),
+                implemented,
+                "description must mention '{label}' iff {prefix} is implemented"
+            );
+        }
     }
 }

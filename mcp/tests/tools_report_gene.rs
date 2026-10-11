@@ -134,3 +134,43 @@ async fn lowercase_id_prefix_is_accepted() {
     assert_eq!(s["type"], "gene");
     assert_eq!(s["sections"]["identity"]["symbol"], "N");
 }
+
+/// A stock carrying two alleles of the gene counts once (Plan 1 deferred minor): 164 distinct stocks against a
+/// per-allele sum of 165 on the full database. The fixture copies gene.allele and gene.allele_stock whole from the
+/// current public release, where Notch has one allele and one stock fewer, so there the report is checked against
+/// the database's own distinct count and the sum must still exceed it by the one double-counted stock.
+#[tokio::test]
+async fn gene_stock_count_is_distinct_stocks() {
+    let c = client().await;
+    let s = call(
+        &c,
+        "get_report",
+        json!({"id": "FBgn0004647", "sections": ["stock_count"]}),
+    )
+    .await;
+    let (db, conn) =
+        tokio_postgres::connect(&support::test_config().chado_url, tokio_postgres::NoTls)
+            .await
+            .unwrap();
+    tokio::spawn(conn);
+    let sum: i64 = db
+        .query_one("select coalesce(sum(a.stocks_count), 0)::bigint from gene.allele a join feature g on g.feature_id = a.gene_id where g.uniquename = 'FBgn0004647'", &[])
+        .await
+        .unwrap()
+        .get(0);
+    let distinct: i64 = db
+        .query_one("select count(distinct s.fbst_id)::bigint from gene.allele a join feature g on g.feature_id = a.gene_id join gene.allele_stock s on s.allele_id = a.id where g.uniquename = 'FBgn0004647'", &[])
+        .await
+        .unwrap()
+        .get(0);
+    assert_eq!(s["sections"]["stock_count"], distinct);
+    assert_eq!(
+        sum,
+        distinct + 1,
+        "the Plan 1 per-allele sum double-counts one stock"
+    );
+    if support::full_db() {
+        assert_eq!(distinct, 164);
+        assert_eq!(sum, 165);
+    }
+}

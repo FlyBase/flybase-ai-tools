@@ -15,3 +15,9 @@ pub fn test_config() -> Config {
     })
     .unwrap()
 }
+
+/// True when the tests run against the full chado-mcp-dev restore (port 5498) rather than the CI fixture.
+pub fn full_db() -> bool {
+    std::env::var("FLYBASE_TEST_FULL_DB").is_ok_and(|v| v == "1")
+        || test_config().chado_url.contains(":5498/")
+}
