@@ -193,17 +193,19 @@ pub fn rank(query: &str, mut c: Vec<Candidate>, species: Option<&str>) -> Vec<Ca
     c
 }
 
+/// Status of each ID in one batched query (`= any($1)`); one entry per input, in input order (a duplicated
+/// input gets two entries).
 pub async fn resolve_ids(
     chado: &Chado,
     tool: &'static str,
     ids: &[String],
 ) -> ToolResult<Vec<IdStatus>> {
+    let rows = chado.query(tool, "resolve/id_status", &[&ids]).await?;
     let mut out = Vec::with_capacity(ids.len());
     for id in ids {
-        let rows = chado.query(tool, "resolve/id_status", &[id]).await?;
         let pick = |status: &str| -> Vec<(String, Option<String>)> {
             rows.iter()
-                .filter(|r| r.get::<_, &str>("status") == status)
+                .filter(|r| r.get::<_, &str>("input") == id && r.get::<_, &str>("status") == status)
                 .map(|r| (r.get("uniquename"), r.get("name")))
                 .collect()
         };
@@ -211,7 +213,7 @@ pub async fn resolve_ids(
         let secondary = pick("secondary");
         let obsolete = rows
             .iter()
-            .any(|r| r.get::<_, &str>("status") == "obsolete");
+            .any(|r| r.get::<_, &str>("input") == id && r.get::<_, &str>("status") == "obsolete");
         let (status, list) = if !current.is_empty() {
             ("current", current)
         } else if secondary.len() == 1 {

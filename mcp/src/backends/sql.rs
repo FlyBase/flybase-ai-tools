@@ -1,6 +1,33 @@
 /// Named SQL loaded at compile time. Add one arm per query file.
 pub fn get(name: &str) -> &'static str {
     match name {
+        "batch/allele_classes" => include_str!("../../sql/queries/batch/allele_classes.sql"),
+        "batch/allele_constructs" => include_str!("../../sql/queries/batch/allele_constructs.sql"),
+        "batch/allele_gene" => include_str!("../../sql/queries/batch/allele_gene.sql"),
+        "batch/allele_insertions" => include_str!("../../sql/queries/batch/allele_insertions.sql"),
+        "batch/allele_mutagens" => include_str!("../../sql/queries/batch/allele_mutagens.sql"),
+        "batch/allele_stocks" => include_str!("../../sql/queries/batch/allele_stocks.sql"),
+        "batch/alleles" => include_str!("../../sql/queries/batch/alleles.sql"),
+        "batch/annotation_id" => include_str!("../../sql/queries/batch/annotation_id.sql"),
+        "batch/cytology" => include_str!("../../sql/queries/batch/cytology.sql"),
+        "batch/external_ids" => include_str!("../../sql/queries/batch/external_ids.sql"),
+        "batch/gene_type" => include_str!("../../sql/queries/batch/gene_type.sql"),
+        "batch/go_terms" => include_str!("../../sql/queries/batch/go_terms.sql"),
+        "batch/human_orthologs" => include_str!("../../sql/queries/batch/human_orthologs.sql"),
+        "batch/location" => include_str!("../../sql/queries/batch/location.sql"),
+        "batch/name" => include_str!("../../sql/queries/batch/name.sql"),
+        "batch/polypeptides" => include_str!("../../sql/queries/batch/polypeptides.sql"),
+        "batch/pubmed_ids" => include_str!("../../sql/queries/batch/pubmed_ids.sql"),
+        "batch/references" => include_str!("../../sql/queries/batch/references.sql"),
+        "batch/species" => include_str!("../../sql/queries/batch/species.sql"),
+        "batch/stock_count" => include_str!("../../sql/queries/batch/stock_count.sql"),
+        "batch/symbol" => include_str!("../../sql/queries/batch/symbol.sql"),
+        "batch/synonyms" => include_str!("../../sql/queries/batch/synonyms.sql"),
+        "batch/transcripts" => include_str!("../../sql/queries/batch/transcripts.sql"),
+        "batch/transgenic_product_class" => {
+            include_str!("../../sql/queries/batch/transgenic_product_class.sql")
+        }
+        "batch/type" => include_str!("../../sql/queries/batch/type.sql"),
         "disease/variants" => include_str!("../../sql/queries/disease/variants.sql"),
         "report/disease/do_terms" => include_str!("../../sql/queries/report/disease/do_terms.sql"),
         "report/disease/genes" => include_str!("../../sql/queries/report/disease/genes.sql"),
@@ -192,6 +219,12 @@ pub fn get(name: &str) -> &'static str {
         "startup/migrations" => include_str!("../../sql/queries/startup/migrations.sql"),
         "startup/ping" => include_str!("../../sql/queries/startup/ping.sql"),
         "startup/tables" => include_str!("../../sql/queries/startup/tables.sql"),
+        "startup/timeout_setting" => {
+            include_str!("../../sql/queries/startup/timeout_setting.sql")
+        }
+        "validate/external" => include_str!("../../sql/queries/validate/external.sql"),
+        "validate/pubmed" => include_str!("../../sql/queries/validate/pubmed.sql"),
+        "validate/symbols" => include_str!("../../sql/queries/validate/symbols.sql"),
         other => panic!("unknown query {other}"),
     }
 }
