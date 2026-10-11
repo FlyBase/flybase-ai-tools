@@ -1,4 +1,8 @@
-use crate::{output::Envelope, server::FlyBaseServer};
+use crate::{
+    error::ToolResult,
+    output::{Envelope, complete},
+    server::FlyBaseServer,
+};
 use rmcp::{
     ErrorData, handler::server::wrapper::Parameters, model::CallToolResult, tool, tool_router,
 };
@@ -43,11 +47,19 @@ impl FlyBaseServer {
         &self,
         Parameters(p): Parameters<ListSpeciesParams>,
     ) -> Result<CallToolResult, ErrorData> {
-        let _permit = self.limits.light().await;
-        let rows = match self.chado.query("list_species", "species/list", &[]).await {
-            Ok(r) => r,
-            Err(e) => return Ok(e.into_result()),
-        };
+        const T: &str = "list_species";
+        let started = std::time::Instant::now();
+        let res = async {
+            let _permit = self.limits.light(T).await?;
+            self.list_species_impl(p).await
+        }
+        .await;
+        Ok(complete(T, started, res))
+    }
+
+    async fn list_species_impl(&self, p: ListSpeciesParams) -> ToolResult<CallToolResult> {
+        const T: &str = "list_species";
+        let rows = self.chado.query(T, "species/list", &[]).await?;
         let include_all = p.include_unsequenced.unwrap_or(false);
         let species: Vec<_> = rows
             .iter()
@@ -67,7 +79,7 @@ impl FlyBaseServer {
             .iter()
             .filter(|r| r.get::<_, bool>("has_assembly"))
             .count();
-        Ok(Envelope::new("list_species", &self.release)
+        Ok(Envelope::new(T, &self.release)
             .summary(if include_all {
                 format!(
                     "{} organisms in FlyBase, {} with genome assemblies. Use the abbreviation (for example Dmel) as the species argument in other tools.",

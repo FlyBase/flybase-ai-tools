@@ -28,6 +28,14 @@ pub const MIGRATIONS: &[(&str, &str)] = &[
     ),
 ];
 
+/// The database's own explanation of a failure (SQLSTATE and message) when there is one, else the client error.
+fn describe(e: &tokio_postgres::Error) -> String {
+    match e.as_db_error() {
+        Some(d) => format!("{} {}", d.code().code(), d.message()),
+        None => format!("{e:?}"),
+    }
+}
+
 pub fn names() -> Vec<&'static str> {
     MIGRATIONS.iter().map(|(n, _)| *n).collect()
 }
@@ -46,7 +54,7 @@ pub async fn run(cfg: &Config, _diopt: Option<std::path::PathBuf>) -> anyhow::Re
         client
             .batch_execute(sql)
             .await
-            .map_err(|e| anyhow::anyhow!("migration {name} failed: {e}"))?;
+            .map_err(|e| anyhow::anyhow!("migration {name} failed: {}", describe(&e)))?;
         client
             .execute(
                 "insert into mcp.migration_log (name, crate_version, release) values ($1, $2, $3) \
@@ -62,4 +70,21 @@ pub async fn run(cfg: &Config, _diopt: Option<std::path::PathBuf>) -> anyhow::Re
     }
     tracing::info!("migrations complete");
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::MIGRATIONS;
+    /// Grants must run after every table rebuild, so they stay last.
+    #[test]
+    fn grants_are_the_last_migration() {
+        assert_eq!(MIGRATIONS.last().unwrap().0, "007_grants");
+        let mut names: Vec<&str> = MIGRATIONS.iter().map(|m| m.0).collect();
+        names.sort_unstable();
+        assert_eq!(
+            names,
+            super::names(),
+            "migrations are applied in numeric order"
+        );
+    }
 }

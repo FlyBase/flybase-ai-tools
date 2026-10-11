@@ -1,8 +1,8 @@
 use crate::{
-    backends::chado::Chado,
+    backends::{chado::Chado, species::normalize_species},
     error::{ToolError, ToolResult},
     limits::clamp_limit,
-    output::{Envelope, report_link},
+    output::{Envelope, complete, report_link},
     server::FlyBaseServer,
 };
 use rmcp::{
@@ -11,6 +11,7 @@ use rmcp::{
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 use serde_json::json;
+use std::borrow::Cow;
 use std::collections::HashSet;
 
 #[derive(Deserialize, Serialize, JsonSchema, Clone, Copy, PartialEq, Eq, Debug)]
@@ -27,6 +28,9 @@ pub enum DataClass {
     Stock,
     Ortholog,
     SplitSystemCombination,
+    CellLine,
+    Library,
+    Strain,
 }
 
 impl DataClass {
@@ -43,6 +47,9 @@ impl DataClass {
             Self::Stock => "stock",
             Self::Ortholog => "ortholog",
             Self::SplitSystemCombination => "split_system_combination",
+            Self::CellLine => "cell_line",
+            Self::Library => "library",
+            Self::Strain => "strain",
         }
     }
 }
@@ -88,6 +95,25 @@ pub fn looks_like_fb_id(q: &str) -> bool {
         && q.starts_with("FB")
         && b[2..4].iter().all(u8::is_ascii_lowercase)
         && b[4..].iter().all(u8::is_ascii_digit)
+}
+
+/// Canonicalize the prefix of FB-ID-shaped input ("fbgn0004647", "FBGN0004647" -> "FBgn0004647").
+/// Anything that is not shaped like an ID is returned unchanged.
+pub fn normalize_fb_prefix(q: &str) -> Cow<'_, str> {
+    let b = q.as_bytes();
+    let shaped = (b.len() == 11 || b.len() == 14)
+        && b[..2].eq_ignore_ascii_case(b"FB")
+        && b[2..4].iter().all(u8::is_ascii_alphabetic)
+        && b[4..].iter().all(u8::is_ascii_digit);
+    if !shaped {
+        return Cow::Borrowed(q);
+    }
+    let canonical = format!("FB{}{}", q[2..4].to_ascii_lowercase(), &q[4..]);
+    if canonical == q {
+        Cow::Borrowed(q)
+    } else {
+        Cow::Owned(canonical)
+    }
 }
 
 /// Escape LIKE wildcards (backslash, percent, underscore) so the query matches literally with `escape '\'`.
@@ -217,11 +243,14 @@ impl FlyBaseServer {
         &self,
         Parameters(p): Parameters<ResolveParams>,
     ) -> Result<CallToolResult, ErrorData> {
-        let _permit = self.limits.light().await;
-        match self.resolve_impl(p).await {
-            Ok(r) => Ok(r),
-            Err(e) => Ok(e.into_result()),
+        const T: &str = "resolve";
+        let started = std::time::Instant::now();
+        let res = async {
+            let _permit = self.limits.light(T).await?;
+            self.resolve_impl(p).await
         }
+        .await;
+        Ok(complete(T, started, res))
     }
 
     async fn resolve_impl(&self, p: ResolveParams) -> ToolResult<CallToolResult> {
@@ -234,6 +263,12 @@ impl FlyBaseServer {
                 message: "must be 1 to 200 characters".into(),
             });
         }
+        let q = normalize_fb_prefix(q);
+        let q = q.as_ref();
+        let species = match &p.species {
+            Some(s) => Some(normalize_species(&self.chado, T, s).await?),
+            None => None,
+        };
         let limit = clamp_limit(p.limit) as usize;
         let mut matches = Vec::new();
         if looks_like_fb_id(q) {
@@ -247,7 +282,7 @@ impl FlyBaseServer {
                 _ => matches.push(json!({"id": q, "status": st.status, "replaced_by": st.current_ids, "symbol": st.symbol, "data_class": class_of(q)})),
             }
         } else {
-            let species = p.species.as_deref();
+            let species = species.as_deref();
             let class = p.data_class.map(DataClass::as_str);
             let escaped = like_escape(q);
             let rows = self
@@ -413,6 +448,20 @@ mod tests {
         );
         assert_eq!(r.len(), 1);
         assert_eq!(r[0].score, 1350);
+    }
+    #[test]
+    fn fb_prefix_is_canonicalized_only_for_id_shaped_input() {
+        assert_eq!(normalize_fb_prefix("fbgn0004647"), "FBgn0004647");
+        assert_eq!(normalize_fb_prefix("FBGN0004647"), "FBgn0004647");
+        assert_eq!(normalize_fb_prefix("FBog0000012345"), "FBog0000012345");
+        assert!(matches!(
+            normalize_fb_prefix("FBgn0004647"),
+            Cow::Borrowed(_)
+        ));
+        assert_eq!(normalize_fb_prefix("fbgn004647"), "fbgn004647");
+        assert_eq!(normalize_fb_prefix("Notch"), "Notch");
+        assert_eq!(normalize_fb_prefix("fb1n0004647"), "fb1n0004647");
+        assert!(looks_like_fb_id(&normalize_fb_prefix("FBAL0012701")));
     }
     #[test]
     fn fb_id_detection_and_class() {

@@ -123,3 +123,116 @@ async fn reference_author_filter_matches_surname() {
         );
     }
 }
+
+#[tokio::test]
+async fn species_is_case_insensitive_and_validated() {
+    let c = client().await;
+    let s = call(
+        &c,
+        "search",
+        json!({"query": "otch", "data_class": "gene", "species": "dmel"}),
+    )
+    .await;
+    assert!(
+        s["hits"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|h| h["id"] == "FBgn0004647")
+    );
+    assert!(
+        s["hits"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .all(|h| h["species"] == "Dmel")
+    );
+    let r = call_raw(
+        &c,
+        "search",
+        json!({"query": "otch", "species": "Dmelanogaster"}),
+    )
+    .await
+    .unwrap();
+    assert_eq!(r.is_error, Some(true));
+    assert_eq!(r.structured_content.unwrap()["error"], "invalid_input");
+}
+
+#[tokio::test]
+async fn deep_offset_is_rejected() {
+    let c = client().await;
+    let r = call_raw(
+        &c,
+        "search",
+        json!({"query": "wing", "limit": 100, "offset": 9_950}),
+    )
+    .await
+    .unwrap();
+    assert_eq!(r.is_error, Some(true));
+    let s = r.structured_content.unwrap();
+    assert_eq!(s["error"], "invalid_input");
+    assert!(s["message"].as_str().unwrap().contains("offset"));
+    let ok = call(
+        &c,
+        "search",
+        json!({"query": "wing", "limit": 100, "offset": 9_900}),
+    )
+    .await;
+    assert!(ok["hits"].is_array());
+}
+
+#[tokio::test]
+async fn cv_term_hits_link_to_cv_report() {
+    let c = client().await;
+    let s = call(
+        &c,
+        "search",
+        json!({"query": "wing", "data_class": "cv_term", "limit": 3}),
+    )
+    .await;
+    let hits = s["hits"].as_array().unwrap();
+    assert!(!hits.is_empty());
+    for h in hits {
+        let link = h["link"].as_str().unwrap();
+        assert!(
+            link.starts_with("https://flybase.org/cgi-bin/cvreport.pl?id="),
+            "{link}"
+        );
+        assert!(link.ends_with(h["id"].as_str().unwrap()), "{link}");
+    }
+    assert_eq!(s["links"]["first_report"], hits[0]["link"]);
+    let g = call(
+        &c,
+        "search",
+        json!({"query": "otch", "data_class": "gene", "species": "Dmel"}),
+    )
+    .await;
+    let first = &g["hits"][0];
+    assert_eq!(
+        first["link"],
+        format!(
+            "https://flybase.org/reports/{}",
+            first["id"].as_str().unwrap()
+        )
+    );
+    assert_eq!(g["links"]["first_report"], first["link"]);
+}
+
+#[tokio::test]
+async fn cell_line_class_is_searchable() {
+    let c = client().await;
+    let s = call(
+        &c,
+        "search",
+        json!({"query": "Kc1", "data_class": "cell_line"}),
+    )
+    .await;
+    assert!(
+        s["hits"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|h| h["id"] == "FBtc0000001"),
+        "{s}"
+    );
+}

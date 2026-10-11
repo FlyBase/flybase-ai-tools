@@ -82,12 +82,22 @@ async fn unknown_argument_is_rejected() {
 }
 
 #[tokio::test]
-async fn metrics_endpoint_serves_text() {
+async fn metrics_count_tool_calls() {
+    let c = client().await;
+    call(&c, "list_species", json!({})).await;
     let body = reqwest::get(format!("{}/metrics", base()))
         .await
         .unwrap()
         .text()
         .await
         .unwrap();
-    assert!(body.is_empty() || body.contains("# "));
+    assert!(body.contains("# "), "{body}");
+    assert!(
+        body.lines()
+            .any(|l| l.starts_with("flybase_mcp_tool_calls_total{")
+                && l.contains("tool=\"list_species\"")
+                && l.contains("outcome=\"ok\"")),
+        "{body}"
+    );
+    assert!(body.contains("flybase_mcp_tool_duration_seconds"), "{body}");
 }

@@ -38,3 +38,4 @@ clap = { version = "4", features = ["derive"] }
 [dev-dependencies]
 rmcp = { version = "3.5", features = ["client", "transport-streamable-http-client-reqwest"] }
 reqwest = { version = "0.13", features = ["json"] }
+tokio = { version = "1.53", features = ["full", "test-util"] }

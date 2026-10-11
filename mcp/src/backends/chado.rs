@@ -10,6 +10,13 @@ use tokio_postgres::{NoTls, Row, types::ToSql};
 /// Number of relations listed in `sql/queries/startup/tables.sql`.
 pub const STARTUP_RELATIONS: usize = 43;
 
+/// Pooled read-only chado access.
+///
+/// A tool call must hold at most one checked-out connection at a time: the pool is sized for one
+/// connection per in-flight call, and a handler that checks out a second one while holding the first can
+/// deadlock the pool under load. A handler that needs several queries for one call checks out one
+/// `Object` and passes it to `query_on`; concurrent queries on one `Object` are pipelined by tokio-postgres
+/// (`futures::try_join!`), so fan-out never needs a second connection.
 #[derive(Clone)]
 pub struct Chado {
     pool: Pool,
@@ -62,7 +69,21 @@ impl Chado {
         })
     }
 
-    /// Run a named query on a pooled connection with the light (10 s) timeout.
+    /// Run a named query on a connection this call checked out already (see `get`). Several `query_on`
+    /// futures on the same connection may be joined; they share the one session and its timeout.
+    pub async fn query_on(
+        conn: &Object,
+        tool: &'static str,
+        name: &str,
+        params: &[&(dyn ToSql + Sync)],
+    ) -> ToolResult<Vec<Row>> {
+        conn.query(crate::backends::sql::get(name), params)
+            .await
+            .map_err(|e| ToolError::db(tool, &e))
+    }
+
+    /// Run a named query on a freshly checked-out connection with the light (10 s) timeout.
+    /// For a call that issues more than one query, check out once and use `query_on`.
     pub async fn query(
         &self,
         tool: &'static str,
@@ -70,9 +91,7 @@ impl Chado {
         params: &[&(dyn ToSql + Sync)],
     ) -> ToolResult<Vec<Row>> {
         let c = self.get(tool).await?;
-        c.query(crate::backends::sql::get(name), params)
-            .await
-            .map_err(|e| ToolError::db(tool, &e))
+        Self::query_on(&c, tool, name, params).await
     }
 
     /// Verify privileges on every relation the server reads and that all expected migrations are logged.

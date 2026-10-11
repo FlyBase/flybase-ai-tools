@@ -1,3 +1,4 @@
+use crate::error::{ToolError, ToolResult};
 use std::sync::Arc;
 use std::time::Duration;
 use tokio::sync::{OwnedSemaphorePermit, Semaphore};
@@ -28,26 +29,14 @@ impl Limits {
             blast: Arc::new(Semaphore::new(BLAST_PERMITS)),
         }
     }
-    pub async fn light(&self) -> OwnedSemaphorePermit {
-        self.light
-            .clone()
-            .acquire_owned()
-            .await
-            .expect("semaphore open")
+    pub async fn light(&self, tool: &'static str) -> ToolResult<OwnedSemaphorePermit> {
+        acquire(&self.light, tool).await
     }
-    pub async fn heavy(&self) -> OwnedSemaphorePermit {
-        self.heavy
-            .clone()
-            .acquire_owned()
-            .await
-            .expect("semaphore open")
+    pub async fn heavy(&self, tool: &'static str) -> ToolResult<OwnedSemaphorePermit> {
+        acquire(&self.heavy, tool).await
     }
-    pub async fn blast(&self) -> OwnedSemaphorePermit {
-        self.blast
-            .clone()
-            .acquire_owned()
-            .await
-            .expect("semaphore open")
+    pub async fn blast(&self, tool: &'static str) -> ToolResult<OwnedSemaphorePermit> {
+        acquire(&self.blast, tool).await
     }
     pub fn available(&self) -> (usize, usize, usize) {
         (
@@ -55,6 +44,20 @@ impl Limits {
             self.heavy.available_permits(),
             self.blast.available_permits(),
         )
+    }
+}
+
+/// Wait at most POOL_WAIT for a permit; a saturated server answers busy instead of queueing forever.
+async fn acquire(sem: &Arc<Semaphore>, tool: &'static str) -> ToolResult<OwnedSemaphorePermit> {
+    match tokio::time::timeout(POOL_WAIT, sem.clone().acquire_owned()).await {
+        Ok(Ok(permit)) => Ok(permit),
+        Ok(Err(_)) | Err(_) => {
+            tracing::warn!(tool, "no permit within {:?}", POOL_WAIT);
+            Err(ToolError::BackendUnavailable {
+                tool,
+                message: "server busy; try again shortly".into(),
+            })
+        }
     }
 }
 
@@ -77,14 +80,33 @@ mod tests {
         let l = Limits::new();
         let mut held = Vec::new();
         for _ in 0..HEAVY_PERMITS {
-            held.push(l.heavy().await);
+            held.push(l.heavy("t").await.unwrap());
         }
         assert_eq!(l.available().1, 0);
-        let got = tokio::time::timeout(Duration::from_millis(50), l.light()).await;
+        let got = tokio::time::timeout(Duration::from_millis(50), l.light("t")).await;
         assert!(
-            got.is_ok(),
+            got.is_ok_and(|p| p.is_ok()),
             "light permit must not block when heavy is exhausted"
         );
+    }
+    #[tokio::test(start_paused = true)]
+    async fn exhausted_semaphore_returns_busy_after_pool_wait() {
+        let l = Limits::new();
+        let mut held = Vec::new();
+        for _ in 0..BLAST_PERMITS {
+            held.push(l.blast("blast_submit").await.unwrap());
+        }
+        let started = tokio::time::Instant::now();
+        let e = l.blast("blast_submit").await.unwrap_err();
+        assert_eq!(e.code(), "backend_unavailable");
+        assert!(e.to_string().contains("server busy"));
+        let waited = started.elapsed();
+        assert!(
+            waited >= POOL_WAIT && waited < POOL_WAIT + Duration::from_secs(1),
+            "waited {waited:?}"
+        );
+        drop(held);
+        assert!(l.blast("blast_submit").await.is_ok());
     }
     #[test]
     fn clamp() {

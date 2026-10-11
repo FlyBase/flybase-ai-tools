@@ -1,7 +1,8 @@
 use crate::{
+    backends::species::normalize_species,
     error::{ToolError, ToolResult},
     limits::clamp_limit,
-    output::{Envelope, report_link},
+    output::{Envelope, complete, cv_term_link, report_link},
     server::FlyBaseServer,
     tools::resolve::like_escape,
 };
@@ -26,9 +27,15 @@ pub enum SearchClass {
     Stock,
     Ortholog,
     SplitSystemCombination,
+    CellLine,
+    Library,
+    Strain,
     Reference,
     CvTerm,
 }
+
+/// Deepest page a caller may reach: offset + limit must not exceed this.
+pub const MAX_OFFSET: i64 = 10_000;
 
 impl SearchClass {
     fn as_str(self) -> &'static str {
@@ -44,6 +51,9 @@ impl SearchClass {
             Self::Stock => "stock",
             Self::Ortholog => "ortholog",
             Self::SplitSystemCombination => "split_system_combination",
+            Self::CellLine => "cell_line",
+            Self::Library => "library",
+            Self::Strain => "strain",
             Self::Reference => "reference",
             Self::CvTerm => "cv_term",
         }
@@ -63,8 +73,21 @@ pub struct SearchParams {
     pub author: Option<String>,
     /// Reference search only: publication year.
     pub year: Option<u32>,
+    /// Hits per page (default 25, max 100).
     pub limit: Option<u32>,
+    /// Hits to skip; offset + limit may not exceed 10,000.
     pub offset: Option<u32>,
+}
+
+/// Where a hit's page lives: the CV report for vocabulary terms, the report page for FlyBase IDs.
+fn hit_link(id: &str, data_class: &str) -> Option<String> {
+    if data_class == "cv_term" {
+        Some(cv_term_link(id))
+    } else if id.starts_with("FB") {
+        Some(report_link(id))
+    } else {
+        None
+    }
 }
 
 #[tool_router(router = tool_router_search, vis = "pub")]
@@ -77,11 +100,14 @@ impl FlyBaseServer {
         &self,
         Parameters(p): Parameters<SearchParams>,
     ) -> Result<CallToolResult, ErrorData> {
-        let _permit = self.limits.light().await;
-        match self.search_impl(p).await {
-            Ok(r) => Ok(r),
-            Err(e) => Ok(e.into_result()),
+        const T: &str = "search";
+        let started = std::time::Instant::now();
+        let res = async {
+            let _permit = self.limits.light(T).await?;
+            self.search_impl(p).await
         }
+        .await;
+        Ok(complete(T, started, res))
     }
 
     async fn search_impl(&self, p: SearchParams) -> ToolResult<CallToolResult> {
@@ -97,6 +123,19 @@ impl FlyBaseServer {
         }
         let limit = clamp_limit(p.limit);
         let offset = i64::from(p.offset.unwrap_or(0));
+        if offset + limit > MAX_OFFSET {
+            return Err(ToolError::InvalidInput {
+                tool: T,
+                arg: "offset",
+                message: format!(
+                    "offset + limit may not exceed {MAX_OFFSET}; narrow the query instead"
+                ),
+            });
+        }
+        let species = match &p.species {
+            Some(s) => Some(normalize_species(&self.chado, T, s).await?),
+            None => None,
+        };
         let fetch = limit + 1;
         let year = p.year.map(|y| y.to_string());
         let escaped = like_escape(&q);
@@ -146,7 +185,7 @@ impl FlyBaseServer {
                             "search/names",
                             &[
                                 &q,
-                                &p.species,
+                                &species,
                                 &class,
                                 &fetch,
                                 &offset,
@@ -165,7 +204,18 @@ impl FlyBaseServer {
             }
         };
         let has_more = hits.len() as i64 > limit;
-        let hits: Vec<Value> = hits.into_iter().take(limit as usize).collect();
+        let hits: Vec<Value> = hits
+            .into_iter()
+            .take(limit as usize)
+            .map(|mut h| {
+                let link = hit_link(
+                    h["id"].as_str().unwrap_or(""),
+                    h["data_class"].as_str().unwrap_or(""),
+                );
+                h["link"] = json!(link);
+                h
+            })
+            .collect();
         let summary = if hits.is_empty() {
             format!("No hits for '{q}'.")
         } else {
@@ -186,10 +236,8 @@ impl FlyBaseServer {
             .field("hits", json!(hits))
             .field("has_more", json!(has_more))
             .field("offset", json!(offset));
-        if let Some(first) = hits.first().and_then(|h| h["id"].as_str())
-            && first.starts_with("FB")
-        {
-            env = env.link("first_report", report_link(first));
+        if let Some(link) = hits.first().and_then(|h| h["link"].as_str()) {
+            env = env.link("first_report", link.to_string());
         }
         Ok(env.finish())
     }

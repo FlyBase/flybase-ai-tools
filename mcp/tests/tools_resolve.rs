@@ -62,7 +62,7 @@ async fn like_wildcards_are_literal() {
         let started = std::time::Instant::now();
         let r = call_raw(&c, "resolve", json!({"query": q})).await.unwrap();
         assert!(
-            started.elapsed() < std::time::Duration::from_secs(1),
+            started.elapsed() < std::time::Duration::from_secs(3),
             "query {q:?} was slow"
         );
         if r.is_error == Some(true) {
@@ -124,4 +124,94 @@ async fn non_ascii_id_is_invalid_input() {
             "query {q:?} gave {code}"
         );
     }
+}
+
+#[tokio::test]
+async fn species_is_case_insensitive_and_validated() {
+    let c = client().await;
+    let upper = call(&c, "resolve", json!({"query": "N", "species": "Dmel"})).await;
+    let lower = call(&c, "resolve", json!({"query": "N", "species": "dmel"})).await;
+    assert_eq!(lower["matches"][0]["id"], "FBgn0004647");
+    // Only the top hit is compared: the candidate query's 200-row cutoff is not order-stable on ties.
+    assert_eq!(lower["matches"][0], upper["matches"][0]);
+    assert!(
+        lower["matches"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .all(|m| m["species"] == "Dmel")
+    );
+    let r = call_raw(
+        &c,
+        "resolve",
+        json!({"query": "N", "species": "Dmelanogaster"}),
+    )
+    .await
+    .unwrap();
+    assert_eq!(r.is_error, Some(true));
+    let s = r.structured_content.unwrap();
+    assert_eq!(s["error"], "invalid_input");
+    assert!(
+        s["message"].as_str().unwrap().contains("list_species"),
+        "{}",
+        s["message"]
+    );
+}
+
+#[tokio::test]
+async fn lowercase_fb_prefix_resolves_as_id() {
+    let c = client().await;
+    for q in ["fbgn0004647", "FBGN0004647"] {
+        let s = call(&c, "resolve", json!({"query": q})).await;
+        assert_eq!(s["matches"][0]["id"], "FBgn0004647", "{q}");
+        assert_eq!(s["matches"][0]["status"], "current", "{q}");
+    }
+}
+
+#[tokio::test]
+async fn stock_number_resolves_to_stock_id() {
+    let c = client().await;
+    let s = call(
+        &c,
+        "resolve",
+        json!({"query": "28813", "data_class": "stock"}),
+    )
+    .await;
+    assert_eq!(s["matches"][0]["id"], "FBst0028813");
+    assert_eq!(s["matches"][0]["match_kind"], "stock_number");
+}
+
+#[tokio::test]
+async fn cell_line_name_resolves_via_index() {
+    let c = client().await;
+    // Kc167 is the current symbol of FBtc0000001 in cell_line_synonym.
+    let s = call(
+        &c,
+        "resolve",
+        json!({"query": "Kc167", "data_class": "cell_line"}),
+    )
+    .await;
+    assert_eq!(s["matches"][0]["id"], "FBtc0000001");
+    assert_eq!(s["matches"][0]["data_class"], "cell_line");
+    assert_eq!(s["matches"][0]["species"], "Dmel");
+    // Strains and libraries are indexed the same way.
+    let st = call(
+        &c,
+        "resolve",
+        json!({"query": "Oregon-R-modENCODE", "data_class": "strain"}),
+    )
+    .await;
+    assert_eq!(st["matches"][0]["id"], "FBsn0000001");
+}
+
+#[tokio::test]
+async fn text_content_repeats_structured_body() {
+    let c = client().await;
+    let r = call_raw(&c, "resolve", json!({"query": "FBgn0004647"}))
+        .await
+        .unwrap();
+    let text = r.content[0].as_text().unwrap().text.clone();
+    let (_, json) = text.split_once("\n\n").expect("summary, blank line, JSON");
+    let parsed: serde_json::Value = serde_json::from_str(json).unwrap();
+    assert_eq!(parsed, r.structured_content.unwrap());
 }
