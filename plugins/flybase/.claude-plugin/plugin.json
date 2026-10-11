@@ -1,0 +1,6 @@
+{
+  "name": "flybase",
+  "version": "0.1.0",
+  "description": "FlyBase MCP server and skills",
+  "author": { "name": "FlyBase" }
+}

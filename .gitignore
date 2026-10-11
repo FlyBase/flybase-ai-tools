@@ -1,0 +1,5 @@
+mcp/target/
+.env
+*.local
+fixture/data/
+.superpowers/

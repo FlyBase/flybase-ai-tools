@@ -1,0 +1,32 @@
+name: ci
+on: [push, pull_request]
+jobs:
+  lint-and-unit:
+    runs-on: ubuntu-latest
+    defaults: { run: { working-directory: mcp } }
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with: { components: "clippy, rustfmt" }
+      - uses: Swatinem/rust-cache@v2
+        with: { workspaces: mcp }
+      - run: cargo fmt --check
+      - run: cargo clippy --all-targets -- -D warnings
+      - run: cargo test --lib
+  fixture-tests:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with: { workspaces: mcp }
+      - uses: actions/cache@v4
+        id: fixture-cache
+        with:
+          path: fixture/data
+          key: fixture-${{ hashFiles('fixture/ids.txt', 'fixture/export.sh') }}
+      - run: sudo apt-get update && sudo apt-get install -y postgresql-client-16
+      - if: steps.fixture-cache.outputs.cache-hit != 'true'
+        run: fixture/export.sh
+      - run: fixture/load.sh
+      - run: cd mcp && cargo test --tests

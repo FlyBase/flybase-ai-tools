@@ -1,0 +1,40 @@
+[package]
+name = "flybase-mcp"
+version = "0.1.0"
+edition = "2024"
+license = "MIT"
+description = "Hosted MCP server for FlyBase data"
+repository = "https://github.com/FlyBase/flybase-ai-tools"
+publish = false
+
+[lib]
+name = "flybase_mcp"
+path = "src/lib.rs"
+
+[[bin]]
+name = "flybase-mcp"
+path = "src/main.rs"
+
+[dependencies]
+rmcp = { version = "3.5", features = ["server", "macros", "transport-streamable-http-server"] }
+axum = "0.8"
+tokio = { version = "1.53", features = ["full"] }
+deadpool-postgres = "0.14"
+tokio-postgres = "0.7"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+schemars = "1.2"
+thiserror = "2"
+anyhow = "1"
+async-trait = "0.1"
+futures = "0.3"
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter", "json"] }
+metrics = "0.24"
+metrics-exporter-prometheus = { version = "0.17", default-features = false }
+url = "2"
+clap = { version = "4", features = ["derive"] }
+
+[dev-dependencies]
+rmcp = { version = "3.5", features = ["client", "transport-streamable-http-client-reqwest"] }
+reqwest = { version = "0.13", features = ["json"] }

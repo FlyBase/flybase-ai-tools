@@ -1,0 +1,12 @@
+{
+  "name": "flybase",
+  "owner": { "name": "FlyBase" },
+  "plugins": [
+    {
+      "name": "flybase",
+      "source": "./plugins/flybase",
+      "description": "FlyBase MCP server: genes, alleles, stocks, sequences, BLAST, and more from flybase.org",
+      "version": "0.1.0"
+    }
+  ]
+}
