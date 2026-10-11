@@ -6,7 +6,7 @@ use crate::{
     report::jbrowse_link,
     server::FlyBaseServer,
     tools::{
-        map::{FeatureType, Range, feature_row, overlaps},
+        map::{FeatureType, MAX_COORD, Range, feature_row, overlaps},
         search::MAX_OFFSET,
         sequence::MAX_REGION,
     },
@@ -72,9 +72,9 @@ pub fn parse_location(s: &str) -> Result<Loc, String> {
                 "location '{s}': chromosome arm must be one of X, Y, 2L, 2R, 3L, 3R, 4"
             ));
         }
-        if start == 0 || end < start {
+        if start == 0 || end < start || end > MAX_COORD {
             return Err(format!(
-                "location '{s}': end must be >= start and start >= 1"
+                "location '{s}': end must be >= start, start >= 1, and end at most {MAX_COORD}"
             ));
         }
         return Ok(Loc::Range {
@@ -342,6 +342,7 @@ mod tests {
             "91A12345",
             "A1",
             "3R:1-2",
+            "3R:1..99999999999",
         ] {
             assert!(parse_location(bad).is_err(), "{bad}");
         }

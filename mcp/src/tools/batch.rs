@@ -304,10 +304,21 @@ impl FlyBaseServer {
         for st in &statuses {
             let mut row = Map::new();
             row.insert("input".into(), json!(st.input));
-            let id = st.current_ids.first().cloned();
+            // A split ID has several targets and no single current ID; its row carries the targets in `note`.
+            let id = if matches!(st.status, "current" | "updated") {
+                st.current_ids.first().cloned()
+            } else {
+                None
+            };
             row.insert("id".into(), json!(id));
             row.insert("status".into(), json!(st.status));
             row.insert("class".into(), json!(id.as_deref().map(class_of)));
+            if st.status == "split" {
+                row.insert(
+                    "note".into(),
+                    json!(format!("split into {}", st.current_ids.join("|"))),
+                );
+            }
             for (name, _, _, _) in &fields {
                 let v = id
                     .as_ref()
@@ -360,14 +371,29 @@ impl FlyBaseServer {
             .map(|b| b.len())
             .unwrap_or(usize::MAX);
         if bytes + 1024 > MAX_JSON_BYTES {
+            // Name the heaviest fields so the caller knows what to drop; TSV has no per-row keys or null cells.
+            let mut sizes: Vec<(&str, usize)> = names
+                .iter()
+                .map(|n| {
+                    let cells: usize = rows.iter().map(|r| r[n].as_str().map_or(0, str::len)).sum();
+                    (*n, cells + rows.len() * (n.len() + 4))
+                })
+                .collect();
+            sizes.sort_by_key(|x| std::cmp::Reverse(x.1));
+            let largest: Vec<String> = sizes
+                .iter()
+                .take(3)
+                .map(|(n, b)| format!("{n} {} KB", b / 1024))
+                .collect();
             return Err(ToolError::LimitExceeded {
                 tool: T,
                 message: format!(
-                    "{} KB of results for {} IDs and {} fields exceeds the {} KB limit; request fewer fields or fewer IDs per call",
+                    "{} KB of results for {} IDs and {} fields exceeds the {} KB limit; largest fields: {}; request fewer fields or fewer IDs per call (format: tsv is smaller, it has no per-row keys or null cells)",
                     bytes / 1024,
                     rows.len(),
                     names.len(),
-                    MAX_JSON_BYTES / 1024
+                    MAX_JSON_BYTES / 1024,
+                    largest.join(", ")
                 ),
             });
         }

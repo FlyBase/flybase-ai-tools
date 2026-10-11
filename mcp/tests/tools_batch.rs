@@ -159,8 +159,32 @@ async fn over_cap_is_limit_exceeded() {
     let s = r.structured_content.unwrap();
     assert_eq!(s["error"], "limit_exceeded");
     assert!(s["message"].as_str().unwrap().contains("fewer fields"));
+    assert!(s["message"].as_str().unwrap().contains("largest fields:"));
     assert!(
         s.get("rows").is_none(),
         "rows are refused whole, never halved"
     );
+}
+
+/// A split ID has no single current ID: its row has a null id, status split, and the targets in `note`.
+#[tokio::test]
+async fn split_id_has_null_id_and_lists_targets() {
+    let c = client().await;
+    // Each database has its own split genes; FBgn0000165 -> FBgn0261374|FBgn0283437 on FB2026_02.
+    let (input, first_target) = if support::full_db() {
+        ("FBgn0000165", "FBgn0261374")
+    } else {
+        ("FBgn0003077", "FBgn0004860")
+    };
+    let s = call(
+        &c,
+        "batch_download",
+        json!({"ids": [input], "fields": ["symbol"]}),
+    )
+    .await;
+    let r = &s["rows"][0];
+    assert_eq!(r["status"], "split");
+    assert!(r["id"].is_null());
+    assert!(r["symbol"].is_null());
+    assert!(r["note"].as_str().unwrap().contains(first_target));
 }

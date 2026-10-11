@@ -151,6 +151,8 @@ pub struct MapParams {
 }
 
 pub const MAX_PADDING: u32 = 100_000;
+/// Largest coordinate chado can hold (featureloc.fmax is int4).
+pub const MAX_COORD: u64 = i32::MAX as u64;
 
 /// A query range on a golden path: chado coordinates (fmin 0-based) after padding and clamping to position 1.
 pub struct Range {
@@ -167,7 +169,7 @@ impl Range {
             species,
             chromosome: r.chromosome.clone(),
             fmin: start as i64 - 1,
-            fmax: (r.end + u64::from(padding)) as i64,
+            fmax: r.end.saturating_add(u64::from(padding)).min(MAX_COORD) as i64,
         }
     }
     pub fn json(&self) -> Value {
@@ -273,12 +275,12 @@ impl FlyBaseServer {
                 });
             }
             (Some(r), None) => {
-                if r.end < r.start || r.start == 0 {
+                if r.end < r.start || r.start == 0 || r.end > MAX_COORD {
                     return Err(ToolError::InvalidInput {
                         tool: T,
                         arg: "region",
                         message: format!(
-                            "end ({}) must be >= start ({}) and start must be >= 1",
+                            "end ({}) must be >= start ({}), start must be >= 1, and end at most {MAX_COORD}",
                             r.end, r.start
                         ),
                     });

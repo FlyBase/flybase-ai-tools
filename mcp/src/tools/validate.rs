@@ -30,7 +30,8 @@ pub struct ValidateParams {
 #[derive(Default)]
 struct Hit {
     ids: Vec<String>,
-    symbol: Option<String>,
+    /// Symbol per matched ID, so the reported symbol is the one of the first ID left after the class filter.
+    symbols: BTreeMap<String, Option<String>>,
     status: &'static str,
     matched_by: &'static str,
     note: Option<String>,
@@ -114,8 +115,13 @@ impl FlyBaseServer {
                 hits.insert(
                     st.input.clone(),
                     Hit {
+                        symbols: st
+                            .current_ids
+                            .first()
+                            .map(|id| (id.clone(), st.symbol.clone()))
+                            .into_iter()
+                            .collect(),
                         ids: st.current_ids,
-                        symbol: st.symbol,
                         status: st.status,
                         matched_by: if st.status == "unknown" {
                             "none"
@@ -147,11 +153,22 @@ impl FlyBaseServer {
                     .iter()
                     .filter(|id| p.target_class.is_none_or(|c| class_of(id) == c.as_str()))
                     .collect();
-                let status = if ids.is_empty() && !h.ids.is_empty() { "unknown" } else { h.status };
+                // The class filter can empty a hit or narrow an ambiguous one to a single match; status and note follow.
+                let narrowed = ids.len() < h.ids.len();
+                let (status, note) = if ids.is_empty() && !h.ids.is_empty() {
+                    ("unknown", Some(format!("matches exist but none of class {}", p.target_class.map(|c| c.as_str()).unwrap_or(""))))
+                } else if h.status == "ambiguous" && ids.len() == 1 {
+                    ("matched", Some(format!("{} entities matched; target_class kept one", h.ids.len())))
+                } else if narrowed && h.status == "ambiguous" {
+                    ("ambiguous", Some(format!("{} entities match after the class filter; pick one", ids.len())))
+                } else {
+                    (h.status, h.note.clone())
+                };
+                let symbol = ids.first().and_then(|id| h.symbols.get(*id).cloned().flatten());
                 json!({
-                    "input": input, "current_ids": ids, "symbol": if ids.is_empty() { Value::Null } else { json!(h.symbol) },
+                    "input": input, "current_ids": ids, "symbol": symbol,
                     "data_class": ids.first().map(|id| class_of(id)), "status": status, "matched_by": if ids.is_empty() { "none" } else { h.matched_by },
-                    "note": if ids.is_empty() && !h.ids.is_empty() { Some(format!("matches exist but none of class {}", p.target_class.map(|c| c.as_str()).unwrap_or(""))) } else { h.note.clone() },
+                    "note": note,
                 })
             })
             .collect();
@@ -229,12 +246,12 @@ impl FlyBaseServer {
                 matched_by,
                 ..Hit::default()
             });
-            push_unique(&mut h.ids, r.get("entity_id"));
-            if h.symbol.is_none() {
-                h.symbol = r
-                    .get::<_, Option<String>>("current_symbol")
-                    .or_else(|| r.get("matched"));
-            }
+            let id: String = r.get("entity_id");
+            h.symbols.entry(id.clone()).or_insert_with(|| {
+                r.get::<_, Option<String>>("current_symbol")
+                    .or_else(|| r.get("matched"))
+            });
+            push_unique(&mut h.ids, id);
         }
         // HGNC:7881 is looked up as accession 7881 in the HGNC db only; a bare number is an Entrez Gene ID (and, below, a PubMed ID).
         let accessions: Vec<String> = inputs
@@ -261,10 +278,11 @@ impl FlyBaseServer {
             if h.matched_by == "symbol" || h.matched_by == "stock_number" {
                 continue; // an exact symbol or stock number wins over an accidental accession match
             }
-            push_unique(&mut h.ids, r.get("uniquename"));
-            if h.symbol.is_none() {
-                h.symbol = r.get("symbol");
-            }
+            let id: String = r.get("uniquename");
+            h.symbols
+                .entry(id.clone())
+                .or_insert_with(|| r.get("symbol"));
+            push_unique(&mut h.ids, id);
             h.note = Some(format!("via {db}"));
         }
         let numbers: Vec<String> = inputs
@@ -282,7 +300,9 @@ impl FlyBaseServer {
                     ..Hit::default()
                 });
                 if h.matched_by == "pubmed_id" {
-                    push_unique(&mut h.ids, r.get("uniquename"));
+                    let id: String = r.get("uniquename");
+                    h.symbols.entry(id.clone()).or_insert(None);
+                    push_unique(&mut h.ids, id);
                     h.note = r.get::<_, Option<String>>("miniref");
                 }
             }

@@ -160,7 +160,15 @@ async fn cytosearch_partial_filter_and_division() {
 #[tokio::test]
 async fn band_range_must_share_an_arm() {
     let c = client().await;
-    for bad in ["91A1-3C7", "91Z", "91A1-", "3R:5..1", "", "chr3R:1..2"] {
+    for bad in [
+        "91A1-3C7",
+        "91Z",
+        "91A1-",
+        "3R:5..1",
+        "",
+        "chr3R:1..2",
+        "3R:1..99999999999",
+    ] {
         let r = call_raw(&c, "cytosearch", json!({"location": bad}))
             .await
             .unwrap();

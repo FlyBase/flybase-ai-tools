@@ -81,6 +81,9 @@ async fn target_class_filters_matches() {
     .await;
     assert_eq!(s["results"][0]["current_ids"], json!(["FBgn0004647"]));
     assert_eq!(s["results"][0]["data_class"], "gene");
+    // The symbol belongs to the surviving gene, not to the first polypeptide or GenBank protein row the query returned.
+    assert_eq!(s["results"][0]["symbol"], "N");
+    assert_eq!(s["results"][0]["status"], "matched");
 }
 
 #[tokio::test]
