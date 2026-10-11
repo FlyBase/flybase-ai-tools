@@ -3,6 +3,7 @@ pub mod aberration;
 pub mod allele;
 pub mod balancer;
 pub mod construct;
+pub mod cvterm;
 pub mod disease;
 pub mod feature;
 pub mod gene;
@@ -46,6 +47,10 @@ pub trait ReportType: Send + Sync {
     fn default_sections(&self) -> &'static [&'static str];
     fn optional_sections(&self) -> &'static [&'static str];
     async fn section(&self, ctx: &SectionCtx, name: &str) -> ToolResult<Value>;
+    /// False for types whose IDs are not resolved through resolve_ids (vocabulary terms).
+    fn resolves_feature_id(&self) -> bool {
+        true
+    }
     /// Chromosome, fmin (0-based), fmax for a JBrowse link, if the entity is located.
     async fn location(&self, _ctx: &SectionCtx) -> ToolResult<Option<(String, i64, i64)>> {
         Ok(None)
@@ -81,6 +86,9 @@ pub const PREFIX_LABELS: &[(&str, &str)] = &[
 ];
 
 pub fn for_id(id: &str) -> Option<Box<dyn ReportType>> {
+    if cvterm::parse_term_id(id).is_some() {
+        return Some(Box::new(cvterm::CvTerm::default()));
+    }
     match id.get(..4).unwrap_or("") {
         "FBal" => Some(Box::new(allele::Allele)),
         "FBgn" => Some(Box::new(gene::Gene)),
@@ -442,6 +450,10 @@ mod tests {
             );
         }
         assert!(for_id("FBsn0000001").unwrap().optional_sections() == ["synonyms"]);
+        let cv = for_id("GO:0007219").unwrap();
+        assert_eq!(cv.name(), "cv_term");
+        assert!(!cv.resolves_feature_id());
+        assert!(for_id("FBgn0004647").unwrap().resolves_feature_id());
         assert!(for_id("x").is_none());
     }
 }

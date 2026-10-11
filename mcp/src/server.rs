@@ -27,7 +27,8 @@ fn prometheus() -> Option<metrics_exporter_prometheus::PrometheusHandle> {
 
 pub const INSTRUCTIONS: &str = "FlyBase MCP server. Start with `resolve` to turn a gene, allele, or other symbol into a FlyBase ID (FBgn..., FBal...). \
 Use `get_report` with that ID and request only the sections you need. Use `search` for free text. IDs in results link to https://flybase.org/reports/<id>; cite them. \
-Species are FlyBase abbreviations such as Dmel. When a tool has a `list_options` argument, call it with list_options=true before guessing field, section, or dataset names.";
+Species are FlyBase abbreviations such as Dmel. When a tool has a `list_options` argument, call it with list_options=true before guessing field, section, or dataset names. \
+Vocabulary term IDs (GO:..., FBbt:..., DOID:...) work with get_term, entities_for_term, and get_report.";
 
 #[derive(Clone)]
 pub struct FlyBaseServer {
@@ -44,6 +45,7 @@ impl FlyBaseServer {
             + Self::tool_router_search()
             + Self::tool_router_sequence()
             + Self::tool_router_report()
+            + Self::tool_router_vocabulary()
     }
 
     pub fn new(chado: Chado, limits: Limits, release: String) -> Self {

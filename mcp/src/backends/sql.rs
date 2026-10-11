@@ -90,6 +90,16 @@ pub fn get(name: &str) -> &'static str {
         "report/construct/insertions" => {
             include_str!("../../sql/queries/report/construct/insertions.sql")
         }
+        "report/cvterm/annotation_counts" => {
+            include_str!("../../sql/queries/report/cvterm/annotation_counts.sql")
+        }
+        "report/cvterm/children" => include_str!("../../sql/queries/report/cvterm/children.sql"),
+        "report/cvterm/descendant_count" => {
+            include_str!("../../sql/queries/report/cvterm/descendant_count.sql")
+        }
+        "report/cvterm/parents" => include_str!("../../sql/queries/report/cvterm/parents.sql"),
+        "report/cvterm/synonyms" => include_str!("../../sql/queries/report/cvterm/synonyms.sql"),
+        "report/cvterm/term" => include_str!("../../sql/queries/report/cvterm/term.sql"),
         "report/gene/alleles" => include_str!("../../sql/queries/report/gene/alleles.sql"),
         "report/gene/external_links" => {
             include_str!("../../sql/queries/report/gene/external_links.sql")
@@ -175,6 +185,7 @@ pub fn get(name: &str) -> &'static str {
         "sequence/transcript_parts" => {
             include_str!("../../sql/queries/sequence/transcript_parts.sql")
         }
+        "vocab/search" => include_str!("../../sql/queries/vocab/search.sql"),
         "species/list" => include_str!("../../sql/queries/species/list.sql"),
         "species/normalize" => include_str!("../../sql/queries/species/normalize.sql"),
         "startup/functions" => include_str!("../../sql/queries/startup/functions.sql"),

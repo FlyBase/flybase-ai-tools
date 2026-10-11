@@ -1,8 +1,8 @@
 use crate::{
     error::{ToolError, ToolResult},
     limits::clamp_limit,
-    output::{Envelope, complete, report_link},
-    report::{SectionCtx, for_id, jbrowse_link, section_error},
+    output::{Envelope, complete, cv_term_link, report_link},
+    report::{SectionCtx, cvterm::canonical_term_id, for_id, jbrowse_link, section_error},
     server::FlyBaseServer,
     tools::resolve::{normalize_fb_prefix, resolve_ids},
 };
@@ -30,7 +30,7 @@ pub struct ReportParams {
 impl FlyBaseServer {
     #[tool(
         name = "get_report",
-        description = "Return the data shown on a FlyBase report page for an ID. Supported: genes, alleles, insertions, constructs, transcripts, polypeptides, aberrations, balancers, stocks, references, gene groups, disease models, cell lines, strains, libraries, clones, sequence features, natural transposons, chemicals, ortholog genes, split system combinations, plasmids. Choose sections to keep responses small; use list_options=true to see section names. Use resolve first if you only have a symbol."
+        description = "Return the data shown on a FlyBase report page for an ID. Supported: genes, alleles, insertions, constructs, transcripts, polypeptides, aberrations, balancers, stocks, references, gene groups, disease models, cell lines, strains, libraries, vocabulary terms (GO, FBbt, FBcv, FBdv, DOID, SO, MI), clones, sequence features, natural transposons, chemicals, ortholog genes, split system combinations, plasmids. Choose sections to keep responses small; use list_options=true to see section names. Use resolve first if you only have a symbol."
     )]
     pub async fn get_report(
         &self,
@@ -90,34 +90,42 @@ impl FlyBaseServer {
                 });
             }
         }
-        // resolve_ids checks out and returns its own connection before ours is taken.
-        let st = resolve_ids(&self.chado, T, std::slice::from_ref(&input))
-            .await?
-            .remove(0);
-        let id = match st.status {
-            "current" | "updated" => st.current_ids[0].clone(),
-            "split" => {
-                return Err(ToolError::InvalidInput {
-                    tool: T,
-                    arg: "id",
-                    message: format!(
-                        "{input} was split into {}; pick one",
-                        st.current_ids.join(", ")
-                    ),
-                });
-            }
-            "obsolete" => {
-                return Err(ToolError::NotFound {
-                    tool: T,
-                    message: format!("{input} is obsolete with no replacement"),
-                });
-            }
-            _ => {
-                return Err(ToolError::NotFound {
-                    tool: T,
-                    message: format!("{input} is not a FlyBase ID; use resolve or search"),
-                });
-            }
+        let (id, resolved_from) = if rt.resolves_feature_id() {
+            // resolve_ids checks out and returns its own connection before ours is taken.
+            let st = resolve_ids(&self.chado, T, std::slice::from_ref(&input))
+                .await?
+                .remove(0);
+            let id = match st.status {
+                "current" | "updated" => st.current_ids[0].clone(),
+                "split" => {
+                    return Err(ToolError::InvalidInput {
+                        tool: T,
+                        arg: "id",
+                        message: format!(
+                            "{input} was split into {}; pick one",
+                            st.current_ids.join(", ")
+                        ),
+                    });
+                }
+                "obsolete" => {
+                    return Err(ToolError::NotFound {
+                        tool: T,
+                        message: format!("{input} is obsolete with no replacement"),
+                    });
+                }
+                _ => {
+                    return Err(ToolError::NotFound {
+                        tool: T,
+                        message: format!("{input} is not a FlyBase ID; use resolve or search"),
+                    });
+                }
+            };
+            (id, (st.status == "updated").then(|| input.clone()))
+        } else {
+            (
+                canonical_term_id(&input).unwrap_or_else(|| input.clone()),
+                None,
+            )
         };
         let limit = clamp_limit(p.limit_per_section);
         let ctx = SectionCtx {
@@ -152,7 +160,12 @@ impl FlyBaseServer {
                 }
             }
         }
-        let mut env = Envelope::new(T, &self.release).link("report", report_link(&id));
+        let link = if rt.resolves_feature_id() {
+            report_link(&id)
+        } else {
+            cv_term_link(&id)
+        };
+        let mut env = Envelope::new(T, &self.release).link("report", link);
         match location {
             Ok(Some((chrom, fmin, fmax))) => {
                 env = env.link("jbrowse", jbrowse_link(&chrom, fmin, fmax))
@@ -193,8 +206,8 @@ impl FlyBaseServer {
         if !section_errors.is_empty() {
             env = env.field("section_errors", json!(section_errors));
         }
-        if st.status == "updated" {
-            env = env.field("resolved_from", json!(input));
+        if let Some(from) = resolved_from {
+            env = env.field("resolved_from", json!(from));
         }
         Ok(env.finish())
     }
