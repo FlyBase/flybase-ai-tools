@@ -3,8 +3,10 @@ pub mod allele;
 pub mod construct;
 pub mod gene;
 pub mod insertion;
+pub mod polypeptide;
 pub mod reference;
 pub mod stock;
+pub mod transcript;
 
 use crate::{
     backends::chado::Chado,
@@ -80,6 +82,8 @@ pub fn for_id(id: &str) -> Option<Box<dyn ReportType>> {
         "FBst" => Some(Box::new(stock::Stock)),
         "FBti" => Some(Box::new(insertion::Insertion)),
         "FBtp" => Some(Box::new(construct::Construct)),
+        "FBtr" => Some(Box::new(transcript::Transcript)),
+        "FBpp" => Some(Box::new(polypeptide::Polypeptide)),
         _ => None,
     }
 }
@@ -355,6 +359,8 @@ mod tests {
         assert_eq!(for_id("FBst0028813").unwrap().name(), "stock");
         assert_eq!(for_id("FBti0000488").unwrap().name(), "insertion");
         assert_eq!(for_id("FBtp0000743").unwrap().name(), "construct");
+        assert_eq!(for_id("FBtr0070507").unwrap().name(), "transcript");
+        assert_eq!(for_id("FBpp0070483").unwrap().name(), "polypeptide");
         assert!(for_id("x").is_none());
     }
 }

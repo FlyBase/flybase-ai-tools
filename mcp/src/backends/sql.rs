@@ -77,6 +77,12 @@ pub fn get(name: &str) -> &'static str {
             include_str!("../../sql/queries/report/insertion/construct.sql")
         }
         "report/insertion/genes" => include_str!("../../sql/queries/report/insertion/genes.sql"),
+        "report/polypeptide/domains" => {
+            include_str!("../../sql/queries/report/polypeptide/domains.sql")
+        }
+        "report/polypeptide/transcript" => {
+            include_str!("../../sql/queries/report/polypeptide/transcript.sql")
+        }
         "report/reference/abstract" => {
             include_str!("../../sql/queries/report/reference/abstract.sql")
         }
@@ -95,6 +101,11 @@ pub fn get(name: &str) -> &'static str {
         "report/reference/genes" => include_str!("../../sql/queries/report/reference/genes.sql"),
         "report/stock/components" => include_str!("../../sql/queries/report/stock/components.sql"),
         "report/stock/identity" => include_str!("../../sql/queries/report/stock/identity.sql"),
+        "report/transcript/gene" => include_str!("../../sql/queries/report/transcript/gene.sql"),
+        "report/transcript/parts" => include_str!("../../sql/queries/report/transcript/parts.sql"),
+        "report/transcript/polypeptide" => {
+            include_str!("../../sql/queries/report/transcript/polypeptide.sql")
+        }
         "resolve/candidates" => include_str!("../../sql/queries/resolve/candidates.sql"),
         "resolve/id_status" => include_str!("../../sql/queries/resolve/id_status.sql"),
         "search/names" => include_str!("../../sql/queries/search/names.sql"),
