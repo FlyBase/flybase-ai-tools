@@ -47,7 +47,7 @@ fn opt(r: &tokio_postgres::Row, col: &str) -> Value {
 impl FlyBaseServer {
     #[tool(
         name = "get_interactions",
-        description = "Physical (protein-protein) and genetic interactions for a gene, or allele-level genetic interactions for an allele, with partners, roles, detection methods, outcomes, and references. One hop only; call again on a partner to go further. Use get_report sections for everything else about the gene."
+        description = "Physical (protein-protein) and genetic interactions for a gene, or allele-level genetic interactions for an allele, with partners, roles, detection methods, outcomes, and references. A self-interaction lists the gene as its own partner; allele comparisons give genotype (whose phenotype is described), compared_with, and side (which of the two carries the allele). One hop only; call again on a partner to go further. Use get_report sections for everything else about the gene."
     )]
     pub async fn get_interactions(
         &self,
@@ -168,7 +168,7 @@ impl FlyBaseServer {
                 .take(limit as usize)
                 .map(|r| {
                     if is_allele {
-                        json!({"genotype": opt(r, "genotype"), "compared_with": opt(r, "compared_with"), "phenotype": opt(r, "phenotype"), "outcome": opt(r, "outcome"),
+                        json!({"genotype": opt(r, "genotype"), "compared_with": opt(r, "compared_with"), "side": r.get::<_, String>("side"), "phenotype": opt(r, "phenotype"), "outcome": opt(r, "outcome"),
                                "reference": r.get::<_, String>("reference"), "citation": r.get::<_, Option<String>>("miniref")})
                     } else {
                         json!({"partner_id": r.get::<_, String>("partner_id"), "partner_symbol": opt(r, "partner_symbol"), "direction": r.get::<_, String>("direction"),

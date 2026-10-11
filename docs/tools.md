@@ -222,7 +222,7 @@ List the genes, alleles, disease models, or gene groups annotated to a vocabular
 
 ## `get_interactions`
 
-Physical (protein-protein) and genetic interactions for a gene, or allele-level genetic interactions for an allele, with partners, roles, detection methods, outcomes, and references. One hop only; call again on a partner to go further. Use get_report sections for everything else about the gene.
+Physical (protein-protein) and genetic interactions for a gene, or allele-level genetic interactions for an allele, with partners, roles, detection methods, outcomes, and references. A self-interaction lists the gene as its own partner; allele comparisons give genotype (whose phenotype is described), compared_with, and side (which of the two carries the allele). One hop only; call again on a partner to go further. Use get_report sections for everything else about the gene.
 
 ```json
 {
