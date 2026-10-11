@@ -36,7 +36,10 @@ GP="(select cvterm_id from cvterm where name = 'golden_path' and cv_id = $SO)"
 #   seeds
 #   + hop1: every feature one relationship away from a seed (either direction), and the seeds' srcfeatures
 #   + transcript children: subjects of the transcripts (FBtr) of seed genes (FBgn), i.e. their exons and polypeptides
-#   + all Dmel chromosome bands.
+#   + all Dmel chromosome bands
+#   + physical-interaction partners: the -XP polypeptides of seed genes, their interaction partners, and the partners' genes
+#   + polypeptide domains located on seed polypeptides (FBpp)
+#   + the first 5,000 clones of library FBlc0000001 (its library_feature sample below).
 # Neighbours of hop1 features that are not seed-gene transcripts (alleles' constructs, other genes' alleles, ...) are not included.
 t0=$SECONDS
 FIDS=$(q "with seed as (select feature_id, uniquename from feature where uniquename in ($IDS)),
@@ -47,18 +50,33 @@ FIDS=$(q "with seed as (select feature_id, uniquename from feature where uniquen
  seed_tx as (select fr.subject_id as feature_id from feature_relationship fr join feature t on t.feature_id = fr.subject_id
    where fr.object_id in (select feature_id from seed where uniquename like 'FBgn%') and t.uniquename like 'FBtr%'),
  tx_children as (select subject_id as feature_id from feature_relationship where object_id in (select feature_id from seed_tx)),
+ xp as (select s.feature_id from seed g join feature_relationship fr on fr.object_id = g.feature_id
+   join feature s on s.feature_id = fr.subject_id where g.uniquename like 'FBgn%' and s.name like '%-XP'),
+ partners as (select fo.feature_id from xp join feature_interaction fi on fi.feature_id = xp.feature_id
+   join feature_interaction fo on fo.interaction_id = fi.interaction_id where fo.feature_id <> xp.feature_id
+   union select fr.object_id from feature_relationship fr where fr.subject_id in (
+     select fo.feature_id from xp join feature_interaction fi on fi.feature_id = xp.feature_id
+     join feature_interaction fo on fo.interaction_id = fi.interaction_id where fo.feature_id <> xp.feature_id)),
+ domains as (select fl.feature_id from featureloc fl where fl.srcfeature_id in (select feature_id from seed where uniquename like 'FBpp%')),
+ clones as (select lf.feature_id from library_feature lf where lf.library_id = (select library_id from library where uniquename = 'FBlc0000001') order by lf.library_feature_id limit 5000),
  bands as (select feature_id from feature where type_id = (select cvterm_id from cvterm where name = 'chromosome_band' and cv_id = $SO)
    and organism_id = (select organism_id from organism where abbreviation = 'Dmel'))
- select string_agg(feature_id::text, ',') from (select feature_id from hop1 union select feature_id from tx_children union select feature_id from bands) x")
+ select string_agg(feature_id::text, ',') from (select feature_id from hop1 union select feature_id from tx_children union select feature_id from bands
+   union select feature_id from partners union select feature_id from domains union select feature_id from clones) x")
 echo "feature ids: $(echo "$FIDS" | tr ',' '\n' | wc -l), $((SECONDS - t0))s"
 
 # Feature rows, excluding golden paths (their residues are 20+ Mb each; a selected copy follows).
 cp_ "select * from feature where $(in_ feature_id "$FIDS") and type_id <> $GP" feature
 # Golden paths, whole: Dmel X, 2L and 3R (about 79 Mb of residues; the sequence tests read X:3.13 Mb, X:21.5 Mb,
 # 2L:4.5 Mb and 3R:26.6 Mb), plus the Dpse scaffold 3_groupMISC, which has NULL residues and seqlen in chado.
+# The other Dmel arms (2R, 3L, 4, Y) are copied with NULL residues and their true seqlen so mcp.band_coordinates
+# covers every arm; get_sequence on them answers "has no stored sequence".
 cp_ "select * from feature where type_id = $GP
      and ((uniquename in ('X', '2L', '3R') and organism_id = (select organism_id from organism where abbreviation = 'Dmel'))
-       or (uniquename = '3_groupMISC' and organism_id = (select organism_id from organism where abbreviation = 'Dpse')))" zz_feature_golden_path
+       or (uniquename = '3_groupMISC' and organism_id = (select organism_id from organism where abbreviation = 'Dpse')))
+     union all
+     select feature_id, dbxref_id, organism_id, name, uniquename, null, seqlen, md5checksum, type_id, is_analysis, timeaccessioned, timelastmodified, is_obsolete
+     from feature where type_id = $GP and uniquename in ('2R', '3L', '4', 'Y') and organism_id = (select organism_id from organism where abbreviation = 'Dmel')" zz_feature_golden_path
 cp_ "select * from featureloc where $(in_ feature_id "$FIDS")" featureloc
 cp_ "select * from feature_relationship where $(in_ subject_id "$FIDS") and $(in_ object_id "$FIDS")" feature_relationship
 cp_ "select * from feature_synonym where $(in_ feature_id "$FIDS")" feature_synonym
@@ -81,6 +99,30 @@ for t in organism cv cvterm cvtermsynonym cvterm_relationship db pub pubauthor p
 done
 for t in dataclass.genev2 dataclass.allelev2 dataclass.diseasev2 dataclass_relationship.gene_allelev2 dataclass_relationship.gene_human_orthologv2 \
          gene.allele gene.allele_stock gene.allele_class gene.allele_mutagen gene.allele_transgenic_product_class gene.insertion gene.construct; do
+  cp_ "select * from $t" "${t//./__}"
+done
+
+# Plan 2 tables: whole copies for the small ones; the relationship and interaction side tables need both ends
+# (or the interaction) inside the feature-id set, like feature_relationship above.
+for t in feature_grpmember grp_relationship grp_pub grp_cvterm \
+         humanhealth_dbxref humanhealth_feature humanhealth_featureprop humanhealth_pub humanhealth_relationship humanhealth_cvterm \
+         cell_lineprop cell_line_pub cell_line_cvterm cell_line_feature strainprop strain_pub \
+         libraryprop library_pub library_cvterm cvtermprop phenotype_comparison_cvterm; do
+  cp_ "select * from $t" "$t"
+done
+cp_ "select * from library_feature where library_id = (select library_id from library where uniquename = 'FBlc0000001') order by library_feature_id limit 5000" library_feature
+FR="(select feature_relationship_id from feature_relationship where $(in_ subject_id "$FIDS") and $(in_ object_id "$FIDS"))"
+cp_ "select * from feature_relationship_pub where feature_relationship_id in $FR" feature_relationship_pub
+cp_ "select * from feature_relationshipprop where feature_relationship_id in $FR" feature_relationshipprop
+cp_ "select * from feature_interaction where $(in_ feature_id "$FIDS")" feature_interaction
+FI="(select interaction_id from feature_interaction where $(in_ feature_id "$FIDS"))"
+cp_ "select * from interaction where interaction_id in $FI" interaction
+cp_ "select * from interaction_pub where interaction_id in $FI" interaction_pub
+cp_ "select * from interactionprop where interaction_id in $FI" interactionprop
+cp_ "select * from interaction_cvterm where interaction_id in $FI" interaction_cvterm
+cp_ "select * from phenotype_comparison where genotype1_id in (select genotype_id from feature_genotype where $(in_ feature_id "$FIDS"))" phenotype_comparison
+for t in dataclass_relationship.gene_diseasev2 humanhealth.allele_disease_variant \
+         gene.split_system_combination gene.split_system_combination_component_allele gene_group.pathway_member; do
   cp_ "select * from $t" "${t//./__}"
 done
 

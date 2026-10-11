@@ -11,11 +11,25 @@ Tests connect to `CHADO_URL`, defaulting to the URL above. Re-run both scripts a
 Feature rows cover the IDs in `ids.txt`, every feature one relationship away from them, the seeds' source features,
 the children (exons, polypeptides) of seed genes' transcripts, and all Dmel chromosome bands. Neighbours of neighbours
 are not included: the plan's generic second hop reached 208k features because Notch alone has 2,305 direct neighbours.
-`dbxref` holds only the rows referenced by exported feature, feature_dbxref, pub_dbxref and cvterm rows.
+Three narrower additions serve the Plan 2 tests: the physical-interaction partner hop (the `-XP` polypeptides of seed
+genes, their `feature_interaction` partners, and the partners' genes), the polypeptide domains located on seed
+polypeptides, and the first 5,000 clones of library `FBlc0000001` (the `library_feature` sample, 5,000 rows).
+`dbxref` holds only the rows referenced by exported feature, feature_dbxref, pub_dbxref and cvterm rows, so
+`humanhealth_dbxref` rows have no `dbxref` row here and that field is null on the fixture.
 Public chado drops connections on queries that run past about two minutes, so `export.sh` keeps every copy small.
 
 `cell_line`, `strain` and `library` with their synonym tables are copied whole, and `synonym` holds the rows those and the
 feature, gene group and human health synonym tables reference. Golden paths are copied whole for Dmel X, 2L and 3R only,
-plus the unsequenced Dpse scaffold `3_groupMISC`.
+plus the unsequenced Dpse scaffold `3_groupMISC`; Dmel 2R, 3L, 4 and Y are present with NULL residues and their true
+`seqlen` so `mcp.band_coordinates` covers every arm (`get_sequence` on them reports no stored sequence).
 
-Known gaps: `stock_pub` is empty in public chado; other `library_*` and the `interaction` tables are not exported (Plans 2 and 3 extend this).
+Plan 2 tables: `feature_grpmember`, `grp_relationship`, `grp_pub`, `grp_cvterm`, the `humanhealth_*` side tables,
+`cell_lineprop`, `cell_line_pub`, `cell_line_cvterm`, `cell_line_feature`, `strainprop`, `strain_pub`, `libraryprop`,
+`library_pub`, `library_cvterm`, `cvtermprop`, `phenotype_comparison_cvterm`, `dataclass_relationship.gene_diseasev2`,
+`humanhealth.allele_disease_variant`, `gene.split_system_combination(_component_allele)` and `gene_group.pathway_member`
+are copied whole. `feature_relationship_pub`, `feature_relationshipprop`, `feature_interaction`, `interaction`,
+`interaction_pub`, `interactionprop`, `interaction_cvterm` and `phenotype_comparison` are restricted to the feature-id set.
+
+`fixture/data/diopt.tsv.gz` (git-ignored, downloaded by hand) is optional; no test depends on it.
+
+Known gaps: `stock_pub` is empty in public chado.
