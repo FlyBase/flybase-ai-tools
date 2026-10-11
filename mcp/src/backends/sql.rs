@@ -31,6 +31,13 @@ pub fn get(name: &str) -> &'static str {
         "cyto/aberrations" => include_str!("../../sql/queries/cyto/aberrations.sql"),
         "cyto/band" => include_str!("../../sql/queries/cyto/band.sql"),
         "disease/variants" => include_str!("../../sql/queries/disease/variants.sql"),
+        "interactions/genetic_allele" => {
+            include_str!("../../sql/queries/interactions/genetic_allele.sql")
+        }
+        "interactions/genetic_gene" => {
+            include_str!("../../sql/queries/interactions/genetic_gene.sql")
+        }
+        "interactions/physical" => include_str!("../../sql/queries/interactions/physical.sql"),
         "map/overlaps" => include_str!("../../sql/queries/map/overlaps.sql"),
         "report/disease/do_terms" => include_str!("../../sql/queries/report/disease/do_terms.sql"),
         "report/disease/genes" => include_str!("../../sql/queries/report/disease/genes.sql"),

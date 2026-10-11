@@ -1,6 +1,7 @@
 pub mod batch;
 pub mod cyto;
 pub mod entities;
+pub mod interactions;
 pub mod map;
 pub mod report;
 pub mod resolve;

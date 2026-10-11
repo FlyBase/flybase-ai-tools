@@ -220,6 +220,66 @@ List the genes, alleles, disease models, or gene groups annotated to a vocabular
 }
 ```
 
+## `get_interactions`
+
+Physical (protein-protein) and genetic interactions for a gene, or allele-level genetic interactions for an allele, with partners, roles, detection methods, outcomes, and references. One hop only; call again on a partner to go further. Use get_report sections for everything else about the gene.
+
+```json
+{
+  "$defs": {
+    "Kind": {
+      "enum": [
+        "physical",
+        "genetic",
+        "both"
+      ],
+      "type": "string"
+    }
+  },
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "id": {
+      "description": "A gene (FBgn) or allele (FBal). Physical interactions are at gene level; an allele gives allele-level genetic interactions.",
+      "type": "string"
+    },
+    "kind": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/Kind"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "description": "physical, genetic, or both (default both)."
+    },
+    "limit": {
+      "description": "Items per page for each kind (default 25, max 100).",
+      "format": "uint32",
+      "minimum": 0,
+      "type": [
+        "integer",
+        "null"
+      ]
+    },
+    "offset": {
+      "description": "Items to skip in each list.",
+      "format": "uint32",
+      "minimum": 0,
+      "type": [
+        "integer",
+        "null"
+      ]
+    }
+  },
+  "required": [
+    "id"
+  ],
+  "type": "object"
+}
+```
+
 ## `get_report`
 
 Return the data shown on a FlyBase report page for an ID. Supported: genes, alleles, insertions, constructs, transcripts, polypeptides, aberrations, balancers, stocks, references, gene groups, disease models, cell lines, strains, libraries, vocabulary terms (GO, FBbt, FBcv, FBdv, DOID, SO, MI), clones, sequence features, natural transposons, chemicals, ortholog genes, split system combinations, plasmids. Choose sections to keep responses small; use list_options=true to see section names. Use resolve first if you only have a symbol.
