@@ -89,7 +89,7 @@ impl ReportType for Gene {
             "snapshot" => {
                 let r = ctx.query("report/gene/snapshot", &[id]).await?;
                 json!({
-                    "text": r.first().and_then(|r| r.get::<_, Option<String>>("value")),
+                    "text": r.first().and_then(|r| r.get::<_, Option<String>>("value")).map(|s| strip_markup(&s)),
                     "date": r.first().and_then(|r| r.get::<_, Option<String>>("date")),
                 })
             }

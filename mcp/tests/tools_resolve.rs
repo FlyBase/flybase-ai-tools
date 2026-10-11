@@ -215,3 +215,12 @@ async fn text_content_repeats_structured_body() {
     let parsed: serde_json::Value = serde_json::from_str(json).unwrap();
     assert_eq!(parsed, r.structured_content.unwrap());
 }
+
+#[tokio::test]
+async fn name_without_species_does_not_error() {
+    // FBtc0000033's names are indexed with a NULL species.
+    let c = client().await;
+    let s = call(&c, "resolve", json!({"query": "ML83-63"})).await;
+    assert_eq!(s["matches"][0]["id"], "FBtc0000033");
+    assert_eq!(s["matches"][0]["data_class"], "cell_line");
+}

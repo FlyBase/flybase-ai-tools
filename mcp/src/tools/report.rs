@@ -4,7 +4,7 @@ use crate::{
     output::{Envelope, complete, report_link},
     report::{SectionCtx, for_id, jbrowse_link},
     server::FlyBaseServer,
-    tools::resolve::resolve_ids,
+    tools::resolve::{normalize_fb_prefix, resolve_ids},
 };
 use rmcp::{
     ErrorData, handler::server::wrapper::Parameters, model::CallToolResult, tool, tool_router,
@@ -16,7 +16,7 @@ use serde_json::{Map, Value, json};
 #[derive(Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct ReportParams {
-    /// Any FlyBase ID (FBgn, FBal, FBrf, FBst, ...). Secondary and obsolete IDs are resolved first.
+    /// A gene, allele, reference, or stock ID (FBgn, FBal, FBrf, FBst). Secondary and obsolete IDs are resolved first.
     pub id: String,
     /// Sections to return. Omit for the type's default summary set. Pass list_options=true to see valid names.
     pub sections: Option<Vec<String>>,
@@ -30,7 +30,7 @@ pub struct ReportParams {
 impl FlyBaseServer {
     #[tool(
         name = "get_report",
-        description = "Return the data shown on a FlyBase report page for any FlyBase ID: genes, alleles, insertions, constructs, transcripts, stocks, references, gene groups, disease models, and more. Choose sections to keep responses small; use list_options=true to see section names. Use resolve first if you only have a symbol."
+        description = "Return the data shown on a FlyBase report page for a gene (FBgn), allele (FBal), reference (FBrf), or stock (FBst) ID; more report types arrive in later releases. Choose sections to keep responses small; use list_options=true to see section names. Use resolve first if you only have a symbol."
     )]
     pub async fn get_report(
         &self,
@@ -49,7 +49,7 @@ impl FlyBaseServer {
     /// Sections of one call run concurrently on the single connection checked out here (see `SectionCtx`).
     async fn report_impl(&self, p: ReportParams) -> ToolResult<CallToolResult> {
         const T: &str = "get_report";
-        let input = p.id.trim().to_string();
+        let input = normalize_fb_prefix(p.id.trim()).into_owned();
         let rt = for_id(&input).ok_or_else(|| ToolError::InvalidInput {
             tool: T,
             arg: "id",

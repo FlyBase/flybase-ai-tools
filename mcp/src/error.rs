@@ -39,16 +39,24 @@ impl ToolError {
     /// Wrap a database error without leaking SQL text to the client.
     /// The full cause (SQLSTATE and server message) is logged for operators.
     pub fn db(tool: &'static str, e: &tokio_postgres::Error) -> Self {
-        match e.as_db_error() {
-            Some(d) => tracing::error!(
+        let canceled = e.code() == Some(&SqlState::QUERY_CANCELED);
+        // A statement timeout is an expected outcome of an over-broad request, not a server fault.
+        match (e.as_db_error(), canceled) {
+            (Some(d), true) => tracing::warn!(
+                tool,
+                sqlstate = d.code().code(),
+                error = d.message(),
+                "database query canceled"
+            ),
+            (Some(d), false) => tracing::error!(
                 tool,
                 sqlstate = d.code().code(),
                 error = d.message(),
                 "database error"
             ),
-            None => tracing::error!(tool, error = ?e, "database error"),
+            (None, _) => tracing::error!(tool, error = ?e, "database error"),
         }
-        if e.code() == Some(&SqlState::QUERY_CANCELED) {
+        if canceled {
             Self::LimitExceeded {
                 tool,
                 message: "query timed out; narrow the request".into(),

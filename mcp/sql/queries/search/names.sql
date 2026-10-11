@@ -12,5 +12,5 @@ where (($6::bool and lower(n.name) like (lower($7) || '%') escape '\')
   and ($2::text is null or n.species = $2)
   and ($3::text is null or n.data_class = $3)
 order by (lower(n.name) = lower($1)) desc, (lower(n.name) like (lower($7) || '%') escape '\') desc,
-         n.is_current desc, length(n.name), n.entity_id
+         n.is_current desc, length(n.name), n.entity_id, n.name
 limit $4 offset $5

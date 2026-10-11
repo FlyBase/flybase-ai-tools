@@ -24,10 +24,17 @@ pub fn cv_term_link(id: &str) -> String {
 /// Record the per-call metrics every tool handler emits (spec section 8): a call counter by tool and
 /// outcome ("ok" or the error code) and a duration histogram by tool.
 pub fn record_call(tool: &'static str, outcome: &'static str, started: Instant) {
+    let elapsed = started.elapsed();
+    tracing::info!(
+        tool,
+        outcome,
+        duration_ms = elapsed.as_millis() as u64,
+        "tool call"
+    );
     metrics::counter!("flybase_mcp_tool_calls_total", "tool" => tool, "outcome" => outcome)
         .increment(1);
     metrics::histogram!("flybase_mcp_tool_duration_seconds", "tool" => tool)
-        .record(started.elapsed().as_secs_f64());
+        .record(elapsed.as_secs_f64());
 }
 
 /// Turn a handler's outcome into the MCP result and record its metrics. Every tool handler ends here.

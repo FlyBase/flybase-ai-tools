@@ -236,3 +236,18 @@ async fn cell_line_class_is_searchable() {
         "{s}"
     );
 }
+
+#[tokio::test]
+async fn name_without_species_does_not_error() {
+    // FBtc0000033's names are indexed with a NULL species.
+    let c = client().await;
+    let s = call(&c, "search", json!({"query": "CVCL_Z807"})).await;
+    let hit = s["hits"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|h| h["id"] == "FBtc0000033")
+        .expect("FBtc0000033 among hits")
+        .clone();
+    assert_eq!(hit["data_class"], "cell_line");
+}

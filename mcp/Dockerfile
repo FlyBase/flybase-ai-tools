@@ -1,3 +1,4 @@
+# rust-toolchain.toml is excluded by .dockerignore: the image pins its own toolchain here, and rustup would otherwise try to install the file's channel at build time.
 FROM rust:1.90-bookworm AS build
 WORKDIR /src
 COPY Cargo.toml Cargo.lock ./

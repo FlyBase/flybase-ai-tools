@@ -237,7 +237,7 @@ pub async fn resolve_ids(
 impl FlyBaseServer {
     #[tool(
         name = "resolve",
-        description = "Turn one gene, allele, insertion, stock, or other symbol, name, synonym, or ID into current FlyBase IDs. Handles obsolete and secondary IDs. Use this first whenever you have a name and need an ID for another tool. For a batch of exact IDs use validate_ids; for free-text discovery use search."
+        description = "Turn one gene, allele, insertion, stock, cell line, library, strain, or other symbol, name, synonym, stock number, or ID into current FlyBase IDs. Handles obsolete and secondary IDs. Use this first whenever you have a name and need an ID for another tool. For a batch of exact IDs use validate_ids; for free-text discovery use search."
     )]
     pub async fn resolve(
         &self,
@@ -294,7 +294,8 @@ impl FlyBaseServer {
                 .map(|r| Candidate {
                     id: r.get("entity_id"),
                     data_class: r.get("data_class"),
-                    species: r.get("species"),
+                    // Some names (e.g. cell lines) carry no organism; a NULL species reads as "".
+                    species: r.get::<_, Option<String>>("species").unwrap_or_default(),
                     symbol: r.get("current_symbol"),
                     matched: r.get("name"),
                     name_kind: r.get("name_kind"),

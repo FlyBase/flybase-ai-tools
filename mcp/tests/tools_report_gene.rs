@@ -121,3 +121,16 @@ async fn secondary_id_redirects() {
     assert_eq!(s["id"], "FBgn0004647");
     assert_eq!(s["resolved_from"], "FBgn0000311");
 }
+
+#[tokio::test]
+async fn lowercase_id_prefix_is_accepted() {
+    let c = client().await;
+    let s = call(
+        &c,
+        "get_report",
+        json!({"id": "fbgn0004647", "sections": ["identity"]}),
+    )
+    .await;
+    assert_eq!(s["type"], "gene");
+    assert_eq!(s["sections"]["identity"]["symbol"], "N");
+}

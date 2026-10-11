@@ -94,7 +94,7 @@ fn hit_link(id: &str, data_class: &str) -> Option<String> {
 impl FlyBaseServer {
     #[tool(
         name = "search",
-        description = "Free-text search over FlyBase: symbols, names, and synonyms of genes, alleles, insertions, constructs, stocks, gene groups, and disease models; reference titles with author and year filters; and vocabulary terms. Returns a paged hit list. Use resolve when you already know the exact symbol or ID."
+        description = "Free-text search over FlyBase: symbols, names, and synonyms of genes, alleles, insertions, constructs, stocks (including stock numbers), cell lines, libraries, strains, gene groups, and disease models; reference titles with author and year filters; and vocabulary terms. Returns a paged hit list. Use resolve when you already know the exact symbol or ID."
     )]
     pub async fn search(
         &self,
@@ -197,7 +197,7 @@ impl FlyBaseServer {
                     rows.iter()
                         .map(|r| {
                             json!({"id": r.get::<_, String>("entity_id"), "symbol": r.get::<_, Option<String>>("current_symbol"), "name": r.get::<_, String>("matched"),
-                                   "data_class": r.get::<_, String>("data_class"), "species": r.get::<_, String>("species"), "match_kind": r.get::<_, String>("match_kind")})
+                                   "data_class": r.get::<_, String>("data_class"), "species": r.get::<_, Option<String>>("species"), "match_kind": r.get::<_, String>("match_kind")})
                         })
                         .collect()
                 }

@@ -9,3 +9,4 @@ join cvterm t on t.cvterm_id = fc.cvterm_id join cv c on c.cv_id = t.cv_id and c
 join dbxref d on d.dbxref_id = t.dbxref_id
 where f.uniquename = $1
 order by c.name, is_experimental desc, t.name
+limit 1000
