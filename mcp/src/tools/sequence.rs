@@ -5,7 +5,7 @@ use crate::{
         species::normalize_species,
     },
     error::{ToolError, ToolResult},
-    limits::MAX_FASTA_BYTES,
+    limits::MAX_JSON_BYTES,
     output::{Envelope, complete, report_link},
     server::FlyBaseServer,
     tools::resolve::class_of,
@@ -21,6 +21,8 @@ use serde_json::{Value, json};
 pub const MAX_REGION: u64 = 500_000;
 /// Above this length the inline `sequence` field is omitted and only `fasta` is returned.
 pub const INLINE_SEQ_MAX: usize = 100_000;
+/// Bytes of record payload a gene-kind result may carry; the rest of MAX_JSON_BYTES is envelope headroom.
+const RECORDS_BUDGET: usize = MAX_JSON_BYTES - 8 * 1024;
 
 #[derive(Deserialize, JsonSchema, Clone, Copy, PartialEq, Eq, Debug)]
 #[serde(rename_all = "snake_case")]
@@ -95,7 +97,7 @@ pub struct SequenceParams {
 impl FlyBaseServer {
     #[tool(
         name = "get_sequence",
-        description = "Return FASTA sequence for a FlyBase ID (gene span, transcripts, CDS, protein, UTRs, introns, insertion flanks) or for a genomic region (chromosome, start, end, strand). Max 500 kb per region. Use resolve first if you only have a symbol."
+        description = "Return FASTA sequence for a FlyBase ID (gene span, transcripts, CDS, protein, UTRs, introns, insertion flanks) or for a genomic region (chromosome, start, end, strand). Max 500 kb per region. Results carry `strand` (1, -1, or 0 for an unstranded feature, whose sequence is the forward strand). Use resolve first if you only have a symbol."
     )]
     pub async fn get_sequence(
         &self,
@@ -127,7 +129,7 @@ impl FlyBaseServer {
                     None => "Dmel".to_string(),
                 };
                 let conn = self.chado.get(T).await?;
-                self.region_seq(&conn, T, r, &species, None).await
+                self.region_seq(&conn, T, r, &species, None, false).await
             }
             (Some(id), None) => {
                 let conn = self.chado.get(T).await?;
@@ -136,7 +138,8 @@ impl FlyBaseServer {
         }
     }
 
-    /// Fetch a region. `id` is set when the region was derived from a feature, for the header and links.
+    /// Fetch a region. `id` is set when the region was derived from a feature, for the header and links;
+    /// `unstranded` marks a feature with strand 0 or NULL, whose forward-strand sequence is reported with strand 0.
     async fn region_seq(
         &self,
         conn: &Object,
@@ -144,6 +147,7 @@ impl FlyBaseServer {
         r: Region,
         species: &str,
         id: Option<&str>,
+        unstranded: bool,
     ) -> ToolResult<CallToolResult> {
         if r.end < r.start || r.start == 0 {
             return Err(ToolError::InvalidInput {
@@ -159,7 +163,12 @@ impl FlyBaseServer {
         if span > MAX_REGION {
             return Err(ToolError::LimitExceeded {
                 tool: t,
-                message: format!("region is {span} bp; max is {MAX_REGION} bp"),
+                message: match id {
+                    Some(id) => format!(
+                        "{id} spans {span} bp; max is {MAX_REGION} (use kind transcript/cds or a region)"
+                    ),
+                    None => format!("region is {span} bp; max is {MAX_REGION} bp"),
+                },
             });
         }
         let strand = r.strand.unwrap_or(1);
@@ -180,7 +189,11 @@ impl FlyBaseServer {
         .await?;
         let row = rows.first().ok_or_else(|| ToolError::NotFound {
             tool: t,
-            message: format!("no chromosome arm '{}' for {species}", r.chromosome),
+            message: if species.is_empty() {
+                format!("no chromosome arm '{}'", r.chromosome)
+            } else {
+                format!("no chromosome arm '{}' for {species}", r.chromosome)
+            },
         })?;
         // seqlen and residues are nullable in chado (a few unsequenced golden_path scaffolds have neither).
         let seqlen: Option<i32> = row.get("seqlen");
@@ -193,25 +206,36 @@ impl FlyBaseServer {
             .map(|n| n as u64)
             .unwrap_or(r.start - 1 + seq.len() as u64);
         if r.end > known_end {
-            return Err(ToolError::InvalidInput {
-                tool: t,
-                arg: "region.end",
-                message: format!(
-                    "{} is beyond the end of {} ({known_end} bp)",
-                    r.end, r.chromosome
-                ),
+            return Err(match id {
+                Some(id) => ToolError::InvalidInput {
+                    tool: t,
+                    arg: "padding",
+                    message: format!(
+                        "{id} with padding extends to {}, beyond the end of {} ({known_end} bp)",
+                        r.end, r.chromosome
+                    ),
+                },
+                None => ToolError::InvalidInput {
+                    tool: t,
+                    arg: "region.end",
+                    message: format!(
+                        "{} is beyond the end of {} ({known_end} bp)",
+                        r.end, r.chromosome
+                    ),
+                },
             });
         }
         if strand < 0 {
             seq = reverse_complement(&seq);
         }
-        let coords = format!(
-            "{}:{}..{}({})",
-            r.chromosome,
-            r.start,
-            r.end,
-            if strand < 0 { "-" } else { "+" }
-        );
+        let (strand_label, strand_value) = if unstranded {
+            (".", 0)
+        } else if strand < 0 {
+            ("-", -1)
+        } else {
+            ("+", 1)
+        };
+        let coords = format!("{}:{}..{}({strand_label})", r.chromosome, r.start, r.end);
         let header = match id {
             Some(id) => format!("{id} {coords} {species} {}", self.release),
             None => format!("{coords} {species} {}", self.release),
@@ -219,6 +243,7 @@ impl FlyBaseServer {
         let mut env = Envelope::new(t, &self.release)
             .summary(format!("{} bp from {coords} ({species}).", seq.len()))
             .field("coordinates", json!(coords))
+            .field("strand", json!(strand_value))
             .field("species", json!(species))
             .field("length", json!(seq.len()))
             .field("fasta", json!(fasta(&header, &seq)));
@@ -328,7 +353,23 @@ impl FlyBaseServer {
                 });
             }
         };
-        let strand = row.get::<_, Option<i16>>("strand").unwrap_or(1) as i8;
+        // Strand 0 or NULL means unstranded (common for FBsf and FBti): fetch the forward strand.
+        let strand_raw = row.get::<_, Option<i16>>("strand");
+        let unstranded = !matches!(strand_raw, Some(1) | Some(-1));
+        let strand: i8 = if unstranded {
+            1
+        } else {
+            strand_raw.unwrap_or(1) as i8
+        };
+        if unstranded && matches!(kind, SeqKind::Upstream | SeqKind::Downstream) {
+            return Err(ToolError::InvalidInput {
+                tool: t,
+                arg: "kind",
+                message: format!(
+                    "{id} is unstranded, so upstream and downstream are undefined; use kind gene with padding"
+                ),
+            });
+        }
         let pad = match (kind, padding) {
             (SeqKind::Upstream | SeqKind::Downstream, None) => {
                 return Err(ToolError::InvalidInput {
@@ -374,8 +415,15 @@ impl FlyBaseServer {
             strand: Some(strand),
         };
         let species: Option<String> = row.get("species");
-        self.region_seq(conn, t, region, &species.unwrap_or_default(), Some(id))
-            .await
+        self.region_seq(
+            conn,
+            t,
+            region,
+            &species.unwrap_or_default(),
+            Some(id),
+            unstranded,
+        )
+        .await
     }
 
     async fn gene_kind_seq(
@@ -398,8 +446,8 @@ impl FlyBaseServer {
             Some(r) => (Some(r.get("chromosome")), r.get("species")),
             None => (None, None),
         };
-        let mut records: Vec<Value> = Vec::new();
-        let mut total = 0usize;
+        // Gather every isoform's sequence first so the inline decision can look at the combined size.
+        let mut seqs: Vec<(String, Option<String>, String)> = Vec::new();
         for tr in trs
             .iter()
             .filter(|r| transcript_id.is_none_or(|want| r.get::<_, String>("uniquename") == want))
@@ -433,6 +481,16 @@ impl FlyBaseServer {
                         (Some(chrom), Some(sp), false) => {
                             let gmin = locs.iter().map(|l| l.0).min().unwrap_or(0);
                             let gmax = locs.iter().map(|l| l.1).max().unwrap_or(0);
+                            if (gmax - gmin) as u64 > MAX_REGION {
+                                return Err(ToolError::LimitExceeded {
+                                    tool: t,
+                                    message: format!(
+                                        "{tid} {} parts span {} bp of genome; max is {MAX_REGION}",
+                                        kind.as_str(),
+                                        gmax - gmin
+                                    ),
+                                });
+                            }
                             let strand = tr.get::<_, Option<i16>>("strand").unwrap_or(1) as i8;
                             let g = Chado::query_on(
                                 conn,
@@ -451,33 +509,48 @@ impl FlyBaseServer {
                 SeqKind::Gene | SeqKind::Upstream | SeqKind::Downstream => None,
             };
             if let Some(seq) = seq {
-                total += seq.len();
-                if total > MAX_FASTA_BYTES {
-                    return Err(ToolError::LimitExceeded {
-                        tool: t,
-                        message:
-                            "combined sequence exceeds 512 KB; pass transcript_id to select one isoform"
-                                .into(),
-                    });
-                }
-                let header = format!(
-                    "{tid} {} {id} {} {}",
-                    tname.clone().unwrap_or_default(),
-                    kind.as_str(),
-                    self.release
-                );
-                let mut rec = json!({"transcript_id": tid, "name": tname, "kind": kind.as_str(), "length": seq.len(), "fasta": fasta(&header, &seq)});
-                if seq.len() <= INLINE_SEQ_MAX {
-                    rec["sequence"] = json!(seq);
-                }
-                records.push(rec);
+                seqs.push((tid, tname, seq));
             }
         }
-        if records.is_empty() {
+        if seqs.is_empty() {
             return Err(ToolError::NotFound {
                 tool: t,
                 message: format!("no {} sequence available for {id}", kind.as_str()),
             });
+        }
+        // Inline `sequence` only while the isoforms together stay small; FASTA is always present.
+        let combined: usize = seqs.iter().map(|x| x.2.len()).sum();
+        let inline = combined <= INLINE_SEQ_MAX;
+        let mut records: Vec<Value> = Vec::new();
+        let mut used = 0usize;
+        for (tid, tname, seq) in &seqs {
+            let header = format!(
+                "{tid} {} {id} {} {}",
+                tname.clone().unwrap_or_default(),
+                kind.as_str(),
+                self.release
+            );
+            let fa = fasta(&header, seq);
+            // Serialized cost: FASTA with each newline escaped to two bytes, the inline copy, and the record's keys.
+            let cost =
+                fa.len() + fa.matches('\n').count() + if inline { seq.len() } else { 0 } + 256;
+            used += cost;
+            if used > RECORDS_BUDGET {
+                let ids: Vec<&str> = seqs.iter().map(|x| x.0.as_str()).collect();
+                return Err(ToolError::LimitExceeded {
+                    tool: t,
+                    message: format!(
+                        "{} isoforms exceed the response size; pass transcript_id to select one isoform ({})",
+                        seqs.len(),
+                        ids.join(", ")
+                    ),
+                });
+            }
+            let mut rec = json!({"transcript_id": tid, "name": tname, "kind": kind.as_str(), "length": seq.len(), "fasta": fa});
+            if inline {
+                rec["sequence"] = json!(seq);
+            }
+            records.push(rec);
         }
         Ok(Envelope::new(t, &self.release)
             .summary(format!(

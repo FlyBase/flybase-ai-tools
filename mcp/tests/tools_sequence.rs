@@ -138,3 +138,109 @@ async fn unsequenced_scaffold_is_not_found_not_a_crash() {
         "{s}"
     );
 }
+
+#[tokio::test]
+async fn unstranded_feature_returns_forward_strand() {
+    let c = client().await;
+    for id in ["FBsf0000428056", "FBti0067132"] {
+        let s = call(&c, "get_sequence", json!({"id": id})).await;
+        assert_eq!(s["strand"], 0, "{s}");
+        assert!(s["coordinates"].as_str().unwrap().ends_with("(.)"), "{s}");
+        assert!(s["length"].as_u64().unwrap() > 0);
+        assert_eq!(s["id"], id);
+    }
+    let r = call_raw(
+        &c,
+        "get_sequence",
+        json!({"id": "FBsf0000428056", "kind": "upstream", "padding": 100}),
+    )
+    .await
+    .unwrap();
+    let s = r.structured_content.unwrap();
+    assert_eq!(s["error"], "invalid_input");
+    assert!(
+        s["message"].as_str().unwrap().contains("invalid kind"),
+        "{s}"
+    );
+    let plus = call(&c, "get_sequence", json!({"id": "FBgn0004647"})).await;
+    assert_eq!(plus["strand"], 1);
+}
+
+#[tokio::test]
+async fn oversized_gene_kind_is_limit_exceeded_naming_transcript_id() {
+    let c = client().await;
+    // dpy has 16 mRNAs totalling about 919 kb of transcript sequence.
+    let r = call_raw(
+        &c,
+        "get_sequence",
+        json!({"id": "FBgn0053196", "kind": "transcript"}),
+    )
+    .await
+    .unwrap();
+    let s = r.structured_content.unwrap();
+    assert_eq!(s["error"], "limit_exceeded", "{s}");
+    let msg = s["message"].as_str().unwrap();
+    assert!(msg.contains("transcript_id"), "{msg}");
+    assert!(msg.contains("16 isoforms"), "{msg}");
+    assert!(msg.contains("FBtr"), "{msg}");
+    // Selecting one isoform fits; above INLINE_SEQ_MAX only FASTA is returned.
+    let one = call(
+        &c,
+        "get_sequence",
+        json!({"id": "FBgn0053196", "kind": "transcript", "transcript_id": "FBtr0332345"}),
+    )
+    .await;
+    let recs = one["records"].as_array().unwrap();
+    assert_eq!(recs.len(), 1);
+    assert_eq!(one["truncated"], false);
+    assert!(
+        recs[0]["fasta"].as_str().unwrap().len() > 60_000,
+        "{}",
+        recs[0]["length"]
+    );
+}
+
+fn translate(cds: &str) -> String {
+    const BASES: &str = "TCAG";
+    const AA: &str = "FFLLSSSSYY**CC*WLLLLPPPPHHQQRRRRIIIMTTTTNNKKSSRRVVVVAAAADDEEGGGG";
+    cds.as_bytes()
+        .chunks(3)
+        .filter(|c| c.len() == 3)
+        .map(|c| {
+            let idx = c
+                .iter()
+                .map(|b| BASES.find(*b as char).unwrap())
+                .fold(0, |acc, i| acc * 4 + i);
+            AA.as_bytes()[idx] as char
+        })
+        .collect()
+}
+
+#[tokio::test]
+async fn minus_strand_cds_translates_to_stored_protein() {
+    let c = client().await;
+    let s = call(
+        &c,
+        "get_sequence",
+        json!({"id": "FBgn0003996", "kind": "cds", "transcript_id": "FBtr0070490"}),
+    )
+    .await;
+    let recs = s["records"].as_array().unwrap();
+    assert_eq!(recs.len(), 1);
+    let cds = recs[0]["sequence"].as_str().unwrap();
+    assert_eq!(recs[0]["length"], 2064);
+    assert_eq!(cds.len(), 2064);
+    assert!(cds.starts_with("ATG"));
+    assert!(cds.ends_with("TAG"));
+    assert_eq!(cds.len() % 3, 0);
+    let p = call(
+        &c,
+        "get_sequence",
+        json!({"id": "FBgn0003996", "kind": "protein", "transcript_id": "FBtr0070490"}),
+    )
+    .await;
+    let protein = p["records"][0]["sequence"].as_str().unwrap();
+    let translated = translate(cds);
+    assert!(translated.ends_with('*'));
+    assert_eq!(translated.trim_end_matches('*'), protein);
+}
