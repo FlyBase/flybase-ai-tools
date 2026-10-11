@@ -126,32 +126,69 @@ async fn broad_term_is_refused() {
     assert!(ok["entities"].as_array().unwrap().len() <= 2);
 }
 
-/// SO:0001217 (protein_coding_gene) is annotated on 218,662 features: the 200,000-hit cap refuses it.
+/// The 200,000-hit cap counts only annotations the page can return (current features of the class, in the requested
+/// species). FBcv:0000347 (phenotypic class, 249 descendants) reaches 200,001 phenotype statements on current alleles
+/// and is refused; a Hsap filter brings it to 6,281 hits. No DOID term (the feature_cvterm allele path) and no gene
+/// term trips the filtered cap on FB2026_02.
 #[tokio::test]
 async fn annotation_cap_is_refused() {
     let c = client().await;
-    let r = call_raw(
+    for term in ["FBcv:0000347"] {
+        let r = call_raw(
+            &c,
+            "entities_for_term",
+            json!({"term_id": term, "data_class": "allele"}),
+        )
+        .await
+        .unwrap();
+        let s = r.structured_content.unwrap();
+        if support::full_db() {
+            assert_eq!(s["error"], "limit_exceeded", "{term}");
+            assert!(
+                s["message"]
+                    .as_str()
+                    .unwrap()
+                    .contains("more than 200000 matching annotations; add a species filter")
+            );
+        } else {
+            // The fixture holds only the seed features' annotations, so the same call is an ordinary page.
+            assert!(s["error"].is_null(), "{term}");
+            assert_eq!(s["has_more"], true);
+        }
+        // The species filter is applied before the cap, so it is a real way out.
+        let h = call(
+            &c,
+            "entities_for_term",
+            json!({"term_id": term, "data_class": "allele", "species": "Hsap", "limit": 3}),
+        )
+        .await;
+        let e = h["entities"].as_array().unwrap();
+        assert!(!e.is_empty(), "{term}");
+        assert!(e.iter().all(|a| a["species"] == "Hsap"));
+    }
+    // SO:0001217 (protein_coding_gene) has 218,662 raw annotations but only 16,095 on current genes, so it is a page.
+    let g = call(
         &c,
         "entities_for_term",
-        json!({"term_id": "SO:0001217", "data_class": "gene"}),
+        json!({"term_id": "SO:0001217", "data_class": "gene", "limit": 2}),
     )
-    .await
-    .unwrap();
-    let s = r.structured_content.unwrap();
-    if support::full_db() {
-        assert_eq!(s["error"], "limit_exceeded");
-        assert!(
-            s["message"]
-                .as_str()
-                .unwrap()
-                .contains("more than 200000 annotations")
-        );
-    } else {
-        // The fixture holds only the seed genes' annotations (753), so the same call is an ordinary page.
-        assert!(s["error"].is_null());
-        assert!(!s["entities"].as_array().unwrap().is_empty());
-        assert_eq!(s["has_more"], true);
-    }
+    .await;
+    assert_eq!(g["entities"].as_array().unwrap().len(), 2);
+    assert_eq!(g["has_more"], true);
+}
+
+/// A filter that matches nothing is an empty page (no error, and the SQL's sentinel row is not reported as an entity).
+#[tokio::test]
+async fn empty_page_has_no_sentinel() {
+    let c = client().await;
+    let s = call(
+        &c,
+        "entities_for_term",
+        json!({"term_id": "SO:0001217", "data_class": "gene", "species": "Hsap"}),
+    )
+    .await;
+    assert_eq!(s["entities"], json!([]));
+    assert_eq!(s["has_more"], false);
 }
 
 #[tokio::test]
@@ -173,4 +210,20 @@ async fn bad_term_ids() {
     .await
     .unwrap();
     assert_eq!(r.structured_content.unwrap()["error"], "invalid_input");
+    // species is a feature filter; it has no meaning for disease models or gene groups.
+    let r = call_raw(
+        &c,
+        "entities_for_term",
+        json!({"term_id": "DOID:1289", "data_class": "disease_model", "species": "Dmel"}),
+    )
+    .await
+    .unwrap();
+    let s = r.structured_content.unwrap();
+    assert_eq!(s["error"], "invalid_input");
+    assert!(
+        s["message"]
+            .as_str()
+            .unwrap()
+            .contains("species does not apply to disease model")
+    );
 }

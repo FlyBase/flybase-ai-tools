@@ -96,13 +96,22 @@ impl FlyBaseServer {
                 message: format!("offset + limit may not exceed {MAX_OFFSET}"),
             });
         }
+        let class = p.data_class;
+        if p.species.is_some()
+            && matches!(class, EntityClass::DiseaseModel | EntityClass::GeneGroup)
+        {
+            return Err(ToolError::InvalidInput {
+                tool: T,
+                arg: "species",
+                message: format!("species does not apply to {}", class.label()),
+            });
+        }
         let species = match &p.species {
             Some(s) => Some(normalize_species(&self.chado, T, s).await?),
             None => None,
         };
         let include = p.include_descendants.unwrap_or(true);
         let fetch = limit + 1;
-        let class = p.data_class;
         // Disease Ontology terms are annotated on alleles directly (feature_cvterm); every other vocabulary reaches
         // alleles through phenotype statements.
         let annotated_alleles = class == EntityClass::Allele && db == "DOID";
@@ -152,19 +161,24 @@ impl FlyBaseServer {
                         Chado::query_tx(tx, T, "term/gene_groups", unfiltered).await?
                     }
                 };
-                // The gene and allele queries cap their annotation scan at MAX_HITS + 1 rows; reaching it means the
-                // page would be computed from an incomplete set, so the call is refused instead.
-                if matches!(class, EntityClass::Gene | EntityClass::Allele)
-                    && rows
-                        .first()
-                        .is_some_and(|r| r.get::<_, i64>("hits") > MAX_HITS)
-                {
-                    return Err(ToolError::LimitExceeded {
-                        tool: T,
-                        message: format!(
-                            "{term_id} has more than {MAX_HITS} annotations; add a species filter or choose a narrower term"
-                        ),
-                    });
+                // The gene and allele queries cap their filtered annotation scan at MAX_HITS + 1 rows; reaching it
+                // means the page would be computed from an incomplete set, so the call is refused instead. Every row
+                // carries the count, and an empty page still returns one sentinel row (null id) with it, so a capped
+                // term is refused even when the page itself is empty.
+                let mut rows = rows;
+                if matches!(class, EntityClass::Gene | EntityClass::Allele) {
+                    if rows
+                        .iter()
+                        .any(|r| r.get::<_, i64>("hits") > MAX_HITS)
+                    {
+                        return Err(ToolError::LimitExceeded {
+                            tool: T,
+                            message: format!(
+                                "{term_id} has more than {MAX_HITS} matching annotations; add a species filter, choose a narrower term, or set include_descendants=false"
+                            ),
+                        });
+                    }
+                    rows.retain(|r| r.get::<_, Option<String>>("id").is_some());
                 }
                 Ok((term, rows))
             })
@@ -178,7 +192,7 @@ impl FlyBaseServer {
                 let mut v = json!({"id": id, "link": report_link(&id)});
                 let feature = |v: &mut Value| {
                     v["symbol"] = json!(r.get::<_, Option<String>>("symbol"));
-                    v["species"] = json!(r.get::<_, String>("species"));
+                    v["species"] = json!(r.get::<_, Option<String>>("species"));
                     v["reference_count"] = json!(r.get::<_, i64>("reference_count"));
                 };
                 match class {
