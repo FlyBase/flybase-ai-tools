@@ -22,8 +22,9 @@ select distinct h.uniquename, 'disease_model', 'Hsap', s.name, st.name, hs.is_cu
 from humanhealth h join humanhealth_synonym hs on hs.humanhealth_id = h.humanhealth_id join synonym s on s.synonym_id = hs.synonym_id join cvterm st on st.cvterm_id = s.type_id
 where h.is_obsolete = false
 union
-select distinct st.uniquename, 'stock', 'Dmel', g.uniquename, 'genotype', true
-from stock st join stock_genotype sg on sg.stock_id = st.stock_id join genotype g on g.genotype_id = sg.genotype_id
+select distinct st.uniquename, 'stock', o.abbreviation, g.uniquename, 'genotype', true
+from stock st join organism o on o.organism_id = st.organism_id
+join stock_genotype sg on sg.stock_id = st.stock_id join genotype g on g.genotype_id = sg.genotype_id
 where st.is_obsolete = false;
 create index name_index_trgm on mcp.name_index using gin (name gin_trgm_ops);
 create index name_index_lower on mcp.name_index (lower(name) text_pattern_ops);

@@ -15,12 +15,22 @@ pub fn base() -> &'static str {
             let rt = tokio::runtime::Runtime::new().unwrap();
             rt.block_on(async move {
                 let cfg = super::test_config();
-                flybase_mcp::migrate::run(&cfg, None)
-                    .await
-                    .expect("migrations apply to the fixture");
                 let chado = flybase_mcp::backends::chado::Chado::connect(&cfg)
                     .await
                     .unwrap();
+                // Rebuilding the derived tables takes about a minute and takes exclusive locks,
+                // so only migrate when the database is not ready or FLYBASE_TEST_MIGRATE=1 asks for it.
+                let force = std::env::var("FLYBASE_TEST_MIGRATE").is_ok_and(|v| v == "1");
+                if force
+                    || chado
+                        .startup_check(&flybase_mcp::migrate::names())
+                        .await
+                        .is_err()
+                {
+                    flybase_mcp::migrate::run(&cfg, None)
+                        .await
+                        .expect("migrations apply to the fixture");
+                }
                 let app = flybase_mcp::server::app(&cfg, chado);
                 let l = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
                 tx.send(format!("http://{}", l.local_addr().unwrap()))
