@@ -3,6 +3,9 @@ with cur as (
   union all select uniquename, name, is_obsolete from stock where uniquename = $1
   union all select uniquename, name, is_obsolete from grp where uniquename = $1
   union all select uniquename, name, is_obsolete from humanhealth where uniquename = $1
+  union all select uniquename, name, is_obsolete from cell_line where uniquename = $1
+  union all select uniquename, name, is_obsolete from library where uniquename = $1
+  union all select uniquename, name, is_obsolete from strain where uniquename = $1
   union all select uniquename, null, is_obsolete from pub where uniquename = $1
 ),
 secondary as (

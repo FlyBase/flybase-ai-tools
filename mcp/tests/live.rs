@@ -14,6 +14,17 @@ async fn pool_connects_and_lists_species() {
 async fn startup_check_passes_with_no_expected_migrations() {
     let chado = Chado::connect(&support::test_config()).await.unwrap();
     chado.startup_check(&[]).await.unwrap();
+    let rows = chado.query("test", "startup/tables", &[]).await.unwrap();
+    assert_eq!(rows.len(), flybase_mcp::backends::chado::STARTUP_RELATIONS);
+    let names: Vec<String> = rows.iter().map(|r| r.get("relation")).collect();
+    for rel in [
+        "public.grp",
+        "public.cell_line",
+        "public.strain",
+        "mcp.name_index",
+    ] {
+        assert!(names.iter().any(|n| n == rel), "missing {rel}");
+    }
 }
 
 #[tokio::test]

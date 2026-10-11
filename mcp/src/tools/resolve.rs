@@ -90,6 +90,18 @@ pub fn looks_like_fb_id(q: &str) -> bool {
         && b[4..].iter().all(u8::is_ascii_digit)
 }
 
+/// Escape LIKE wildcards (backslash, percent, underscore) so the query matches literally with `escape '\'`.
+fn like_escape(q: &str) -> String {
+    let mut out = String::with_capacity(q.len());
+    for ch in q.chars() {
+        if matches!(ch, '\\' | '%' | '_') {
+            out.push('\\');
+        }
+        out.push(ch);
+    }
+    out
+}
+
 pub fn class_of(id: &str) -> &'static str {
     match id.get(..4).unwrap_or("") {
         "FBgn" => "gene",
@@ -119,8 +131,8 @@ pub fn class_of(id: &str) -> &'static str {
     }
 }
 
-/// Rank: exact symbol > exact name of any kind > symbol prefix > other prefix > trigram similarity; current names first; Dmel preferred when species unspecified.
-/// One entry per ID (best score wins).
+/// Rank: exact symbol > exact name of any kind > symbol prefix > other prefix > trigram similarity; a current name outranks any stale one; Dmel preferred when species unspecified.
+/// One entry per ID (best score wins, ties broken by matched name).
 pub fn rank(query: &str, mut c: Vec<Candidate>, species: Option<&str>) -> Vec<Candidate> {
     let q = query.to_lowercase();
     for x in &mut c {
@@ -137,14 +149,19 @@ pub fn rank(query: &str, mut c: Vec<Candidate>, species: Option<&str>) -> Vec<Ca
             (x.sim * 300.0) as i32
         };
         if x.is_current {
-            s += 100;
+            s += 500;
         }
         if species.is_none() && x.species == "Dmel" {
             s += 50;
         }
         x.score = s;
     }
-    c.sort_by(|a, b| b.score.cmp(&a.score).then(a.id.cmp(&b.id)));
+    c.sort_by(|a, b| {
+        b.score
+            .cmp(&a.score)
+            .then(a.id.cmp(&b.id))
+            .then(a.matched.cmp(&b.matched))
+    });
     let mut seen = HashSet::new();
     c.retain(|x| seen.insert(x.id.clone()));
     c
@@ -232,9 +249,10 @@ impl FlyBaseServer {
         } else {
             let species = p.species.as_deref();
             let class = p.data_class.map(DataClass::as_str);
+            let escaped = like_escape(q);
             let rows = self
                 .chado
-                .query(T, "resolve/candidates", &[&q, &species, &class])
+                .query(T, "resolve/candidates", &[&q, &species, &class, &escaped])
                 .await?;
             let cands: Vec<Candidate> = rows
                 .iter()
@@ -260,17 +278,41 @@ impl FlyBaseServer {
                 matches.push(json!({"id": c.id, "symbol": c.symbol, "data_class": c.data_class, "species": c.species, "status": "current", "matched": c.matched, "match_kind": c.name_kind, "score": c.score}));
             }
         }
-        let top = matches[0].clone();
-        let top_id = top["id"].as_str().unwrap_or("?").to_string();
+        let top = &matches[0];
+        let replaced: Vec<&str> = top["replaced_by"]
+            .as_array()
+            .map(|a| a.iter().filter_map(|v| v.as_str()).collect())
+            .unwrap_or_default();
+        // Link the current entity: the replacement for an updated or split ID, else the match itself.
+        let top_id = replaced
+            .first()
+            .copied()
+            .or(top["id"].as_str())
+            .unwrap_or("?")
+            .to_string();
+        let class = top["data_class"].as_str().unwrap_or("?");
         let symbol_note = top["symbol"]
             .as_str()
             .map(|s| format!(", symbol {s}"))
             .unwrap_or_default();
-        let summary = format!(
-            "'{q}' resolves to {top_id} ({}{symbol_note}). {} match(es).",
-            top["data_class"].as_str().unwrap_or("?"),
-            matches.len()
-        );
+        let summary = match top["status"].as_str() {
+            Some("updated") => {
+                format!(
+                    "'{q}' is a secondary ID; it was replaced by {top_id} ({class}{symbol_note})."
+                )
+            }
+            Some("split") => format!(
+                "'{q}' was split into {}. Linked the first; check each before use.",
+                replaced.join(", ")
+            ),
+            Some("obsolete") => {
+                format!("'{q}' is an obsolete FlyBase ID with no current replacement.")
+            }
+            _ => format!(
+                "'{q}' resolves to {top_id} ({class}{symbol_note}). {} match(es).",
+                matches.len()
+            ),
+        };
         Ok(Envelope::new(T, &self.release)
             .summary(summary)
             .link("report", report_link(&top_id))
@@ -294,6 +336,35 @@ mod tests {
             sim,
             score: 0,
         }
+    }
+    #[test]
+    fn current_fullname_beats_stale_symbol() {
+        let r = rank(
+            "notch",
+            vec![
+                c("FBgn_stale", "notch", "symbol", "Dmel", false, 1.0),
+                c("FBgn_cur", "Notch", "fullname", "Dmel", true, 1.0),
+            ],
+            None,
+        );
+        assert_eq!(r[0].id, "FBgn_cur");
+        assert_eq!(r[0].score, 1350);
+        assert_eq!(r[1].score, 1050);
+    }
+    #[test]
+    fn kept_candidate_per_id_is_deterministic() {
+        let a = c("FBgn1", "Notch", "fullname", "Dmel", true, 1.0);
+        let b = c("FBgn1", "notch", "fullname", "Dmel", true, 1.0);
+        let x = rank("notch", vec![a.clone(), b.clone()], None);
+        let y = rank("notch", vec![b, a], None);
+        assert_eq!(x.len(), 1);
+        assert_eq!(x[0].matched, y[0].matched);
+        assert_eq!(x[0].matched, "Notch");
+    }
+    #[test]
+    fn like_escape_quotes_wildcards() {
+        assert_eq!(like_escape("w[1118]"), "w[1118]");
+        assert_eq!(like_escape("50%_a\\b"), "50\\%\\_a\\\\b");
     }
     #[test]
     fn exact_symbol_beats_fullname_and_prefix() {
@@ -341,7 +412,7 @@ mod tests {
             None,
         );
         assert_eq!(r.len(), 1);
-        assert_eq!(r[0].score, 950);
+        assert_eq!(r[0].score, 1350);
     }
     #[test]
     fn fb_id_detection_and_class() {

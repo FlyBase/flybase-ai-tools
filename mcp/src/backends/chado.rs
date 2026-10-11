@@ -7,6 +7,9 @@ use deadpool_postgres::{
 };
 use tokio_postgres::{NoTls, Row, types::ToSql};
 
+/// Number of relations listed in `sql/queries/startup/tables.sql`.
+pub const STARTUP_RELATIONS: usize = 43;
+
 #[derive(Clone)]
 pub struct Chado {
     pool: Pool,
@@ -89,8 +92,8 @@ impl Chado {
             missing.join(", ")
         );
         anyhow::ensure!(
-            rows.len() == 37,
-            "expected 37 relations, found {}",
+            rows.len() == STARTUP_RELATIONS,
+            "expected {STARTUP_RELATIONS} relations, found {}; run `flybase-mcp migrate` if mcp tables are missing",
             rows.len()
         );
         let logged: Vec<String> = match self.query("startup", "startup/migrations", &[]).await {

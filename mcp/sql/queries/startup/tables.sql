@@ -7,6 +7,7 @@ where (n.nspname, r.relname) in (
   ('public','pub'),('public','pubauthor'),('public','pubprop'),('public','pub_dbxref'),('public','feature_pub'),
   ('public','stock'),('public','stock_genotype'),('public','genotype'),('public','feature_genotype'),('public','stockcollection'),('public','stockcollection_stock'),
   ('public','phenstatement'),('public','phenotype'),('public','phenotype_cvterm'),
+  ('public','grp'),('public','humanhealth'),('public','cell_line'),('public','library'),('public','strain'),('mcp','name_index'),
   ('gene','allele'),('gene','allele_class'),('gene','allele_mutagen'),('gene','allele_stock'),('gene','allele_transgenic_product_class'),('gene','insertion'),('gene','construct')
 )
 order by 1
