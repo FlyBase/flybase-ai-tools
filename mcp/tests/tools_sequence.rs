@@ -119,11 +119,11 @@ async fn fbte_is_invalid_input_and_upstream_needs_padding() {
 #[tokio::test]
 async fn unsequenced_scaffold_is_not_found_not_a_crash() {
     let c = client().await;
-    // 3_groupMISC is a Dmel golden_path feature with NULL seqlen and NULL residues.
+    // 3_groupMISC is a Dpse golden_path feature with NULL seqlen and NULL residues.
     let r = call_raw(
         &c,
         "get_sequence",
-        json!({"region": {"chromosome": "3_groupMISC", "start": 1, "end": 10}}),
+        json!({"region": {"chromosome": "3_groupMISC", "start": 1, "end": 10}, "species": "Dpse"}),
     )
     .await
     .unwrap();
