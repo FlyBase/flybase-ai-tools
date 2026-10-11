@@ -39,7 +39,10 @@ pub struct FlyBaseServer {
 
 impl FlyBaseServer {
     pub fn all_tool_routers() -> ToolRouter<Self> {
-        Self::tool_router_species() + Self::tool_router_resolve() + Self::tool_router_search()
+        Self::tool_router_species()
+            + Self::tool_router_resolve()
+            + Self::tool_router_search()
+            + Self::tool_router_sequence()
     }
 
     pub fn new(chado: Chado, limits: Limits, release: String) -> Self {

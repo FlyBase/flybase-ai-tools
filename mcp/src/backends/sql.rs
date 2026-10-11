@@ -6,6 +6,17 @@ pub fn get(name: &str) -> &'static str {
         "search/names" => include_str!("../../sql/queries/search/names.sql"),
         "search/references" => include_str!("../../sql/queries/search/references.sql"),
         "search/terms" => include_str!("../../sql/queries/search/terms.sql"),
+        "sequence/feature_residues" => {
+            include_str!("../../sql/queries/sequence/feature_residues.sql")
+        }
+        "sequence/gene_location" => include_str!("../../sql/queries/sequence/gene_location.sql"),
+        "sequence/gene_transcripts" => {
+            include_str!("../../sql/queries/sequence/gene_transcripts.sql")
+        }
+        "sequence/region" => include_str!("../../sql/queries/sequence/region.sql"),
+        "sequence/transcript_parts" => {
+            include_str!("../../sql/queries/sequence/transcript_parts.sql")
+        }
         "species/list" => include_str!("../../sql/queries/species/list.sql"),
         "species/normalize" => include_str!("../../sql/queries/species/normalize.sql"),
         "startup/migrations" => include_str!("../../sql/queries/startup/migrations.sql"),
