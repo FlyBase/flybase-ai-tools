@@ -31,6 +31,10 @@ pub const MIGRATIONS: &[(&str, &str)] = &[
         "007_grants",
         include_str!("../sql/migrations/007_grants.sql"),
     ),
+    (
+        "008_located_feature",
+        include_str!("../sql/migrations/008_located_feature.sql"),
+    ),
 ];
 
 /// The database's own explanation of a failure (SQLSTATE and message) when there is one, else the client error.
@@ -84,10 +88,18 @@ pub async fn run(cfg: &Config, diopt: Option<std::path::PathBuf>) -> anyhow::Res
 #[cfg(test)]
 mod tests {
     use super::MIGRATIONS;
-    /// Grants must run after every table rebuild, so they stay last.
+    /// 007_grants covers every table built before it; a migration after it grants its own tables.
     #[test]
-    fn grants_are_the_last_migration() {
-        assert_eq!(MIGRATIONS.last().unwrap().0, "007_grants");
+    fn migrations_after_grants_grant_their_own_tables() {
+        let at = MIGRATIONS.iter().position(|m| m.0 == "007_grants").unwrap();
+        for (name, sql) in &MIGRATIONS[at + 1..] {
+            if sql.contains("create table") {
+                assert!(
+                    sql.contains("grant select on"),
+                    "{name} must grant its tables"
+                );
+            }
+        }
         let mut names: Vec<&str> = MIGRATIONS.iter().map(|m| m.0).collect();
         names.sort_unstable();
         assert_eq!(

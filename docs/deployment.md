@@ -54,8 +54,9 @@ unprivileged `flybase` user (uid 10001). The image exposes 7200 and its `HEALTHC
 
    The migrations create schema `mcp` (name index, cvterm closure, band coordinates, and, in `005_rnaseq`,
    the RNA-seq expression, dataset, and matrix tables, which take about 25 to 30 s on a full restore), add
-   `pg_trgm` and trigram indexes, and finish with `007_grants`, which gives `flybase_mcp` `SELECT` and `EXECUTE` on what
-   the server reads. Each one is recorded in `mcp.migration_log` with the crate version and release.
+   `pg_trgm` and trigram indexes, and run `007_grants`, which gives `flybase_mcp` `SELECT` and `EXECUTE` on what
+   the server reads. `008_located_feature` then builds the window-query table and grants it itself. Each one is
+   recorded in `mcp.migration_log` with the crate version and release.
    Rebuilding the derived tables takes a few minutes on a full load.
 
    Download `precomputed_files/orthologs/dmel_human_orthologs_disease_fb_<release>.tsv.gz` from the release
@@ -159,11 +160,11 @@ Per-client rate limits belong at the edge (WAF or CDN). Inside the server, globa
 concurrent database work regardless of how many clients connect; a call that cannot get a permit within 5 s
 fails with a "busy" error the client may retry.
 
-Known tuning step: a cold `map_features` or `cytosearch` query over a full 2 Mb window walks the whole range
-on the featureloc index before filtering by type, and can take about 20 s (2 to 3 s warm) while it holds a
-heavy permit. A few such calls at once can occupy every heavy permit. If load tests show heavy-permit
-starvation, the lever is a derived located-feature table (arm, type, fmin, fmax, ...) indexed on
-(arm, type, fmin), added in a later migration.
+Window queries (`map_features`, `cytosearch`) read `mcp.located_feature`, a derived table built by migration
+`008_located_feature` that holds every non-obsolete feature on a golden-path arm except computed alignments
+(type `match`), with its species, arm, type, and coordinates. The migration rebuilds it on every release load,
+so `migrate` must run after each restore. On a full release restore it has about 1.7 million rows and takes
+about 290 MB with its two indexes; the rebuild takes about 1.5 minutes.
 
 ## Logs
 

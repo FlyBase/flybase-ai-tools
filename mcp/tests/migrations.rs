@@ -24,7 +24,27 @@ async fn migrations_apply_twice_and_populate() {
         .await
         .unwrap()
         .get(0);
-    assert_eq!(n, 8);
+    assert_eq!(n, 9);
+    let located: i64 = c
+        .query_one(
+            "select count(*) from mcp.located_feature where species = 'Dmel' and arm = 'X' and type = 'gene'",
+            &[],
+        )
+        .await
+        .unwrap()
+        .get(0);
+    assert!(located > 0, "located_feature holds Dmel genes on X");
+    let indexes: Vec<String> = c
+        .query(
+            "select indexname::text from pg_indexes where schemaname = 'mcp' and tablename = 'located_feature' order by 1",
+            &[],
+        )
+        .await
+        .unwrap()
+        .iter()
+        .map(|r| r.get(0))
+        .collect();
+    assert_eq!(indexes, ["located_feature_arm", "located_feature_window"]);
     let notch: i64 = c
         .query_one(
             "select count(*) from mcp.name_index where entity_id = 'FBgn0004647'",
