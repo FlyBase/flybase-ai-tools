@@ -48,8 +48,9 @@ unprivileged `flybase` user (uid 10001). The image exposes 7200 and its `HEALTHC
      flybase-mcp migrate
    ```
 
-   The migrations create schema `mcp` (name index, cvterm closure, band coordinates), add `pg_trgm` and
-   trigram indexes, and finish with `007_grants`, which gives `flybase_mcp` `SELECT` and `EXECUTE` on what
+   The migrations create schema `mcp` (name index, cvterm closure, band coordinates, and, in `005_rnaseq`,
+   the RNA-seq expression, dataset, and matrix tables, which take about 25 to 30 s on a full restore), add
+   `pg_trgm` and trigram indexes, and finish with `007_grants`, which gives `flybase_mcp` `SELECT` and `EXECUTE` on what
    the server reads. Each one is recorded in `mcp.migration_log` with the crate version and release.
    Rebuilding the derived tables takes a few minutes on a full load.
 

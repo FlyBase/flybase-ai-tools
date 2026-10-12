@@ -14,6 +14,9 @@ are not included: the plan's generic second hop reached 208k features because No
 Three narrower additions serve the Plan 2 tests: the physical-interaction partner hop (the `-XP` polypeptides of seed
 genes, their `feature_interaction` partners, and the partners' genes), the polypeptide domains located on seed
 polypeptides, and the first 5,000 clones of library `FBlc0000001` (the `library_feature` sample, 5,000 rows).
+`library_relationship` is copied whole; besides the 5,000-row `FBlc0000001` sample, `library_feature` and
+`library_featureprop` carry the RNA-seq RPKM rows for the fixture features only, so migration 005 builds a matrix of a
+few hundred genes.
 `dbxref` holds only the rows referenced by exported feature, feature_dbxref, pub_dbxref and cvterm rows, so
 `humanhealth_dbxref` rows have no `dbxref` row here and that field is null on the fixture.
 Public chado drops connections on queries that run past about two minutes, so `export.sh` keeps every copy small.

@@ -22,6 +22,10 @@ pub const MIGRATIONS: &[(&str, &str)] = &[
         "004_band_coordinates",
         include_str!("../sql/migrations/004_band_coordinates.sql"),
     ),
+    (
+        "005_rnaseq",
+        include_str!("../sql/migrations/005_rnaseq.sql"),
+    ),
     ("006_diopt", include_str!("../sql/migrations/006_diopt.sql")),
     (
         "007_grants",

@@ -13,6 +13,7 @@ for f in data/*.tsv; do
   base=$(basename "$f" .tsv)
   t=${base//__/.}
   [ "$base" = zz_feature_golden_path ] && t=feature
+  [ "$base" = zz_library_feature_rnaseq ] && t=library_feature
   psql "$URL" -v ON_ERROR_STOP=1 -q -c "set session_replication_role = replica" -c "\\copy $t from '$f'"
   echo "loaded $t from $base"
 done

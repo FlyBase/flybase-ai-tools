@@ -24,7 +24,7 @@ async fn migrations_apply_twice_and_populate() {
         .await
         .unwrap()
         .get(0);
-    assert_eq!(n, 7);
+    assert_eq!(n, 8);
     let notch: i64 = c
         .query_one(
             "select count(*) from mcp.name_index where entity_id = 'FBgn0004647'",
@@ -69,6 +69,46 @@ async fn migrations_apply_twice_and_populate() {
     if support::full_db() {
         let multi: i64 = c.query_one("select count(*) from (select fbab_id from mcp.aberration_cyto group by 1 having count(*) > 1) x", &[]).await.unwrap().get(0);
         assert!(multi > 1000, "translocations span several arms");
+    }
+    let ds: i64 = c
+        .query_one("select count(*) from mcp.rnaseq_dataset", &[])
+        .await
+        .unwrap()
+        .get(0);
+    assert_eq!(ds, 5, "five RNA-seq datasets");
+    let fa2: Vec<String> = c
+        .query_one(
+            "select samples from mcp.rnaseq_dataset where dataset = 'FlyAtlas2'",
+            &[],
+        )
+        .await
+        .unwrap()
+        .get(0);
+    assert_eq!(fa2.len(), 43);
+    assert_eq!(fa2[0], "Adult_Female_Brain");
+    let notch: (Vec<f32>, f32, f32) = {
+        let r = c.query_one("select vector, mean, stddev from mcp.rnaseq_matrix where dataset = 'FlyAtlas2' and gene_id = 'FBgn0004647'", &[]).await.unwrap();
+        (r.get(0), r.get(1), r.get(2))
+    };
+    assert_eq!(notch.0.len(), 43);
+    assert!((notch.1 - 10.372).abs() < 0.01, "mean {}", notch.1);
+    assert!((notch.2 - 14.967).abs() < 0.01, "stddev {}", notch.2);
+    if support::full_db() {
+        let n: i64 = c
+            .query_one("select count(*) from mcp.rnaseq_expression", &[])
+            .await
+            .unwrap()
+            .get(0);
+        assert!(n > 2_600_000, "expression rows {n}");
+        let m: i64 = c
+            .query_one(
+                "select count(*) from mcp.rnaseq_matrix where dataset = 'FlyAtlas2' and stddev > 0",
+                &[],
+            )
+            .await
+            .unwrap()
+            .get(0);
+        assert_eq!(m, 16608);
     }
     let chado = flybase_mcp::backends::chado::Chado::connect(&cfg)
         .await
