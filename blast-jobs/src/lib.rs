@@ -4,5 +4,7 @@
 pub mod advanced;
 pub mod catalogue;
 pub mod config;
+pub mod jobid;
+pub mod store;
 pub mod types;
 pub mod validate;
