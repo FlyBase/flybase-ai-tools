@@ -9,6 +9,8 @@ use url::Url;
 pub const MAX_SEQUENCE: usize = 100_000;
 /// Largest results.tsv body the client reads (16 MiB); longer reports are available through `downloads`.
 pub const MAX_RESULTS_BYTES: usize = 16 * 1024 * 1024;
+/// Response header the service sets to `true` when it cut results.tsv at its own size cap.
+pub const TRUNCATED_HEADER: &str = "x-blast-jobs-truncated";
 /// Species with BLAST databases, as FlyBase abbreviations; the service takes them lowercased.
 pub const BLAST_SPECIES: &[&str] = &[
     "Dmel", "Dsim", "Dsec", "Dyak", "Dere", "Dana", "Dpse", "Dper", "Dwil", "Dmoj", "Dvir", "Dgri",
@@ -109,6 +111,11 @@ impl BlastError {
                     "invalid_program" => "program",
                     "invalid_database" => "database",
                     "invalid_species" => "species",
+                    "invalid_evalue" => "evalue",
+                    "invalid_max_hits" => "max_hits",
+                    "invalid_matrix" => "matrix",
+                    "invalid_megablast" => "megablast",
+                    "invalid_genetic_code" => "genetic_code",
                     "invalid_option" => "advanced",
                     _ => "sequence",
                 };
@@ -254,8 +261,9 @@ impl BlastClient {
         Ok(s)
     }
 
-    /// The results table, read in chunks and capped at MAX_RESULTS_BYTES.
-    pub async fn results_tsv(&self, job_id: &str) -> Result<String, BlastError> {
+    /// The results table, read in chunks and capped at MAX_RESULTS_BYTES, and whether the service
+    /// says it cut the rows (`X-Blast-Jobs-Truncated: true`).
+    pub async fn results_tsv(&self, job_id: &str) -> Result<(String, bool), BlastError> {
         let mut resp = self
             .send(
                 self.auth(
@@ -279,6 +287,11 @@ impl BlastClient {
                 )));
             }
         }
+        let truncated = resp
+            .headers()
+            .get(TRUNCATED_HEADER)
+            .and_then(|v| v.to_str().ok())
+            .is_some_and(|v| v.trim().eq_ignore_ascii_case("true"));
         if resp
             .content_length()
             .is_some_and(|n| n as usize > MAX_RESULTS_BYTES)
@@ -300,7 +313,7 @@ impl BlastClient {
             }
             buf.extend_from_slice(&chunk);
         }
-        Ok(String::from_utf8_lossy(&buf).into_owned())
+        Ok((String::from_utf8_lossy(&buf).into_owned(), truncated))
     }
 
     /// True when `GET /internal/health` answers 2xx within 2 s.
@@ -485,6 +498,33 @@ pub fn parse_results(tsv: &str, max_hits: usize, max_hsps: usize) -> (Vec<Hit>, 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn rejection_codes_name_the_tool_argument() {
+        for (code, want) in [
+            ("invalid_program", "program"),
+            ("invalid_database", "database"),
+            ("invalid_species", "species"),
+            ("invalid_sequence", "sequence"),
+            ("invalid_evalue", "evalue"),
+            ("invalid_max_hits", "max_hits"),
+            ("invalid_matrix", "matrix"),
+            ("invalid_megablast", "megablast"),
+            ("invalid_genetic_code", "genetic_code"),
+            ("invalid_option", "advanced"),
+            ("something_new", "sequence"),
+        ] {
+            let e = BlastError::Rejected {
+                code: code.into(),
+                message: "m".into(),
+            }
+            .into_tool("blast_submit");
+            match e {
+                ToolError::InvalidInput { arg, .. } => assert_eq!(arg, want, "{code}"),
+                other => panic!("{code}: {other:?}"),
+            }
+        }
+    }
 
     #[test]
     fn tokens_round_trip_and_reject_mismatch() {

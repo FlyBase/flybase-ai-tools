@@ -18,7 +18,7 @@ All variables are required unless marked optional.
 | `FLYBASE_RELEASE` | `FB2026_03` | Reported in every result and in `/health`. Chado has no release marker, so set it per load. |
 | `CHADO_URL` | `postgres://flybase_mcp:<secret>@chado-mcp:5432/flybase` | Runtime role for `serve`; the owner role for `migrate`. |
 | `CHADO_POOL_SIZE` | `32` | Optional, default 32. Keep it below the role's connection limit. |
-| `BLAST_BASE_URL` | `http://blast-web:8080` | Optional. Base URL of the private BLAST job API (see `docs/handoff-private-side.md` for the contract). Must be `http://`: no TLS is compiled in, and an `https://` value is rejected at startup (logged, BLAST tools then answer as unconfigured). Unset: BLAST tools answer `backend_unavailable` and `/health` reports `blast: unconfigured`. |
+| `BLAST_BASE_URL` | `http://blast-jobs:8800` | Optional. Base URL of the private BLAST job API (see `docs/handoff-private-side.md` for the contract, and `docs/blast-jobs.md` for the service in this repository that implements it). Must be `http://`: no TLS is compiled in, and an `https://` value is rejected at startup (logged, BLAST tools then answer as unconfigured). Unset: BLAST tools answer `backend_unavailable` and `/health` reports `blast: unconfigured`. |
 | `BLAST_SERVICE_TOKEN` | `<secret>` | Optional. Bearer token the BLAST API expects. A URL without a token is allowed and logged at warn. Never logged or returned. |
 | `FLYBASE_MCP_RESPONSE_CACHE_MB` | `256` | Optional. Response cache bound in MiB; 0 disables it. |
 | `RUST_LOG` | `info` | Log filter. The image sets `info`. At `debug`, rmcp logs every tool call's arguments, including BLAST job tokens. |

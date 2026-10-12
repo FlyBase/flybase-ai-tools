@@ -1,5 +1,7 @@
 name: ci
 on: [push, pull_request]
+permissions:
+  contents: read
 jobs:
   lint-and-unit:
     runs-on: ubuntu-latest
@@ -37,3 +39,19 @@ jobs:
       - run: cd mcp && cargo test --tests
         env:
           CHADO_URL: postgres://flybase_mcp:flybase_mcp@127.0.0.1:5499/flybase
+  blast-jobs-unit:
+    runs-on: ubuntu-latest
+    defaults: { run: { working-directory: blast-jobs } }
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with: { components: "clippy, rustfmt" }
+      - uses: Swatinem/rust-cache@v2
+        with: { workspaces: blast-jobs }
+      - run: cargo fmt --check
+      - run: cargo clippy --all-targets -- -D warnings
+      - uses: EmbarkStudios/cargo-deny-action@v2
+        with:
+          manifest-path: blast-jobs/Cargo.toml
+          command: check advisories licenses
+      - run: cargo test

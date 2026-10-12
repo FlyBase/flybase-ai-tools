@@ -1,0 +1,11 @@
+{
+  "version": 1,
+  "databases": [
+    { "species": "dmel", "category": "assembly", "label": "D. melanogaster genome assembly", "protein": false, "prefix": "dmel/dmel-assembly", "release": "fixture" },
+    { "species": "dmel", "category": "transcript", "label": "D. melanogaster transcripts", "protein": false, "prefix": "dmel/dmel-transcript", "release": "fixture" },
+    { "species": "dmel", "category": "translation", "label": "D. melanogaster translations", "protein": true, "prefix": "dmel/dmel-translation", "release": "fixture" },
+    { "species": "dmel", "category": "genbank", "label": "D. melanogaster GenBank nucleotide", "protein": false, "prefix": "dmel_misc/dmel-genbank", "release": "fixture" },
+    { "species": "dmel", "category": "genpept", "label": "D. melanogaster GenBank protein", "protein": true, "prefix": "dmel_misc/dmel-genpept", "release": "fixture" },
+    { "species": "dsim", "category": "assembly", "label": "D. simulans genome assembly", "protein": false, "prefix": "dsim/dsim-assembly", "release": "fixture" }
+  ]
+}

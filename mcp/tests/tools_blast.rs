@@ -98,6 +98,7 @@ async fn submit_status_results_round_trip() {
     )
     .await;
     assert_eq!(r["total_hits"], 2);
+    assert_eq!(r["results_truncated"], false, "no truncation header");
     let hits = r["hits"].as_array().unwrap();
     assert_eq!(hits.len(), 1);
     assert_eq!(hits[0]["subject_id"], "FBtr0070507");
@@ -578,6 +579,61 @@ async fn results_with_html_content_type_is_a_fault() {
     .unwrap();
     assert_eq!(e["error"], "backend_unavailable", "{e}");
     assert!(!e["message"].as_str().unwrap().contains("no hits"));
+}
+
+/// `X-Blast-Jobs-Truncated: true` on results.tsv is the service's only sign that rows were cut; it reaches
+/// the caller as `results_truncated` and a sentence in the summary.
+#[tokio::test]
+async fn truncated_results_are_flagged() {
+    let (mock, base) = blast_server().await;
+    submit_mock().mount(&mock).await;
+    Mock::given(method("GET"))
+        .and(path("/internal/jobs/job-0001"))
+        .respond_with(
+            ResponseTemplate::new(200).set_body_json(
+                json!({"job_id": "job-0001", "state": "complete", "queue_position": 0}),
+            ),
+        )
+        .mount(&mock)
+        .await;
+    Mock::given(method("GET"))
+        .and(path("/internal/jobs/job-0001/results.tsv"))
+        .respond_with(
+            ResponseTemplate::new(200)
+                .set_body_raw(TSV, "text/tab-separated-values; charset=utf-8")
+                .insert_header("x-blast-jobs-truncated", "true"),
+        )
+        .mount(&mock)
+        .await;
+    let c = client_at(&base).await;
+    let s = call(
+        &c,
+        "blast_submit",
+        json!({"program": "blastn", "database": "assembly", "sequence": "ACGTACGTACGTACGTACGT"}),
+    )
+    .await;
+    let token = s["job_token"].as_str().unwrap().to_string();
+    let r = call_raw(
+        &c,
+        "blast_results",
+        json!({"job_id": "job-0001", "job_token": token}),
+    )
+    .await
+    .unwrap();
+    let body = r.structured_content.clone().unwrap();
+    assert_eq!(body["results_truncated"], true, "{body}");
+    assert_eq!(
+        body["truncated"], false,
+        "the envelope's own flag is separate"
+    );
+    assert_eq!(body["total_hits"], 2);
+    let text = r.content[0].as_text().unwrap().text.clone();
+    let summary = text.lines().next().unwrap();
+    assert!(
+        summary.contains("Results truncated at the service's size cap")
+            && summary.contains("max_hits"),
+        "{summary}"
+    );
 }
 
 /// More than one FASTA record is rejected instead of being concatenated into one query.

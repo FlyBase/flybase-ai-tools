@@ -1,0 +1,48 @@
+# The blast-jobs jobs that download BLAST+ from NCBI. They live apart from ci.yml so a native path filter
+# keeps a slow NCBI from reddening unrelated changes (design 3.12). The fast unit job stays in ci.yml.
+name: blast-jobs
+on:
+  push:
+    branches: [master]
+    paths: ['blast-jobs/**', '.github/workflows/blast-jobs.yml']
+  pull_request:
+    paths: ['blast-jobs/**', '.github/workflows/blast-jobs.yml']
+permissions:
+  contents: read
+jobs:
+  blast-jobs-integration:
+    runs-on: ubuntu-latest
+    defaults: { run: { working-directory: blast-jobs } }
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with: { workspaces: blast-jobs }
+      # The tarball URL and SHA-256 are pinned once, in the Dockerfile.
+      - id: pin
+        run: |
+          echo "url=$(sed -n 's/^ARG BLAST_URL=//p' Dockerfile)" >> "$GITHUB_OUTPUT"
+          echo "sha=$(sed -n 's/^ARG BLAST_SHA256=//p' Dockerfile)" >> "$GITHUB_OUTPUT"
+      - uses: actions/cache@v4
+        id: blast-cache
+        with:
+          path: ~/ncbi-blast.tar.gz
+          key: ncbi-blast-${{ steps.pin.outputs.sha }}
+      - if: steps.blast-cache.outputs.cache-hit != 'true'
+        env: { BLAST_URL: "${{ steps.pin.outputs.url }}" }
+        run: curl -fsSL --retry 3 -o ~/ncbi-blast.tar.gz "$BLAST_URL"
+      - env: { BLAST_SHA256: "${{ steps.pin.outputs.sha }}" }
+        run: |
+          test -n "$BLAST_SHA256"
+          echo "$BLAST_SHA256  $HOME/ncbi-blast.tar.gz" | sha256sum -c -
+          mkdir -p ~/ncbi-blast && tar -xzf ~/ncbi-blast.tar.gz -C ~/ncbi-blast --strip-components 1
+          ~/ncbi-blast/bin/blastn -version | grep -F '2.17.0+'
+      - run: BLAST_JOBS_REAL_BLAST="$HOME/ncbi-blast/bin" cargo test --test real_blast
+  blast-jobs-image:
+    runs-on: ubuntu-latest
+    defaults: { run: { working-directory: blast-jobs } }
+    steps:
+      - uses: actions/checkout@v4
+      - run: docker build -t blast-jobs:ci .
+      - run: docker image ls blast-jobs:ci
+      - run: tests/image-smoke.sh blast-jobs:ci

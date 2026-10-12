@@ -1,0 +1,19 @@
+{
+  "bind": "0.0.0.0:8800",
+  "blast_bin_dir": "/opt/ncbi-blast/bin",
+  "database_root": "/db",
+  "catalogue": "/db/catalogue.json",
+  "database_release": "FB2023_04",
+  "state_root": "/state",
+  "concurrency": 2,
+  "threads_per_job": 2,
+  "max_queued": 20,
+  "wall_seconds": 600,
+  "translated_wall_seconds": 300,
+  "retention_seconds": 86400,
+  "max_results_bytes": 16777216,
+  "default_evalue": 10,
+  "default_max_hits": 100,
+  "max_hsps_per_subject": 50,
+  "max_residues": { "blastn": 100000, "blastp": 100000, "blastx": 30000, "tblastn": 30000, "tblastx": 10000 }
+}

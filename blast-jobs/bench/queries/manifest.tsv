@@ -1,0 +1,14 @@
+# blast-jobs benchmark query set (design 3.11). One job per line; lines starting with # are ignored.
+# Columns (tab-separated): name, file (relative to this directory), program, database, species
+# (comma-separated), megablast (true, false, or - to leave it to the service default), set.
+# set "standard" is the timed mix (8 jobs per pass); set "uncapped" is the single 100 kb tblastx
+# measurement, run alone with --uncapped against a throwaway config (see ../README.md).
+blastn_exon	exon_500bp.fa	blastn	assembly	dmel	false	standard
+megablast_exon	exon_500bp.fa	blastn	assembly	dmel	true	standard
+blastn_cdna	cdna_2kb.fa	blastn	genbank	dmel	-	standard
+blastp_protein	protein_376aa.fa	blastp	translation	dmel	-	standard
+tblastn_protein_12sp	protein_376aa.fa	tblastn	assembly	dmel,dsim,dsec,dyak,dere,dana,dpse,dper,dwil,dmoj,dvir,dgri	-	standard
+tblastx_10kb_12sp	genomic_10kb.fa	tblastx	assembly	dmel,dsim,dsec,dyak,dere,dana,dpse,dper,dwil,dmoj,dvir,dgri	-	standard
+blastx_30kb	genomic_30kb.fa	blastx	translation	dmel	-	standard
+megablast_100kb	genomic_100kb.fa	blastn	assembly	dmel	true	standard
+tblastx_100kb_uncapped	genomic_100kb.fa	tblastx	assembly	dmel	-	uncapped

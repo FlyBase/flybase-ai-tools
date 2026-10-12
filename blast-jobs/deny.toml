@@ -1,0 +1,9 @@
+[advisories]
+version = 2
+ignore = []
+
+[licenses]
+version = 2
+# CI runs `cargo deny check advisories licenses` for this crate; a new licence on a transitive crate is a
+# review decision made by adding it here.
+allow = ["MIT", "Apache-2.0", "BSD-2-Clause", "BSD-3-Clause", "Unicode-3.0"]
