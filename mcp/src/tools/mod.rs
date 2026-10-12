@@ -1,4 +1,5 @@
 pub mod batch;
+pub mod blast;
 pub mod coordinates;
 pub mod cyto;
 pub mod disease;

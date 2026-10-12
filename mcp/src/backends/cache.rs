@@ -240,6 +240,8 @@ impl ResponseCache {
 pub struct Caches {
     pub response: ResponseCache,
     pub matrix: MatrixCache,
+    /// BLAST job_id -> token hash; the only state the BLAST tools keep.
+    pub blast_tokens: crate::backends::blast::JobTokens,
 }
 
 impl Caches {
@@ -248,6 +250,7 @@ impl Caches {
         Self {
             response: ResponseCache::new(response_bytes, RESPONSE_CACHE_TTL),
             matrix: MatrixCache::new(),
+            blast_tokens: crate::backends::blast::JobTokens::new(),
         }
     }
 }

@@ -61,6 +61,212 @@ Download chosen fields for up to 500 FlyBase IDs at once as rows (JSON or TSV): 
 }
 ```
 
+## `blast_results`
+
+Fetch the hits of a completed BLAST job: subject IDs with FlyBase IDs where present, e-values, bit scores, identities, and the best HSPs, plus download links for the full TSV, XML, and text reports. Use after blast_status reports complete.
+
+```json
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "job_id": {
+      "description": "The job_id from blast_submit.",
+      "type": "string"
+    },
+    "job_token": {
+      "description": "The job_token from blast_submit.",
+      "type": "string"
+    },
+    "max_hits": {
+      "description": "Hits to return (default 25, max 100).",
+      "format": "uint32",
+      "minimum": 0,
+      "type": [
+        "integer",
+        "null"
+      ]
+    },
+    "max_hsps_per_hit": {
+      "description": "HSPs per hit (default 3, max 20).",
+      "format": "uint32",
+      "minimum": 0,
+      "type": [
+        "integer",
+        "null"
+      ]
+    }
+  },
+  "required": [
+    "job_id",
+    "job_token"
+  ],
+  "type": "object"
+}
+```
+
+## `blast_status`
+
+Check a BLAST job submitted with blast_submit: queued, running, complete, failed, or cancelled. Use after the poll interval blast_submit gave; when complete, call blast_results.
+
+```json
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "job_id": {
+      "description": "The job_id from blast_submit.",
+      "type": "string"
+    },
+    "job_token": {
+      "description": "The job_token from blast_submit.",
+      "type": "string"
+    }
+  },
+  "required": [
+    "job_id",
+    "job_token"
+  ],
+  "type": "object"
+}
+```
+
+## `blast_submit`
+
+Submit a BLAST search of a nucleotide or protein sequence against FlyBase databases (genome assembly, transcripts, polypeptides, transposons, and more) for one or more Drosophila species. Returns a job_id and job_token; poll blast_status, then fetch blast_results. Use list_options=true to see programs, databases, and species.
+
+```json
+{
+  "$defs": {
+    "Database": {
+      "enum": [
+        "assembly",
+        "transcript",
+        "translation",
+        "intergenic",
+        "syntenic_region",
+        "transposon",
+        "canonical_transposons",
+        "genbank",
+        "est",
+        "gss",
+        "genpept"
+      ],
+      "type": "string"
+    },
+    "Program": {
+      "enum": [
+        "blastn",
+        "blastp",
+        "blastx",
+        "tblastn",
+        "tblastx"
+      ],
+      "type": "string"
+    }
+  },
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "advanced": {
+      "description": "Extra BLAST+ options, letters, digits, spaces, \"-\", \"_\", \".\" and \"=\" only (for example \"-word_size 11\").",
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "database": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/Database"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "description": "Target database; translation and genpept are protein, the rest nucleotide. list_options=true describes them."
+    },
+    "evalue": {
+      "description": "Expectation value cutoff (service default when omitted).",
+      "format": "double",
+      "type": [
+        "number",
+        "null"
+      ]
+    },
+    "genetic_code": {
+      "description": "NCBI genetic code for translated searches (1 to 33).",
+      "format": "uint8",
+      "maximum": 255,
+      "minimum": 0,
+      "type": [
+        "integer",
+        "null"
+      ]
+    },
+    "list_options": {
+      "description": "If true, return the programs, databases, species, and matrices and nothing else.",
+      "type": [
+        "boolean",
+        "null"
+      ]
+    },
+    "matrix": {
+      "description": "Protein scoring matrix: BLOSUM62, BLOSUM45, BLOSUM80, PAM30, PAM70.",
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "max_hits": {
+      "description": "Maximum hits the service keeps (1 to 1000; service default when omitted).",
+      "format": "uint32",
+      "minimum": 0,
+      "type": [
+        "integer",
+        "null"
+      ]
+    },
+    "megablast": {
+      "description": "blastn only: use megablast.",
+      "type": [
+        "boolean",
+        "null"
+      ]
+    },
+    "program": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/Program"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "description": "blastn, blastp, blastx, tblastn, or tblastx."
+    },
+    "sequence": {
+      "description": "Query sequence, raw or FASTA (one record), up to 100,000 residues.",
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "species": {
+      "description": "Species to search, FlyBase abbreviations (default [\"Dmel\"]).",
+      "items": {
+        "type": "string"
+      },
+      "type": [
+        "array",
+        "null"
+      ]
+    }
+  },
+  "type": "object"
+}
+```
+
 ## `convert_coordinates`
 
 Convert genome coordinates between assembly releases using FlyBase's published maps (currently D. melanogaster release 5 to release 6). Each input gets a status: mapped (both ends convert to one scaffold; a range that spans regions of change is still mapped, but its length can change, so compare from_length with to_length and check regions_spanned), partial (an end falls in a region of change or the two ends land on different scaffolds; the mapped blocks are listed), unmapped, or invalid. Use when a paper or dataset gives release 5 (pre-2014) coordinates and you need current ones; use list_options=true to see supported pairs.

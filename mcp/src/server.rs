@@ -1,5 +1,5 @@
 use crate::{
-    backends::{cache::Caches, chado::Chado},
+    backends::{blast::BlastClient, cache::Caches, chado::Chado},
     config::Config,
     limits::Limits,
 };
@@ -41,6 +41,8 @@ pub struct FlyBaseServer {
     pub limits: Limits,
     pub release: String,
     pub caches: Arc<Caches>,
+    /// None when BLAST_BASE_URL is unset; the BLAST tools then answer backend_unavailable.
+    pub blast: Option<Arc<BlastClient>>,
     tool_router: ToolRouter<Self>,
 }
 
@@ -64,14 +66,22 @@ impl FlyBaseServer {
             + Self::tool_router_stocks()
             + Self::tool_router_coordinates()
             + Self::tool_router_rnaseq()
+            + Self::tool_router_blast()
     }
 
-    pub fn new(chado: Chado, limits: Limits, release: String, caches: Arc<Caches>) -> Self {
+    pub fn new(
+        chado: Chado,
+        limits: Limits,
+        release: String,
+        caches: Arc<Caches>,
+        blast: Option<Arc<BlastClient>>,
+    ) -> Self {
         Self {
             chado,
             limits,
             release,
             caches,
+            blast,
             tool_router: Self::all_tool_routers(),
         }
     }
@@ -91,12 +101,30 @@ pub fn app(cfg: &Config, chado: Chado) -> Router {
     let health_chado = chado.clone();
     let health_release = release.clone();
     let caches = Arc::new(Caches::new(cfg.response_cache_bytes));
+    let blast = match &cfg.blast_base_url {
+        Some(u) => {
+            if cfg.blast_token.is_none() {
+                tracing::warn!(
+                    "BLAST_BASE_URL set without BLAST_SERVICE_TOKEN; requests go unauthenticated"
+                );
+            }
+            match BlastClient::new(u.clone(), cfg.blast_token.clone()) {
+                Ok(c) => Some(Arc::new(c)),
+                Err(e) => {
+                    tracing::error!(error = %e, "BLAST client not built; BLAST tools unavailable");
+                    None
+                }
+            }
+        }
+        None => None,
+    };
     let factory = move || {
         Ok(FlyBaseServer::new(
             chado.clone(),
             limits.clone(),
             release.clone(),
             caches.clone(),
+            blast.clone(),
         ))
     };
     let mcp_cfg = StreamableHttpServerConfig::default()

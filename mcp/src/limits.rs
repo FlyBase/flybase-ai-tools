@@ -6,6 +6,8 @@ use tokio::sync::{OwnedSemaphorePermit, Semaphore};
 pub const LIGHT_PERMITS: usize = 24;
 pub const HEAVY_PERMITS: usize = 6;
 pub const BLAST_PERMITS: usize = 2;
+/// Permits for blast_status and blast_results, which wait on HTTP and must never hold a chado permit.
+pub const BLAST_POLL_PERMITS: usize = 8;
 pub const MAX_JSON_BYTES: usize = 256 * 1024;
 pub const MAX_FASTA_BYTES: usize = 512 * 1024;
 pub const MAX_ROWS: i64 = 1000;
@@ -19,6 +21,7 @@ pub struct Limits {
     light: Arc<Semaphore>,
     heavy: Arc<Semaphore>,
     blast: Arc<Semaphore>,
+    blast_poll: Arc<Semaphore>,
 }
 
 impl Limits {
@@ -27,6 +30,7 @@ impl Limits {
             light: Arc::new(Semaphore::new(LIGHT_PERMITS)),
             heavy: Arc::new(Semaphore::new(HEAVY_PERMITS)),
             blast: Arc::new(Semaphore::new(BLAST_PERMITS)),
+            blast_poll: Arc::new(Semaphore::new(BLAST_POLL_PERMITS)),
         }
     }
     pub async fn light(&self, tool: &'static str) -> ToolResult<OwnedSemaphorePermit> {
@@ -38,11 +42,16 @@ impl Limits {
     pub async fn blast(&self, tool: &'static str) -> ToolResult<OwnedSemaphorePermit> {
         acquire(&self.blast, tool).await
     }
-    pub fn available(&self) -> (usize, usize, usize) {
+    pub async fn blast_poll(&self, tool: &'static str) -> ToolResult<OwnedSemaphorePermit> {
+        acquire(&self.blast_poll, tool).await
+    }
+    /// (light, heavy, blast, blast_poll) permits currently free.
+    pub fn available(&self) -> (usize, usize, usize, usize) {
         (
             self.light.available_permits(),
             self.heavy.available_permits(),
             self.blast.available_permits(),
+            self.blast_poll.available_permits(),
         )
     }
 }
@@ -82,11 +91,21 @@ mod tests {
         for _ in 0..HEAVY_PERMITS {
             held.push(l.heavy("t").await.unwrap());
         }
-        assert_eq!(l.available().1, 0);
+        assert_eq!(
+            l.available(),
+            (LIGHT_PERMITS, 0, BLAST_PERMITS, BLAST_POLL_PERMITS)
+        );
         let got = tokio::time::timeout(Duration::from_millis(50), l.light("t")).await;
         assert!(
             got.is_ok_and(|p| p.is_ok()),
             "light permit must not block when heavy is exhausted"
+        );
+        let _poll = l.blast_poll("blast_status").await.unwrap();
+        let _submit = l.blast("blast_submit").await.unwrap();
+        assert_eq!(
+            l.available(),
+            (LIGHT_PERMITS, 0, BLAST_PERMITS - 1, BLAST_POLL_PERMITS - 1),
+            "blast and blast_poll are separate pools"
         );
     }
     #[tokio::test(start_paused = true)]
