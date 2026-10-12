@@ -1,0 +1,9 @@
+[advisories]
+version = 2
+ignore = []
+
+[licenses]
+version = 2
+# The licences the dependency tree carries today, for `cargo deny check licenses` run by hand before a release.
+# CI runs `check advisories` only; a new licence on a transitive crate is a review decision, not a red build.
+allow = ["MIT", "Apache-2.0", "BSD-2-Clause", "BSD-3-Clause", "Unicode-3.0", "Zlib"]

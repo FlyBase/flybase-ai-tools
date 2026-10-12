@@ -4,6 +4,9 @@ The server is one Rust binary, `flybase-mcp`, packaged as a container. It reads 
 database (`chado-mcp`) restored from a FlyBase release dump and serves the Model Context Protocol over
 Streamable HTTP at `/mcp`. The public endpoint is `https://mcp.flybase.org/mcp`.
 
+Private-side handoff: [handoff-private-side.md](handoff-private-side.md) is the checklist for what the hosting
+side provides (database, runtime role, release runbook step, proxy and CDN requirements, BLAST job API).
+
 ## Environment
 
 All variables are required unless marked optional.

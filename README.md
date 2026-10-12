@@ -22,3 +22,6 @@ gene groups, disease models, stocks, interactions), RNA-seq expression, and BLAS
 ## Develop
 
 See `docs/deployment.md` for running the server and `mcp/README.md` for the crate.
+
+Private-side handoff: [docs/handoff-private-side.md](docs/handoff-private-side.md) lists what a host must provide
+(database, runtime role, release runbook step, proxy and CDN requirements, and the BLAST job API contract).

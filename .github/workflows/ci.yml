@@ -12,6 +12,10 @@ jobs:
         with: { workspaces: mcp }
       - run: cargo fmt --check
       - run: cargo clippy --all-targets -- -D warnings
+      - uses: EmbarkStudios/cargo-deny-action@v2
+        with:
+          manifest-path: mcp/Cargo.toml
+          command: check advisories
       - run: cargo test --lib
       - run: cargo run --bin tool-catalog > /tmp/tools.md && diff -u ../docs/tools.md /tmp/tools.md
   fixture-tests:
