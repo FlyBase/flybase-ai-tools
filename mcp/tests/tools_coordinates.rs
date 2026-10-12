@@ -65,6 +65,17 @@ async fn list_options_and_unsupported_pair() {
     let e = r.structured_content.unwrap();
     assert_eq!(e["error"], "invalid_input");
     assert!(e["message"].as_str().unwrap().contains("Dmel 5 -> 6"));
+    assert!(e["message"].as_str().unwrap().contains("from_release"));
+    let r = call_raw(
+        &c,
+        "convert_coordinates",
+        json!({"to_release": 7, "coordinates": ["X:1"]}),
+    )
+    .await
+    .unwrap();
+    let e = r.structured_content.unwrap();
+    assert_eq!(e["error"], "invalid_input");
+    assert!(e["message"].as_str().unwrap().contains("to_release"), "{e}");
     let r = call_raw(&c, "convert_coordinates", json!({"species": "Dpse", "from_release": 2, "to_release": 3, "coordinates": ["XL_group1a:1"]})).await.unwrap();
     assert_eq!(r.structured_content.unwrap()["error"], "invalid_input");
 }
@@ -81,4 +92,26 @@ async fn batch_limits() {
         .await
         .unwrap();
     assert_eq!(r.structured_content.unwrap()["error"], "limit_exceeded");
+}
+
+#[tokio::test]
+async fn truncated_batch_says_how_many_are_shown() {
+    let c = client().await;
+    let wide: Vec<String> = (0..500)
+        .map(|i| format!("2LHet:{}..300000", i + 1))
+        .collect();
+    let r = call_raw(&c, "convert_coordinates", json!({"coordinates": wide}))
+        .await
+        .unwrap();
+    let s = r.structured_content.clone().unwrap();
+    assert_eq!(s["truncated"], true);
+    let shown = s["conversions"].as_array().unwrap().len();
+    assert!(shown < 500);
+    let text = r.content[0].as_text().unwrap().text.clone();
+    let (summary, _) = text.split_once("\n\n").unwrap();
+    assert!(
+        summary.contains(&format!("Showing {shown} of 500 conversions")),
+        "{summary}"
+    );
+    assert!(summary.contains("smaller batches"), "{summary}");
 }

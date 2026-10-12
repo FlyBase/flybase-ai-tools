@@ -63,7 +63,7 @@ Download chosen fields for up to 500 FlyBase IDs at once as rows (JSON or TSV): 
 
 ## `convert_coordinates`
 
-Convert genome coordinates between assembly releases using FlyBase's published maps (currently D. melanogaster release 5 to release 6). Each input gets a status: mapped, partial (the range crosses a region of change; mapped blocks are listed), unmapped, or invalid. Use when a paper or dataset gives release 5 (pre-2014) coordinates and you need current ones; use list_options=true to see supported pairs.
+Convert genome coordinates between assembly releases using FlyBase's published maps (currently D. melanogaster release 5 to release 6). Each input gets a status: mapped (both ends convert to one scaffold; a range that spans regions of change is still mapped, but its length can change, so compare from_length with to_length and check regions_spanned), partial (an end falls in a region of change or the two ends land on different scaffolds; the mapped blocks are listed), unmapped, or invalid. Use when a paper or dataset gives release 5 (pre-2014) coordinates and you need current ones; use list_options=true to see supported pairs.
 
 ```json
 {

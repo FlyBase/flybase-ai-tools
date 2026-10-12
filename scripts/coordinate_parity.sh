@@ -21,8 +21,11 @@ for b in "$TMP"/batch.*; do
   jq -n --slurpfile coords "$TMP/coords.json" \
     '{jsonrpc: "2.0", id: 1, method: "tools/call", params: {name: "convert_coordinates", arguments: {coordinates: $coords[0]}}}' > "$TMP/req.json"
   curl -fsS --max-time 120 -H 'Content-Type: application/json' -H 'Accept: application/json, text/event-stream' \
-    --data-binary @"$TMP/req.json" "$BASE/mcp" \
-    | jq -r '.result.structuredContent.conversions[] | if .status == "mapped" then "\(.to.chromosome):\(.to.start)" else "?" end' >> "$TMP/got.txt"
+    --data-binary @"$TMP/req.json" "$BASE/mcp" > "$TMP/resp.json"
+  # A truncated response would leave got.txt short and misalign every later line.
+  jq -e '.result.structuredContent.truncated == false' "$TMP/resp.json" > /dev/null \
+    || { echo "response for $(basename "$b") is truncated or malformed; lower the batch size" >&2; exit 1; }
+  jq -r '.result.structuredContent.conversions[] | if .status == "mapped" then "\(.to.chromosome):\(.to.start)" else "?" end' "$TMP/resp.json" >> "$TMP/got.txt"
 done
 paste "$TMP/in.txt" "$TMP/expected.txt" "$TMP/got.txt" > "$TMP/all.tsv"
 agree=$(awk -F'\t' '$2 == $3' "$TMP/all.tsv" | wc -l)
