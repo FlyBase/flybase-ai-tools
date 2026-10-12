@@ -47,7 +47,7 @@ pub struct Condition {
     pub sample: String,
     /// Comparison of the gene's value in that sample.
     pub operator: Operator,
-    /// RPKM threshold.
+    /// RPKM threshold. Stored RPKM values are whole numbers, so `eq` with a fraction never matches; prefer gte/lte for ranges.
     pub value: f32,
 }
 
@@ -118,6 +118,14 @@ pub fn find_dataset<'a>(
         })
 }
 
+/// The threshold as the caller wrote it: f32 to f64 widening would echo 4.1 as 4.099999904632568.
+fn echo_value(v: f32) -> Value {
+    v.to_string()
+        .parse::<f64>()
+        .map(|f| json!(f))
+        .unwrap_or_else(|_| json!(v))
+}
+
 /// Only Dmel has profiles; anything else is invalid input, and an absent species means Dmel.
 async fn require_dmel(chado: &Chado, tool: &'static str, species: Option<&str>) -> ToolResult<()> {
     if let Some(s) = species {
@@ -186,7 +194,7 @@ impl FlyBaseServer {
         let ds = find_dataset(&all, &conds[0].dataset, T)?;
         if conds
             .iter()
-            .any(|c| !c.dataset.eq_ignore_ascii_case(&ds.dataset))
+            .any(|c| !c.dataset.trim().eq_ignore_ascii_case(&ds.dataset))
         {
             return Err(ToolError::InvalidInput {
                 tool: T,
@@ -234,9 +242,14 @@ impl FlyBaseServer {
             &[&dataset, &samples, &ops, &values, &fetch, &offset],
         )
         .await?;
+        // The query always returns at least one row carrying the total; an empty page is one row with a NULL gene_id.
         let total = rows.first().map(|r| r.get::<_, i64>("total")).unwrap_or(0);
-        let has_more = rows.len() as i64 > limit;
-        let genes: Vec<Value> = rows
+        let page: Vec<_> = rows
+            .iter()
+            .filter(|r| r.get::<_, Option<String>>("gene_id").is_some())
+            .collect();
+        let has_more = page.len() as i64 > limit;
+        let genes: Vec<Value> = page
             .iter()
             .take(limit as usize)
             .map(|r| {
@@ -245,9 +258,14 @@ impl FlyBaseServer {
                 json!({"id": id, "symbol": r.get::<_, Option<String>>("symbol"), "values": values, "link": report_link(&id)})
             })
             .collect();
-        let echo: Vec<Value> = conds.iter().zip(&samples).map(|(c, s)| json!({"dataset": &dataset, "sample": s, "operator": c.operator.as_str(), "value": c.value})).collect();
-        let summary = if genes.is_empty() {
+        let echo: Vec<Value> = conds.iter().zip(&samples).map(|(c, s)| json!({"dataset": &dataset, "sample": s, "operator": c.operator.as_str(), "value": echo_value(c.value)})).collect();
+        let summary = if total == 0 {
             format!("No {dataset} genes meet all {} condition(s).", conds.len())
+        } else if genes.is_empty() {
+            format!(
+                "{total} {dataset} gene(s) meet all {} condition(s); this page is empty (offset {offset}).",
+                conds.len()
+            )
         } else {
             format!(
                 "{} of {total} {dataset} gene(s) meeting all {} condition(s){}; first: {} ({}).",

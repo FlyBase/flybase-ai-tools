@@ -127,3 +127,49 @@ async fn condition_validation() {
         .unwrap();
     assert_eq!(r.structured_content.unwrap()["error"], "invalid_input");
 }
+
+#[tokio::test]
+async fn page_past_the_end_keeps_the_total() {
+    let c = client().await;
+    let conds = json!([
+        {"dataset": "FlyAtlas2", "sample": "Adult_Male_Testis", "operator": "gte", "value": 500},
+        {"dataset": "FlyAtlas2", "sample": "Adult_Female_Ovary", "operator": "lte", "value": 1}
+    ]);
+    let (offset, total) = if support::full_db() {
+        (194, 194)
+    } else {
+        (5, 2)
+    };
+    let r = call_raw(
+        &c,
+        "rnaseq_profile_search",
+        json!({"conditions": conds, "limit": 3, "offset": offset}),
+    )
+    .await
+    .unwrap();
+    let text = r.content[0].as_text().unwrap().text.clone();
+    assert!(text.starts_with(&format!("{total} FlyAtlas2 gene(s) meet all 2 condition(s); this page is empty (offset {offset})")), "{text}");
+    let s = r.structured_content.unwrap();
+    assert_eq!(s["total"], total);
+    assert_eq!(s["genes"].as_array().unwrap().len(), 0);
+    assert_eq!(s["has_more"], false);
+    assert_eq!(s["offset"], offset);
+}
+
+#[tokio::test]
+async fn padded_names_match_and_values_echo_as_given() {
+    let c = client().await;
+    let s = call(
+        &c,
+        "rnaseq_profile_search",
+        json!({"conditions": [
+        {"dataset": " FlyAtlas2 ", "sample": " L3_CNS ", "operator": "gt", "value": 4.1},
+        {"dataset": "flyatlas2 ", "sample": "adult_female_ovary", "operator": "gte", "value": 0}
+    ], "limit": 1}),
+    )
+    .await;
+    assert_eq!(s["dataset"], "FlyAtlas2");
+    assert_eq!(s["conditions"][0]["sample"], "L3_CNS");
+    assert_eq!(s["conditions"][0]["value"], 4.1);
+    assert_eq!(s["conditions"][1]["sample"], "Adult_Female_Ovary");
+}

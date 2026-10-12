@@ -999,7 +999,7 @@ Find D. melanogaster genes whose RNA-seq expression (RPKM) meets every condition
           "type": "string"
         },
         "value": {
-          "description": "RPKM threshold.",
+          "description": "RPKM threshold. Stored RPKM values are whole numbers, so `eq` with a fraction never matches; prefer gte/lte for ranges.",
           "format": "float",
           "type": "number"
         }
