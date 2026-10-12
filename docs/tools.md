@@ -1073,6 +1073,58 @@ Find D. melanogaster genes whose RNA-seq expression (RPKM) meets every condition
 }
 ```
 
+## `rnaseq_similar_genes`
+
+Rank D. melanogaster genes by Pearson correlation of log2(RPKM + 1) expression profiles with a query gene's profile across one dataset (FlyAtlas2 tissues or a modENCODE series). Use when you want co-expressed genes; use rnaseq_profile_search for threshold conditions on named samples.
+
+```json
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "dataset": {
+      "description": "Dataset name from list_options (FlyAtlas2, modENCODE_development, modENCODE_tissues, modENCODE_treatments, modENCODE_cell_lines). Required unless list_options is true.",
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "id": {
+      "description": "A gene ID (FBgn...). Required unless list_options is true.",
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "limit": {
+      "description": "Genes to return (default 25, max 100).",
+      "format": "uint32",
+      "minimum": 0,
+      "type": [
+        "integer",
+        "null"
+      ]
+    },
+    "list_options": {
+      "description": "If true, return only the datasets with their sample names.",
+      "type": [
+        "boolean",
+        "null"
+      ]
+    },
+    "min_correlation": {
+      "description": "Drop genes whose Pearson correlation is below this (for example 0.9).",
+      "format": "float",
+      "type": [
+        "number",
+        "null"
+      ]
+    }
+  },
+  "type": "object"
+}
+```
+
 ## `search`
 
 Free-text search over FlyBase: symbols, names, and synonyms of genes, alleles, insertions, constructs, stocks (including stock numbers), cell lines, libraries, strains, gene groups, and disease models; reference titles with author and year filters; and vocabulary terms. Returns a paged hit list. Use resolve when you already know the exact symbol or ID.

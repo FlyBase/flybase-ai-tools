@@ -1,3 +1,4 @@
+pub mod cache;
 pub mod chado;
 pub mod coordinates;
 pub mod diopt;

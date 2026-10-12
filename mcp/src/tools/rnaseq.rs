@@ -141,6 +141,21 @@ async fn require_dmel(chado: &Chado, tool: &'static str, species: Option<&str>) 
     Ok(())
 }
 
+#[derive(Deserialize, Serialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct SimilarGenesParams {
+    /// A gene ID (FBgn...). Required unless list_options is true.
+    pub id: Option<String>,
+    /// Dataset name from list_options (FlyAtlas2, modENCODE_development, modENCODE_tissues, modENCODE_treatments, modENCODE_cell_lines). Required unless list_options is true.
+    pub dataset: Option<String>,
+    /// Genes to return (default 25, max 100).
+    pub limit: Option<u32>,
+    /// Drop genes whose Pearson correlation is below this (for example 0.9).
+    pub min_correlation: Option<f32>,
+    /// If true, return only the datasets with their sample names.
+    pub list_options: Option<bool>,
+}
+
 #[tool_router(router = tool_router_rnaseq, vis = "pub")]
 impl FlyBaseServer {
     #[tool(
@@ -289,5 +304,151 @@ impl FlyBaseServer {
             env = env.link("first_report", first.to_string());
         }
         Ok(env.finish())
+    }
+
+    #[tool(
+        name = "rnaseq_similar_genes",
+        description = "Rank D. melanogaster genes by Pearson correlation of log2(RPKM + 1) expression profiles with a query gene's profile across one dataset (FlyAtlas2 tissues or a modENCODE series). Use when you want co-expressed genes; use rnaseq_profile_search for threshold conditions on named samples."
+    )]
+    pub async fn rnaseq_similar_genes(
+        &self,
+        Parameters(p): Parameters<SimilarGenesParams>,
+    ) -> Result<CallToolResult, ErrorData> {
+        const T: &str = "rnaseq_similar_genes";
+        let started = std::time::Instant::now();
+        let res = async {
+            let _permit = self.limits.light(T).await?;
+            self.rnaseq_similar_genes_impl(p).await
+        }
+        .await;
+        Ok(complete(T, started, res))
+    }
+
+    async fn rnaseq_similar_genes_impl(&self, p: SimilarGenesParams) -> ToolResult<CallToolResult> {
+        const T: &str = "rnaseq_similar_genes";
+        use crate::backends::cache::{Matrix, MatrixRow};
+        use crate::tools::resolve::normalize_fb_prefix;
+        let conn = self.chado.get(T).await?;
+        let all = datasets(&conn, T).await?;
+        if p.list_options.unwrap_or(false) {
+            return Ok(Envelope::new(T, &self.release)
+                .summary(format!("{} RNA-seq datasets.", all.len()))
+                .field(
+                    "datasets",
+                    json!(all.iter().map(dataset_json).collect::<Vec<_>>()),
+                )
+                .finish());
+        }
+        let raw_id = p.id.as_deref().unwrap_or("").trim();
+        let id = normalize_fb_prefix(raw_id).into_owned();
+        if !id.starts_with("FBgn") || id.len() != 11 || !id[4..].bytes().all(|b| b.is_ascii_digit())
+        {
+            return Err(ToolError::InvalidInput {
+                tool: T,
+                arg: "id",
+                message: format!(
+                    "'{raw_id}' is not a gene ID (FBgn + 7 digits); use resolve first"
+                ),
+            });
+        }
+        let ds = find_dataset(&all, p.dataset.as_deref().unwrap_or(""), T)?;
+        let dataset = ds.dataset.clone();
+        let limit = clamp_limit(p.limit) as usize;
+        let min_r = p.min_correlation.unwrap_or(-1.0);
+        if !(-1.0..=1.0).contains(&min_r) {
+            return Err(ToolError::InvalidInput {
+                tool: T,
+                arg: "min_correlation",
+                message: "must be between -1 and 1".into(),
+            });
+        }
+        let n_samples = ds.samples.len();
+        // The loader borrows this call's one connection; later calls never run it.
+        let loader_conn = &conn;
+        let matrix = self
+            .caches
+            .matrix
+            .get_or_load(&ds.dataset, || async move {
+                let rows = Chado::query_on(loader_conn, T, "rnaseq/matrix", &[&dataset]).await?;
+                let rows: Vec<MatrixRow> = rows
+                    .iter()
+                    .map(|r| MatrixRow {
+                        gene_id: r.get("gene_id"),
+                        vector: r.get("vector"),
+                    })
+                    .collect();
+                Ok(Matrix::from_rows(&dataset, n_samples, rows))
+            })
+            .await?;
+        let Some(qi) = matrix.index_of(&id) else {
+            let probe =
+                Chado::query_on(&conn, T, "rnaseq/gene_vector", &[&matrix.dataset, &id]).await?;
+            return Err(match probe.first() {
+                Some(_) => ToolError::InvalidInput {
+                    tool: T,
+                    arg: "id",
+                    message: format!(
+                        "{id} shows no variation across the {} samples of {} (every value is equal), so it cannot be correlated",
+                        n_samples, matrix.dataset
+                    ),
+                },
+                None => ToolError::NotFound {
+                    tool: T,
+                    message: format!(
+                        "{id} has no complete expression profile in {}; check the ID with resolve",
+                        matrix.dataset
+                    ),
+                },
+            });
+        };
+        let mut scored = matrix.correlate(qi);
+        scored.retain(|(j, r)| *j != qi && *r >= min_r);
+        scored.sort_by(|a, b| {
+            b.1.partial_cmp(&a.1)
+                .unwrap_or(std::cmp::Ordering::Equal)
+                .then_with(|| matrix.genes[a.0].cmp(&matrix.genes[b.0]))
+        });
+        scored.truncate(limit);
+        let mut ids: Vec<String> = scored
+            .iter()
+            .map(|(j, _)| matrix.genes[*j].clone())
+            .collect();
+        ids.push(id.clone());
+        let sym_rows = Chado::query_on(&conn, T, "rnaseq/symbols", &[&ids]).await?;
+        let symbols: std::collections::HashMap<String, Option<String>> = sym_rows
+            .iter()
+            .map(|r| (r.get("uniquename"), r.get("name")))
+            .collect();
+        let similar: Vec<Value> = scored
+            .iter()
+            .map(|(j, r)| {
+                let g = &matrix.genes[*j];
+                json!({"id": g, "symbol": symbols.get(g).cloned().flatten(), "correlation": (f64::from(*r) * 10_000.0).round() / 10_000.0, "link": report_link(g)})
+            })
+            .collect();
+        let query_symbol = symbols.get(&id).cloned().flatten();
+        let summary = match similar.first() {
+            Some(top) => format!(
+                "{} gene(s) most similar to {id} ({}) across {} {} samples; top: {} ({}) r = {}.",
+                similar.len(),
+                query_symbol.as_deref().unwrap_or("?"),
+                n_samples,
+                matrix.dataset,
+                top["id"].as_str().unwrap_or(""),
+                top["symbol"].as_str().unwrap_or(""),
+                top["correlation"]
+            ),
+            None => format!(
+                "No gene correlates with {id} at or above {min_r} in {}.",
+                matrix.dataset
+            ),
+        };
+        Ok(Envelope::new(T, &self.release)
+            .summary(summary)
+            .field("query", json!({"id": id, "symbol": query_symbol, "dataset": matrix.dataset, "n_samples": n_samples, "genes_compared": matrix.genes.len() - 1}))
+            .field("similar", json!(similar))
+            .link("report", report_link(&id))
+            .link("dataset_report", report_link(&ds.project_id))
+            .finish())
     }
 }

@@ -173,3 +173,118 @@ async fn padded_names_match_and_values_echo_as_given() {
     assert_eq!(s["conditions"][0]["value"], 4.1);
     assert_eq!(s["conditions"][1]["sample"], "Adult_Female_Ovary");
 }
+
+#[tokio::test]
+async fn similar_genes_to_notch() {
+    let c = client().await;
+    let s = call(
+        &c,
+        "rnaseq_similar_genes",
+        json!({"id": "FBgn0004647", "dataset": "FlyAtlas2", "limit": 5}),
+    )
+    .await;
+    assert_eq!(s["query"]["id"], "FBgn0004647");
+    assert_eq!(s["query"]["symbol"], "N");
+    assert_eq!(s["query"]["n_samples"], 43);
+    let sim = s["similar"].as_array().unwrap();
+    assert!(sim.len() <= 5);
+    assert!(sim.iter().all(|g| g["id"] != "FBgn0004647"));
+    let rs: Vec<f64> = sim
+        .iter()
+        .map(|g| g["correlation"].as_f64().unwrap())
+        .collect();
+    assert!(
+        rs.windows(2).all(|w| w[0] >= w[1]),
+        "sorted descending: {rs:?}"
+    );
+    assert!(rs.iter().all(|r| (-1.0..=1.0).contains(r)));
+    assert_eq!(
+        s["links"]["report"],
+        "https://flybase.org/reports/FBgn0004647"
+    );
+    if support::full_db() {
+        let compared = s["query"]["genes_compared"].as_u64().unwrap();
+        assert!(
+            (16_590..=16_610).contains(&compared),
+            "genes_compared {compared}"
+        );
+        assert_eq!(sim[0]["id"], "FBgn0010768");
+        assert_eq!(sim[0]["symbol"], "sqz");
+        assert!((rs[0] - 0.9308).abs() < 0.002, "sqz r = {}", rs[0]);
+        let m = call(&c, "rnaseq_similar_genes", json!({"id": "FBgn0004647", "dataset": "FlyAtlas2", "limit": 100, "min_correlation": 0.88})).await;
+        assert!(
+            m["similar"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .all(|g| g["correlation"].as_f64().unwrap() >= 0.88)
+        );
+        assert!(m["similar"].as_array().unwrap().len() >= 3);
+    } else {
+        // The fixture carries 589 FlyAtlas2 genes; Notch is compared against the rest of them.
+        assert!(!sim.is_empty());
+        assert!(s["query"]["genes_compared"].as_u64().unwrap() > 0);
+    }
+    // A second call is served from the cached matrix; /health reports it (Task 8 asserts the health field).
+    let again = call(
+        &c,
+        "rnaseq_similar_genes",
+        json!({"id": "FBgn0004647", "dataset": "FlyAtlas2", "limit": 5}),
+    )
+    .await;
+    assert_eq!(again["similar"], s["similar"]);
+}
+
+/// Review focus 3: a profile with zero variance cannot be correlated.
+#[tokio::test]
+async fn flat_profile_is_rejected() {
+    if !support::full_db() {
+        return; // FBgn0000227 is not a fixture gene; the unit test flat_rows_are_excluded covers the fixture path.
+    }
+    let c = client().await;
+    let r = call_raw(
+        &c,
+        "rnaseq_similar_genes",
+        json!({"id": "FBgn0000227", "dataset": "FlyAtlas2"}),
+    )
+    .await
+    .unwrap();
+    let e = r.structured_content.unwrap();
+    assert_eq!(e["error"], "invalid_input");
+    assert!(e["message"].as_str().unwrap().contains("no variation"));
+}
+
+#[tokio::test]
+async fn similar_genes_validation() {
+    let c = client().await;
+    let r = call_raw(
+        &c,
+        "rnaseq_similar_genes",
+        json!({"id": "FBgn9999999", "dataset": "FlyAtlas2"}),
+    )
+    .await
+    .unwrap();
+    assert_eq!(r.structured_content.unwrap()["error"], "not_found");
+    let r = call_raw(
+        &c,
+        "rnaseq_similar_genes",
+        json!({"id": "FBal0012701", "dataset": "FlyAtlas2"}),
+    )
+    .await
+    .unwrap();
+    assert_eq!(r.structured_content.unwrap()["error"], "invalid_input");
+    let r = call_raw(
+        &c,
+        "rnaseq_similar_genes",
+        json!({"id": "FBgn0004647", "dataset": "Nope"}),
+    )
+    .await
+    .unwrap();
+    assert_eq!(r.structured_content.unwrap()["error"], "invalid_input");
+    let o = call(&c, "rnaseq_similar_genes", json!({"list_options": true})).await;
+    assert_eq!(o["datasets"].as_array().unwrap().len(), 5);
+    let r = call_raw(&c, "rnaseq_similar_genes", json!({"dataset": "FlyAtlas2"}))
+        .await
+        .unwrap();
+    assert_eq!(r.structured_content.unwrap()["error"], "invalid_input");
+}

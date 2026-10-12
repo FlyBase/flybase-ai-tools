@@ -1,4 +1,8 @@
-use crate::{backends::chado::Chado, config::Config, limits::Limits};
+use crate::{
+    backends::{cache::Caches, chado::Chado},
+    config::Config,
+    limits::Limits,
+};
 use axum::{Json, Router, routing::get};
 use rmcp::{
     ServerHandler,
@@ -36,6 +40,7 @@ pub struct FlyBaseServer {
     pub chado: Chado,
     pub limits: Limits,
     pub release: String,
+    pub caches: Arc<Caches>,
     tool_router: ToolRouter<Self>,
 }
 
@@ -61,11 +66,12 @@ impl FlyBaseServer {
             + Self::tool_router_rnaseq()
     }
 
-    pub fn new(chado: Chado, limits: Limits, release: String) -> Self {
+    pub fn new(chado: Chado, limits: Limits, release: String, caches: Arc<Caches>) -> Self {
         Self {
             chado,
             limits,
             release,
+            caches,
             tool_router: Self::all_tool_routers(),
         }
     }
@@ -84,11 +90,13 @@ pub fn app(cfg: &Config, chado: Chado) -> Router {
     let release = cfg.release.clone();
     let health_chado = chado.clone();
     let health_release = release.clone();
+    let caches = Arc::new(Caches::new());
     let factory = move || {
         Ok(FlyBaseServer::new(
             chado.clone(),
             limits.clone(),
             release.clone(),
+            caches.clone(),
         ))
     };
     let mcp_cfg = StreamableHttpServerConfig::default()
