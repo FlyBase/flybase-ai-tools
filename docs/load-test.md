@@ -20,7 +20,7 @@ Each connection repeats one fixed JSON-RPC `tools/call` body from `scripts/load/
 | `batch_download.json` | `batch_download` 6 genes, fields symbol, name, location, alleles, references |
 | `entities_for_term.json` | `entities_for_term` GO:0007219, genes, limit 100 |
 
-For each run the script reports p50, p95, p99 latency (seconds), requests per second and HTTP success rate. A JSON-RPC tool error still returns HTTP 200, so tool outcomes come from the delta of `flybase_mcp_tool_calls_total` in `/metrics`, not from status codes. The script also counts `pool checkout failed` and `no permit within` warnings in the server log (`SERVER_LOG=<file>`). That count is cumulative over the log, so the phase B count includes phase A. It also samples `/health` every 5 s and reports the minimum pool `available`. A failed sample is skipped. Pool connections are opened lazily, so `available` is idle connections among those opened so far, and 0 does not mean the pool is at its limit.
+For each run the script reports p50, p95, p99 latency (seconds), requests per second, and three response columns. `completed` is oha's `summary.successRate`, the share of requests that got any HTTP response. It is not an HTTP success rate: oha 1.16.0 reports 1.0 when every response is HTTP 500. `2xx share` and `non-2xx` come from oha's `statusCodeDistribution`. They give the share of 2xx responses and the count of each other status code. After each table the script lists every run whose responses were not all 2xx. A JSON-RPC tool error still returns HTTP 200, so tool outcomes come from the delta of `flybase_mcp_tool_calls_total` in `/metrics`, not from status codes. The script also counts `pool checkout failed` and `no permit within` warnings in the server log (`SERVER_LOG=<file>`). That count is cumulative over the log, so the phase B count includes phase A. It also samples `/health` every 5 s and reports the minimum pool `available`. A failed sample is skipped. Pool connections are opened lazily, so `available` is idle connections among those opened so far, and 0 does not mean the pool is at its limit.
 
 ```bash
 cd mcp && cargo build --release
@@ -47,18 +47,22 @@ The test was run twice. The first run disabled the response cache with `FLYBASE_
 
 ## Acceptance criteria
 
-- **Phase A**: every light tool has p95 under 1.0 s, there are zero `backend_unavailable` outcomes, and there are no pool-wait timeouts.
-- **Phase B**: every light tool still has p95 under 1.0 s, light tools have zero `backend_unavailable` outcomes, and there are no pool-wait timeouts. Heavy tools may return `backend_unavailable` ("busy") after the 5 s permit wait. That is the designed load shedding.
+- **Phase A**: every light tool has a 2xx share of 1.0 and p95 under 1.0 s, there are zero `backend_unavailable` outcomes, and there are no pool-wait timeouts.
+- **Phase B**: every light tool still has a 2xx share of 1.0 and p95 under 1.0 s, light tools have zero `backend_unavailable` outcomes, and there are no pool-wait timeouts. Heavy tools may return `backend_unavailable` ("busy") after the 5 s permit wait. That is the designed load shedding.
 
 ## Results, cache disabled
+
+**Recorded runs and the status columns.** Both runs below were recorded before the script had the `2xx share` and `non-2xx` columns. The raw oha output was not kept, so those cells are blank. Every request still reached its tool handler. For each run, the `flybase_mcp_tool_calls_total` delta matches req/s x 60 s within the rounding of req/s, and every outcome is `ok`. A non-2xx response never reaches a handler and records no tool call. So the 2xx criterion is met through the metrics, not through the status columns. Future runs fill both columns.
 
 `FLYBASE_MCP_RESPONSE_CACHE_MB=0`, the database-bound case.
 
 | criterion | result |
 |---|---|
+| Phase A light 2xx share 1.0 | **pass, via metrics**. Tool calls match req/s x 60 s within rounding, and every outcome is `ok`. |
 | Phase A light p95 < 1.0 s | **pass**. The highest p95 is `get_report` at 0.384 s. |
 | Phase A zero `backend_unavailable` | **pass**. All outcomes were `ok`. |
 | Phase A no pool-wait timeouts | **pass**. The log count is 0. |
+| Phase B light 2xx share 1.0 | **pass, via metrics**. The same check holds. |
 | Phase B light p95 < 1.0 s | **pass**. The highest p95 is `get_report` at 0.573 s. |
 | Phase B zero light `backend_unavailable` | **pass**. All outcomes were `ok`. |
 | Phase B no pool-wait timeouts | **pass**. The log count is still 0. |
@@ -68,12 +72,12 @@ With 16 connections competing for 6 heavy permits, no heavy call waited past the
 
 ### Phase A: 40 light connections (60s)
 
-| run | p50 s | p95 s | p99 s | req/s | HTTP success |
-|---|---|---|---|---|---|
-| resolve | 0.16 | 0.216 | 0.242 | 61 | 1.0 |
-| get_report | 0.298 | 0.384 | 0.436 | 33 | 1.0 |
-| search | 0.06 | 0.086 | 0.096 | 165 | 1.0 |
-| get_sequence | 0.172 | 0.239 | 0.268 | 56 | 1.0 |
+| run | p50 s | p95 s | p99 s | req/s | completed | 2xx share | non-2xx |
+|---|---|---|---|---|---|---|---|
+| resolve | 0.16 | 0.216 | 0.242 | 61 | 1.0 | | |
+| get_report | 0.298 | 0.384 | 0.436 | 33 | 1.0 | | |
+| search | 0.06 | 0.086 | 0.096 | 165 | 1.0 | | |
+| get_sequence | 0.172 | 0.239 | 0.268 | 56 | 1.0 | | |
 
 Tool outcomes during the phase (from /metrics):
 
@@ -90,14 +94,14 @@ Pool-wait and permit timeouts in the server log: count the lines matching 'pool 
 
 ### Phase B: 16 heavy plus 40 light connections (60s)
 
-| run | p50 s | p95 s | p99 s | req/s | HTTP success |
-|---|---|---|---|---|---|
-| batch_download | 2.44 | 3.146 | 3.372 | 3 | 1.0 |
-| entities_for_term | 4.296 | 5.666 | 5.738 | 2 | 1.0 |
-| resolve_b | 0.216 | 0.289 | 0.318 | 46 | 1.0 |
-| get_report_b | 0.4 | 0.573 | 0.648 | 24 | 1.0 |
-| search_b | 0.077 | 0.111 | 0.127 | 128 | 1.0 |
-| get_sequence_b | 0.235 | 0.315 | 0.364 | 42 | 1.0 |
+| run | p50 s | p95 s | p99 s | req/s | completed | 2xx share | non-2xx |
+|---|---|---|---|---|---|---|---|
+| batch_download | 2.44 | 3.146 | 3.372 | 3 | 1.0 | | |
+| entities_for_term | 4.296 | 5.666 | 5.738 | 2 | 1.0 | | |
+| resolve_b | 0.216 | 0.289 | 0.318 | 46 | 1.0 | | |
+| get_report_b | 0.4 | 0.573 | 0.648 | 24 | 1.0 | | |
+| search_b | 0.077 | 0.111 | 0.127 | 128 | 1.0 | | |
+| get_sequence_b | 0.235 | 0.315 | 0.364 | 42 | 1.0 | | |
 
 Tool outcomes during the phase (from /metrics):
 
@@ -120,9 +124,11 @@ Default cache size. The six fixed bodies are answered from the cache after the f
 
 | criterion | result |
 |---|---|
+| Phase A light 2xx share 1.0 | **pass, via metrics**. Tool calls match req/s x 60 s within rounding, and every outcome is `ok`. |
 | Phase A light p95 < 1.0 s | **pass**. Every p95 is 0.004 s. |
 | Phase A zero `backend_unavailable` | **pass** |
 | Phase A no pool-wait timeouts | **pass**. The log count is 0. |
+| Phase B light 2xx share 1.0 | **pass, via metrics** |
 | Phase B light p95 < 1.0 s | **pass**. Every p95 is 0.007 s. |
 | Phase B zero light `backend_unavailable` | **pass** |
 | Phase B no pool-wait timeouts | **pass**. The log count is 0. |
@@ -130,12 +136,12 @@ Default cache size. The six fixed bodies are answered from the cache after the f
 
 ### Phase A: 40 light connections (60s)
 
-| run | p50 s | p95 s | p99 s | req/s | HTTP success |
-|---|---|---|---|---|---|
-| resolve | 0.002 | 0.004 | 0.006 | 4614 | 1.0 |
-| get_report | 0.002 | 0.004 | 0.006 | 4215 | 1.0 |
-| search | 0.002 | 0.004 | 0.006 | 4675 | 1.0 |
-| get_sequence | 0.002 | 0.004 | 0.005 | 4893 | 1.0 |
+| run | p50 s | p95 s | p99 s | req/s | completed | 2xx share | non-2xx |
+|---|---|---|---|---|---|---|---|
+| resolve | 0.002 | 0.004 | 0.006 | 4614 | 1.0 | | |
+| get_report | 0.002 | 0.004 | 0.006 | 4215 | 1.0 | | |
+| search | 0.002 | 0.004 | 0.006 | 4675 | 1.0 | | |
+| get_sequence | 0.002 | 0.004 | 0.005 | 4893 | 1.0 | | |
 
 Tool outcomes during the phase (from /metrics):
 
@@ -152,14 +158,14 @@ Pool-wait and permit timeouts in the server log: count the lines matching 'pool 
 
 ### Phase B: 16 heavy plus 40 light connections (60s)
 
-| run | p50 s | p95 s | p99 s | req/s | HTTP success |
-|---|---|---|---|---|---|
-| batch_download | 0.003 | 0.007 | 0.01 | 2210 | 1.0 |
-| entities_for_term | 0.003 | 0.007 | 0.01 | 2034 | 1.0 |
-| resolve_b | 0.003 | 0.007 | 0.01 | 2780 | 1.0 |
-| get_report_b | 0.003 | 0.007 | 0.011 | 2605 | 1.0 |
-| search_b | 0.003 | 0.007 | 0.01 | 2802 | 1.0 |
-| get_sequence_b | 0.003 | 0.007 | 0.01 | 2908 | 1.0 |
+| run | p50 s | p95 s | p99 s | req/s | completed | 2xx share | non-2xx |
+|---|---|---|---|---|---|---|---|
+| batch_download | 0.003 | 0.007 | 0.01 | 2210 | 1.0 | | |
+| entities_for_term | 0.003 | 0.007 | 0.01 | 2034 | 1.0 | | |
+| resolve_b | 0.003 | 0.007 | 0.01 | 2780 | 1.0 | | |
+| get_report_b | 0.003 | 0.007 | 0.011 | 2605 | 1.0 | | |
+| search_b | 0.003 | 0.007 | 0.01 | 2802 | 1.0 | | |
+| get_sequence_b | 0.003 | 0.007 | 0.01 | 2908 | 1.0 | | |
 
 Tool outcomes during the phase (from /metrics):
 
