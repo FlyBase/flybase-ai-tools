@@ -57,7 +57,10 @@ unprivileged `flybase` user (uid 10001). The image exposes 7200 and its `HEALTHC
    `pg_trgm` and trigram indexes, and run `007_grants`, which gives `flybase_mcp` `SELECT` and `EXECUTE` on what
    the server reads. `008_located_feature` then builds the window-query table and grants it itself. Each one is
    recorded in `mcp.migration_log` with the crate version and release.
-   Rebuilding the derived tables takes a few minutes on a full load.
+   Rebuilding the derived tables takes a few minutes on a full load when the data is in cache; on a host that has
+   just restored the dump (cold page cache, Postgres memory-capped) `008_located_feature` alone scanned
+   `featureloc` and `feature` for about 40 minutes. Budget up to an hour for `migrate` right after a restore; the
+   previous server keeps serving while it runs.
 
    Download `precomputed_files/orthologs/dmel_human_orthologs_disease_fb_<release>.tsv.gz` from the release
    FTP and run `flybase-mcp migrate --diopt <path>`; without it `get_orthologs` still works (scores from
@@ -164,7 +167,8 @@ Window queries (`map_features`, `cytosearch`) read `mcp.located_feature`, a deri
 `008_located_feature` that holds every non-obsolete feature on a golden-path arm except computed alignments
 (type `match`), with its species, arm, type, and coordinates. The migration rebuilds it on every release load,
 so `migrate` must run after each restore. On a full release restore it has about 1.7 million rows and takes
-about 290 MB with its two indexes; the rebuild takes about 1.5 minutes.
+about 290 MB with its two indexes; the rebuild takes about 1.5 minutes with the source tables cached and up to
+about 40 minutes cold (it reads the whole of `featureloc` and `feature`).
 
 ## Logs
 
