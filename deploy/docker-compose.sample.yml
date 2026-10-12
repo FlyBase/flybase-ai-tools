@@ -1,0 +1,11 @@
+# Sample service definition. Copy into your own compose stack and supply CHADO_PASSWORD from a secret store.
+services:
+  flybase-mcp:
+    build: ../mcp
+    environment:
+      FLYBASE_MCP_PUBLIC_URL: https://mcp.example.org
+      FLYBASE_RELEASE: FB2026_03
+      CHADO_URL: postgres://flybase_mcp:${CHADO_PASSWORD}@chado-mcp:5432/flybase
+      CHADO_POOL_SIZE: "32"
+    ports: ["127.0.0.1:7200:7200"]
+    restart: unless-stopped

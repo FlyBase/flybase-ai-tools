@@ -1,0 +1,10 @@
+services:
+  chado:
+    image: postgres:16
+    environment:
+      POSTGRES_USER: flybase_mcp
+      POSTGRES_PASSWORD: flybase_mcp
+      POSTGRES_DB: flybase
+      POSTGRES_INITDB_ARGS: "--locale=C --encoding=UTF8"
+    ports: ["127.0.0.1:5499:5432"]
+    command: ["postgres", "-c", "max_connections=60"]

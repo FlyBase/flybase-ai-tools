@@ -5,6 +5,8 @@ Tools for using FlyBase data from AI assistants.
 - `mcp/`: the hosted FlyBase MCP server (Rust). Endpoint: `https://mcp.flybase.org/mcp`.
 - `plugins/flybase/`: a Claude Code plugin that registers the MCP server. Skills will live here later.
 
+The server's tools and their arguments are listed in [docs/tools.md](docs/tools.md).
+
 ## Connect a client
 
 - Claude Code: `claude mcp add --transport http flybase https://mcp.flybase.org/mcp`
