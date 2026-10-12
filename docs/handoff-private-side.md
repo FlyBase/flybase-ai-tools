@@ -126,7 +126,7 @@ any 3xx is a service fault. Timeouts on the MCP side: 3 s connect, 15 s per requ
 | Route | Request | Responses |
 |---|---|---|
 | `POST /internal/jobs` | JSON `{program, database, species[], sequence, evalue?, megablast?, max_hits?, matrix?, genetic_code?, advanced?, client}`; `program` in `blastn blastp blastx tblastn tblastx`; `database` in `assembly transcript translation intergenic syntenic_region transposon canonical_transposons genbank est gss genpept`; `species` lowercase abbreviations, deduplicated (`dmel dsim dsec dyak dere dana dpse dper dwil dmoj dvir dgri`); `sequence` one FASTA record headed `>query`, uppercase residues, up to 100,000 residues; `evalue` in (0, 1000]; `max_hits` 1 to 1000; `matrix` one of `BLOSUM62 BLOSUM45 BLOSUM80 PAM30 PAM70`; `genetic_code` 1 to 33; `advanced` at most 200 characters of `[A-Za-z0-9 _.=-]` (letters, digits, space, underscore, dot, equals, hyphen; the same set `mcp/src/tools/blast.rs` checks); optional keys are omitted when unset; `client` is `flybase-mcp` | `202 {job_id, state: "queued", queue_position, poll_after_seconds, database_release}`; `400` (or `422`) `{error: invalid_sequence \| invalid_program \| invalid_database \| invalid_species \| invalid_option, message}`; `429 {error: "queue_full", retry_after_seconds}`; `401` or `403`; `503` |
-| `GET /internal/jobs/{job_id}` | none | `200 {job_id, state: queued \| running \| complete \| failed \| cancelled, queue_position, error, result_url, downloads: {tsv, xml, txt}}` (`result_url` and `downloads` once complete, pointing at public flybase.org pages; the MCP returns them verbatim); `404 {error: "unknown_job"}` |
+| `GET /internal/jobs/{job_id}` | none | `200 {job_id, state: queued \| running \| complete \| failed \| cancelled, queue_position, error, result_url, downloads: {tsv, xml, txt}}` (`result_url` and `downloads` once complete, pointing at public flybase.org pages; the MCP passes on only URLs that start with `https://flybase.org/` and drops any other `result_url` or `downloads` map); `404 {error: "unknown_job"}` |
 | `GET /internal/jobs/{job_id}/results.tsv` | none | `200` with `Content-Type` `text/tab-separated-values` or `text/plain` (any charset), header `qseqid sseqid pident length mismatch gapopen qstart qend sstart send evalue bitscore stitle` (BLAST `-outfmt "6 std stitle"`, tab-separated), one row per HSP in BLAST order; `409 {error: "not_complete", state}`; `404` |
 | `GET /internal/health` | none, no auth | `200` when jobs can be accepted, else `503` |
 
@@ -135,7 +135,8 @@ opaque strings of 8 to 64 URL-safe characters (`[A-Za-z0-9_-]`); any other `job_
 service fault. Jobs and their results are retained for 24 h after submission (the MCP's token lifetime). The
 MCP holds at most two concurrent submits, reads at most 16 MiB of `results.tsv`, and never polls on a
 client's behalf; clients poll `blast_status` at the returned interval. The `database_release` string (for
-example `FB2023_04 (Dmel r6.53)`) is shown to users, so keep it accurate. The service never sees the MCP's
+example `FB2023_04 (Dmel r6.53)`) is shown to users, so keep it accurate. The `error` text of a failed job is
+also shown to users verbatim, so it must carry no paths or hostnames. The service never sees the MCP's
 per-job client tokens.
 
 - [ ] Routes implemented; the base URL and token recorded with the deployment secrets.

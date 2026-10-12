@@ -96,7 +96,8 @@ sticky sessions are needed. Request bodies are capped at 1 MiB.
  "caches": {"response": {"entries": 12, "bytes": 48213}, "rnaseq_matrix": [{"dataset": "FlyAtlas2", "genes": 16608, "bytes": 3271000}], "blast_jobs": 0}}
 ```
 
-- `database` is `ok` when a trivial query succeeds and `error` otherwise.
+- `database` is `ok` when a trivial query succeeds and `error` otherwise. When the database checks run past
+  3 s, `database` reads `error` even if the trivial query itself succeeded.
 - `migrations` is `ok` when every migration in the binary is recorded in `mcp.migration_log`, `missing: <names>`
   when some are not, `error` when the log cannot be read, and `timeout` when the database checks run past 3 s.
 - `blast` is `unconfigured` (no `BLAST_BASE_URL`), `ok`, or `unreachable` (the BLAST API's health route did not
@@ -104,8 +105,9 @@ sticky sessions are needed. Request bodies are capped at 1 MiB.
 - `status` is `ok` only when `database` and `migrations` are both `ok`, and `degraded` otherwise. BLAST
   reachability never changes `status`, because every other tool keeps working without it.
 - `pool` reports the open and idle connections.
-- `caches` reports the response cache's entries and bytes, each loaded RNA-seq matrix, and the number of
-  BLAST jobs whose tokens are held.
+- `caches` reports the response cache's entries and weighted bytes (structured JSON is counted four times, so
+  `bytes` is the figure the cache bound applies to, not the heap size), each loaded RNA-seq matrix, and the
+  number of BLAST jobs whose tokens are held.
 
 The database checks and the BLAST probe run concurrently, so the route answers within about 3 s even when a
 backend hangs; the image's `HEALTHCHECK` allows 10 s. The route always answers 200, so check `status`.
@@ -113,7 +115,8 @@ backend hangs; the image's `HEALTHCHECK` allows 10 s. The route always answers 2
 `/metrics` carries `flybase_mcp_tool_calls_total` (labels `tool`, `outcome`, where outcome is `ok` or an
 error code), the `flybase_mcp_tool_duration_seconds` histogram (label `tool`),
 `flybase_mcp_cache_events_total` (labels `cache`, `event`, where event is `hit` or `miss`), and
-`flybase_mcp_rnaseq_matrix_loads_total` (label `dataset`).
+`flybase_mcp_rnaseq_matrix_loads_total` (label `dataset`). The miss counter counts callers, not computations:
+identical concurrent calls share one computation but each logs a miss.
 
 ## Caches
 
@@ -121,6 +124,13 @@ The response cache holds up to 256 MiB of tool results (`FLYBASE_MCP_RESPONSE_CA
 process memory and is emptied by a restart; a release bump restarts the process, so no result outlives its
 release. Each RNA-seq matrix is loaded per dataset on first use (about 3 MB each) and kept for the life of the
 process. Both are reported in `/health`.
+
+Reloading chado under the same `FLYBASE_RELEASE` without a restart serves the old results for up to 6 h.
+Restart the container after any database reload.
+
+Plan container memory for the response cache bound plus roughly 200 MB: the five RNA-seq matrices (about
+12 MB together), the BLAST token table, and the JSON copies made when a cached result is served. Do not set a
+compose memory limit below that.
 
 BLAST job tokens live in process memory for 24 h. A restart, or a second replica without sticky routing, makes
 in-flight jobs read as `not_found` through the MCP tools, while their public result pages on flybase.org still
@@ -169,3 +179,6 @@ Logs are JSON lines on stdout, one object per event, from `tracing-subscriber`:
 `error` with the server's message; the client receives a generic error without SQL text. Pool and permit
 timeouts log at `WARN` with `tool`. Migrations log each `migration` name and its `elapsed_ms`. The
 connection URL is never logged with its password.
+
+`rmcp` logs one `ERROR` line, "failed to send pending response during drain", each time a client disconnects
+before its response is written. It is not a server fault; do not alert on it.
