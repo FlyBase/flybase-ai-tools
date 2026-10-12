@@ -1,3 +1,4 @@
+use crate::backends::cache::ResponseCache;
 use crate::{
     error::{ToolError, ToolResult},
     limits::clamp_limit,
@@ -10,10 +11,10 @@ use rmcp::{
     ErrorData, handler::server::wrapper::Parameters, model::CallToolResult, tool, tool_router,
 };
 use schemars::JsonSchema;
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value, json};
 
-#[derive(Deserialize, JsonSchema)]
+#[derive(Deserialize, Serialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct ReportParams {
     /// A FlyBase ID of a supported report type (see the tool description). Secondary and obsolete IDs are resolved first.
@@ -39,8 +40,14 @@ impl FlyBaseServer {
         const T: &str = "get_report";
         let started = std::time::Instant::now();
         let res = async {
-            let _permit = self.limits.light(T).await?;
-            self.report_impl(p).await
+            let key = ResponseCache::key(T, &p);
+            self.caches
+                .response
+                .get_or_else(key, async {
+                    let _permit = self.limits.light(T).await?;
+                    self.report_impl(p).await
+                })
+                .await
         }
         .await;
         Ok(complete(T, started, res))

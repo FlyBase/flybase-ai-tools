@@ -1,0 +1,1 @@
+{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"get_report","arguments":{"id":"FBgn0004647","sections":["identity","location","go_summary","phenotype_summary"]}}}

@@ -111,6 +111,17 @@ for t in feature_grpmember grp_relationship grp_pub grp_cvterm \
   cp_ "select * from $t" "$t"
 done
 cp_ "select * from library_feature where library_id = (select library_id from library where uniquename = 'FBlc0000001') order by library_feature_id limit 5000" library_feature
+# RNA-seq (Plan 3): library_relationship whole (12,825 rows); library_feature and library_featureprop only for the
+# RNA-seq result libraries and the fixture features, so migration 005 builds a small matrix in CI. The zz_ file is a
+# second copy into library_feature (load.sh maps it, as it does for the golden paths); the RNA-seq libraries are
+# disjoint from FBlc0000001, so the two copies never share a row.
+cp_ "select * from library_relationship" library_relationship
+RNA_LIBS="(select library_id from library where name like 'mE_mRNA_%' or name like 'RNA-Seq_Profile_FlyAtlas2_%')"
+cp_ "select * from library_feature where library_id in $RNA_LIBS and $(in_ feature_id "$FIDS")" zz_library_feature_rnaseq
+# The id array makes this an index probe on library_featureprop (library_feature_id); a join on the feature-id filter
+# is misestimated and seq-scans the whole table (85 s on public chado).
+cp_ "select p.* from library_featureprop p where p.library_feature_id = any(array(
+       select library_feature_id from library_feature where library_id in $RNA_LIBS and $(in_ feature_id "$FIDS")))" library_featureprop
 FR="(select feature_relationship_id from feature_relationship where $(in_ subject_id "$FIDS") and $(in_ object_id "$FIDS"))"
 cp_ "select * from feature_relationship_pub where feature_relationship_id in $FR" feature_relationship_pub
 cp_ "select * from feature_relationshipprop where feature_relationship_id in $FR" feature_relationshipprop

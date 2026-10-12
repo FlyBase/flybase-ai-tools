@@ -1,3 +1,4 @@
+use crate::backends::cache::ResponseCache;
 use crate::{
     error::{ToolError, ToolResult},
     limits::clamp_limit,
@@ -75,7 +76,7 @@ impl Vocabulary {
     }
 }
 
-#[derive(Deserialize, JsonSchema)]
+#[derive(Deserialize, Serialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct SearchVocabularyParams {
     /// Free text, at least 2 characters; matches term names and synonyms.
@@ -88,7 +89,7 @@ pub struct SearchVocabularyParams {
     pub list_options: Option<bool>,
 }
 
-#[derive(Deserialize, JsonSchema)]
+#[derive(Deserialize, Serialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct GetTermParams {
     /// A vocabulary term ID: GO:0007219, FBbt:00004729, FBcv:0000013, FBdv:00005289, DOID:1289, SO:0000704.
@@ -110,8 +111,14 @@ impl FlyBaseServer {
         const T: &str = "search_vocabulary";
         let started = std::time::Instant::now();
         let res = async {
-            let _permit = self.limits.light(T).await?;
-            self.search_vocabulary_impl(p).await
+            let key = ResponseCache::key(T, &p);
+            self.caches
+                .response
+                .get_or_else(key, async {
+                    let _permit = self.limits.light(T).await?;
+                    self.search_vocabulary_impl(p).await
+                })
+                .await
         }
         .await;
         Ok(complete(T, started, res))
@@ -207,8 +214,14 @@ impl FlyBaseServer {
         const T: &str = "get_term";
         let started = std::time::Instant::now();
         let res = async {
-            let _permit = self.limits.light(T).await?;
-            self.get_term_impl(p).await
+            let key = ResponseCache::key(T, &p);
+            self.caches
+                .response
+                .get_or_else(key, async {
+                    let _permit = self.limits.light(T).await?;
+                    self.get_term_impl(p).await
+                })
+                .await
         }
         .await;
         Ok(complete(T, started, res))

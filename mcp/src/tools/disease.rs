@@ -1,3 +1,4 @@
+use crate::backends::cache::ResponseCache;
 use crate::{
     backends::chado::Chado,
     error::{ToolError, ToolResult},
@@ -20,10 +21,10 @@ use rmcp::{
     ErrorData, handler::server::wrapper::Parameters, model::CallToolResult, tool, tool_router,
 };
 use schemars::JsonSchema;
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value, json};
 
-#[derive(Deserialize, JsonSchema)]
+#[derive(Deserialize, Serialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct DiseaseParams {
     /// A gene (FBgn), allele (FBal), human disease model entry (FBhh), or Disease Ontology term (DOID:162).
@@ -71,12 +72,18 @@ impl FlyBaseServer {
         let is_term =
             parse_term_id(&normalize_fb_prefix(p.id.trim())).is_some_and(|(db, _)| db == "DOID");
         let res = async {
-            let _permit = if is_term {
-                self.limits.heavy(T).await?
-            } else {
-                self.limits.light(T).await?
-            };
-            self.disease_impl(p).await
+            let key = ResponseCache::key(T, &p);
+            self.caches
+                .response
+                .get_or_else(key, async {
+                    let _permit = if is_term {
+                        self.limits.heavy(T).await?
+                    } else {
+                        self.limits.light(T).await?
+                    };
+                    self.disease_impl(p).await
+                })
+                .await
         }
         .await;
         Ok(complete(T, started, res))

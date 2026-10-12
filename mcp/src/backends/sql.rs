@@ -220,6 +220,11 @@ pub fn get(name: &str) -> &'static str {
         }
         "resolve/candidates" => include_str!("../../sql/queries/resolve/candidates.sql"),
         "resolve/id_status" => include_str!("../../sql/queries/resolve/id_status.sql"),
+        "rnaseq/datasets" => include_str!("../../sql/queries/rnaseq/datasets.sql"),
+        "rnaseq/gene_vector" => include_str!("../../sql/queries/rnaseq/gene_vector.sql"),
+        "rnaseq/matrix" => include_str!("../../sql/queries/rnaseq/matrix.sql"),
+        "rnaseq/search" => include_str!("../../sql/queries/rnaseq/search.sql"),
+        "rnaseq/symbols" => include_str!("../../sql/queries/rnaseq/symbols.sql"),
         "search/names" => include_str!("../../sql/queries/search/names.sql"),
         "search/references" => include_str!("../../sql/queries/search/references.sql"),
         "search/terms" => include_str!("../../sql/queries/search/terms.sql"),

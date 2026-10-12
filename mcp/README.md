@@ -45,24 +45,45 @@ and `call_raw` to assert on errors.
 - `src/tools/`: one module per tool, each with its own `#[tool_router]`.
 - `src/report/`: `get_report` section code, one `ReportType` per ID prefix.
 - `src/backends/`: the connection pool (`chado.rs`) and the named-query registry (`sql.rs`).
+- `src/backends/coordinates.rs`: the bundled release 5 to release 6 coordinate map.
+- `src/backends/cache.rs`: the response cache, the RNA-seq matrix cache, and BLAST job tokens.
+- `src/backends/blast.rs`: the client for the private BLAST job API.
 - `src/limits.rs`, `src/output.rs`, `src/error.rs`: permits, the result envelope, and error classes.
 - `sql/queries/<tool>/*.sql`: one query per file, parameters bound as `$1`, `$2`, ...
 - `sql/migrations/NNN_name.sql`: idempotent migrations run by `flybase-mcp migrate`.
 - `src/bin/tool-catalog.rs`: prints `docs/tools.md`.
 
+Data files: the coordinate map is described in `data/coordinates/README.md` (source, licence, and how it was
+built); `scripts/build_coordinate_map.sh` at the repository root rebuilds it.
+
+Scripts (repository root `scripts/`):
+
+- `scripts/coordinate_parity.sh`: converts FlyBase's release 5 anchor insertion sites through a running
+  server and compares them with FlyBase's release 6 anchor table.
+- `scripts/load_test.sh`: the load test (results in `docs/load-test.md`).
+
 ## Handler pattern
 
 Every tool handler has the same shape:
 
-1. Take a permit with `self.limits.light(T)` (or `heavy`) so database work stays bounded globally. A permit
+1. Compute `ResponseCache::key(T, &p)` and wrap the work in `self.caches.response.get_or_else(key, future)`.
+   The key is the tool name plus the JSON of the typed parameters, so params structs (and the enums they
+   contain) derive `Serialize` so they can be keyed. A hit returns without a permit or a connection; errors,
+   and reports whose `section_errors` is non-empty, are returned but never cached; identical in-flight calls
+   share one computation. The old steps 1 to 4 follow inside the future:
+2. Take a permit with `self.limits.light(T)` (or `heavy`) so database work stays bounded globally. A permit
    that does not arrive within 5 s becomes a "busy" error.
-2. Check out one connection with `self.chado.get(T)` and run every query for the call on it with
+3. Check out one connection with `self.chado.get(T)` and run every query for the call on it with
    `Chado::query_on(&conn, T, "tool/query_name", &[...])`. `self.chado.query` is a shortcut for a call
    that runs a single query. Never check out a second connection inside a call; under load the pool can
    deadlock against itself.
-3. Build the result with `Envelope::new(T, &self.release)` and return `ToolResult<CallToolResult>`.
-4. Exit through `output::complete(T, started, res)`, which records metrics and turns a `ToolError` into an
+4. Build the result with `Envelope::new(T, &self.release)` and return `ToolResult<CallToolResult>`.
+5. Exit through `output::complete(T, started, res)`, which records metrics and turns a `ToolError` into an
    MCP error result. The public method returns `Ok(complete(...))`; the work lives in an `*_impl` method.
+
+BLAST and `convert_coordinates` skip the cache: BLAST results belong to a job token and the coordinate
+converter is a pure in-process map. The cache is bounded by `FLYBASE_MCP_RESPONSE_CACHE_MB` (default 256,
+0 disables it) with a 6 h TTL.
 
 `src/tools/species.rs` is the smallest example.
 

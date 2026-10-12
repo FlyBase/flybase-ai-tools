@@ -1,3 +1,4 @@
+use crate::backends::cache::ResponseCache;
 use crate::{
     backends::chado::Chado,
     error::{ToolError, ToolResult},
@@ -14,10 +15,10 @@ use rmcp::{
     ErrorData, handler::server::wrapper::Parameters, model::CallToolResult, tool, tool_router,
 };
 use schemars::JsonSchema;
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 
-#[derive(Deserialize, JsonSchema, Clone, Copy, PartialEq, Eq, Default)]
+#[derive(Deserialize, Serialize, JsonSchema, Clone, Copy, PartialEq, Eq, Default)]
 #[serde(rename_all = "snake_case")]
 pub enum Kind {
     Physical,
@@ -26,7 +27,7 @@ pub enum Kind {
     Both,
 }
 
-#[derive(Deserialize, JsonSchema)]
+#[derive(Deserialize, Serialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct InteractionsParams {
     /// A gene (FBgn) or allele (FBal). Physical interactions are at gene level; an allele gives allele-level genetic interactions.
@@ -56,8 +57,14 @@ impl FlyBaseServer {
         const T: &str = "get_interactions";
         let started = std::time::Instant::now();
         let res = async {
-            let _permit = self.limits.light(T).await?;
-            self.interactions_impl(p).await
+            let key = ResponseCache::key(T, &p);
+            self.caches
+                .response
+                .get_or_else(key, async {
+                    let _permit = self.limits.light(T).await?;
+                    self.interactions_impl(p).await
+                })
+                .await
         }
         .await;
         Ok(complete(T, started, res))

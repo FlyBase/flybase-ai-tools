@@ -1,4 +1,8 @@
-use crate::{backends::chado::Chado, config::Config, limits::Limits};
+use crate::{
+    backends::{blast::BlastClient, cache::Caches, chado::Chado},
+    config::Config,
+    limits::Limits,
+};
 use axum::{Json, Router, routing::get};
 use rmcp::{
     ServerHandler,
@@ -12,6 +16,7 @@ use rmcp::{
 };
 use serde_json::json;
 use std::sync::{Arc, OnceLock};
+use std::time::Duration;
 
 static PROM: OnceLock<Option<metrics_exporter_prometheus::PrometheusHandle>> = OnceLock::new();
 
@@ -27,15 +32,95 @@ fn prometheus() -> Option<metrics_exporter_prometheus::PrometheusHandle> {
 
 pub const INSTRUCTIONS: &str = "FlyBase MCP server. Start with `resolve` to turn a gene, allele, or other symbol into a FlyBase ID (FBgn..., FBal...); use `validate_ids` for a batch of exact IDs or symbols and `search` for free text. \
 Use `get_report` with an ID and request only the sections you need; `list_options=true` lists them. `batch_download` returns a table for many IDs. \
-Genome: `get_sequence` (FASTA), `map_features` (what lies in a range), `cytosearch` (cytological bands). Vocabularies: `search_vocabulary`, `get_term`, `entities_for_term` with term IDs such as GO:0007219, FBbt:00004729, DOID:162. \
+Genome: `get_sequence` (FASTA), `map_features` (what lies in a range), `cytosearch` (cytological bands), `convert_coordinates` (release 5 to release 6 positions). \
+Vocabularies: `search_vocabulary`, `get_term`, `entities_for_term` with term IDs such as GO:0007219, FBbt:00004729, DOID:162. \
 Homepage data: `get_orthologs`, `get_gene_groups_and_pathways`, `get_disease_models`, `get_stocks`, `get_interactions`. \
-IDs in results link to https://flybase.org/reports/<id>; cite them. Species are FlyBase abbreviations such as Dmel; call `list_species` for the list. Paged results carry `has_more`; pass `offset` to continue.";
+Expression: `rnaseq_profile_search` (genes meeting RPKM conditions in named samples) and `rnaseq_similar_genes` (co-expressed genes); call either with `list_options=true` to see datasets and samples. \
+BLAST: `blast_submit` returns a job_id and job_token; poll `blast_status`, then `blast_results`. \
+IDs in results link to https://flybase.org/reports/<id>; cite them. Species are FlyBase abbreviations such as Dmel; call `list_species` for the list. Paged results carry `has_more`; pass `offset` to continue. When a tool has a `list_options` argument, call it with list_options=true before guessing names.";
+
+/// What `/health` reads; built in `app` before the MCP factory takes its clones.
+#[derive(Clone)]
+struct HealthState {
+    chado: Chado,
+    release: String,
+    caches: Arc<Caches>,
+    blast: Option<Arc<BlastClient>>,
+}
+
+/// Database and migration checks (3 s, together) run concurrently with the BLAST probe (2 s), so the route
+/// answers within about 3 s even when a backend hangs. `status` depends only on the database and migrations.
+async fn health(state: HealthState) -> Json<serde_json::Value> {
+    let checks = tokio::time::timeout(Duration::from_secs(3), async {
+        let db = state
+            .chado
+            .query("health", "startup/ping", &[])
+            .await
+            .is_ok();
+        let migrations = match state.chado.query("health", "startup/migrations", &[]).await {
+            Ok(rows) => {
+                let logged: Vec<String> = rows.iter().map(|r| r.get::<_, String>("name")).collect();
+                let missing: Vec<&str> = crate::migrate::names()
+                    .into_iter()
+                    .filter(|m| !logged.iter().any(|l| l == m))
+                    .collect();
+                if missing.is_empty() {
+                    "ok".to_string()
+                } else {
+                    format!("missing: {}", missing.join(", "))
+                }
+            }
+            Err(_) => "error".to_string(),
+        };
+        (db, migrations)
+    });
+    let blast_probe = async {
+        match &state.blast {
+            None => "unconfigured",
+            Some(c) => {
+                if c.healthy().await {
+                    "ok"
+                } else {
+                    "unreachable"
+                }
+            }
+        }
+    };
+    let (checks, blast) = tokio::join!(checks, blast_probe);
+    let (db, migrations) = checks.unwrap_or((false, "timeout".to_string()));
+    let (entries, bytes) = state.caches.response.stats().await;
+    let matrices: Vec<serde_json::Value> = state
+        .caches
+        .matrix
+        .loaded()
+        .into_iter()
+        .map(|(d, g, b)| json!({"dataset": d, "genes": g, "bytes": b}))
+        .collect();
+    let st = state.chado.status();
+    let ok = db && migrations == "ok";
+    Json(json!({
+        "status": if ok { "ok" } else { "degraded" },
+        "release": state.release,
+        "database": if db { "ok" } else { "error" },
+        "migrations": migrations,
+        "pool": {"size": st.size, "available": st.available},
+        "blast": blast,
+        "caches": {
+            "response": {"entries": entries, "bytes": bytes},
+            "rnaseq_matrix": matrices,
+            "blast_jobs": state.caches.blast_tokens.len(),
+        },
+    }))
+}
 
 #[derive(Clone)]
 pub struct FlyBaseServer {
     pub chado: Chado,
     pub limits: Limits,
     pub release: String,
+    pub caches: Arc<Caches>,
+    /// None when BLAST_BASE_URL is unset; the BLAST tools then answer backend_unavailable.
+    pub blast: Option<Arc<BlastClient>>,
     tool_router: ToolRouter<Self>,
 }
 
@@ -57,13 +142,24 @@ impl FlyBaseServer {
             + Self::tool_router_groups()
             + Self::tool_router_disease()
             + Self::tool_router_stocks()
+            + Self::tool_router_coordinates()
+            + Self::tool_router_rnaseq()
+            + Self::tool_router_blast()
     }
 
-    pub fn new(chado: Chado, limits: Limits, release: String) -> Self {
+    pub fn new(
+        chado: Chado,
+        limits: Limits,
+        release: String,
+        caches: Arc<Caches>,
+        blast: Option<Arc<BlastClient>>,
+    ) -> Self {
         Self {
             chado,
             limits,
             release,
+            caches,
+            blast,
             tool_router: Self::all_tool_routers(),
         }
     }
@@ -80,13 +176,37 @@ impl ServerHandler for FlyBaseServer {
 pub fn app(cfg: &Config, chado: Chado) -> Router {
     let limits = Limits::new();
     let release = cfg.release.clone();
-    let health_chado = chado.clone();
-    let health_release = release.clone();
+    let caches = Arc::new(Caches::new(cfg.response_cache_bytes));
+    let blast = match &cfg.blast_base_url {
+        Some(u) => {
+            if cfg.blast_token.is_none() {
+                tracing::warn!(
+                    "BLAST_BASE_URL set without BLAST_SERVICE_TOKEN; requests go unauthenticated"
+                );
+            }
+            match BlastClient::new(u.clone(), cfg.blast_token.clone()) {
+                Ok(c) => Some(Arc::new(c)),
+                Err(e) => {
+                    tracing::error!(error = %e, "BLAST client not built; BLAST tools unavailable");
+                    None
+                }
+            }
+        }
+        None => None,
+    };
+    let health_state = HealthState {
+        chado: chado.clone(),
+        release: release.clone(),
+        caches: caches.clone(),
+        blast: blast.clone(),
+    };
     let factory = move || {
         Ok(FlyBaseServer::new(
             chado.clone(),
             limits.clone(),
             release.clone(),
+            caches.clone(),
+            blast.clone(),
         ))
     };
     let mcp_cfg = StreamableHttpServerConfig::default()
@@ -100,26 +220,7 @@ pub fn app(cfg: &Config, chado: Chado) -> Router {
     let prom = prometheus();
     Router::new()
         .nest_service("/mcp", mcp)
-        .route(
-            "/health",
-            get(move || {
-                let chado = health_chado.clone();
-                let release = health_release.clone();
-                async move {
-                    let db = match chado.query("health", "startup/ping", &[]).await {
-                        Ok(_) => "ok",
-                        Err(_) => "error",
-                    };
-                    let st = chado.status();
-                    Json(json!({
-                        "status": if db == "ok" { "ok" } else { "degraded" },
-                        "release": release, "database": db,
-                        "pool": { "size": st.size, "available": st.available },
-                        "blast": "unconfigured"
-                    }))
-                }
-            }),
-        )
+        .route("/health", get(move || health(health_state.clone())))
         .route(
             "/metrics",
             get(move || {

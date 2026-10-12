@@ -61,6 +61,270 @@ Download chosen fields for up to 500 FlyBase IDs at once as rows (JSON or TSV): 
 }
 ```
 
+## `blast_results`
+
+Fetch the hits of a completed BLAST job: subject IDs with FlyBase IDs where present, e-values, bit scores, identities, and the best HSPs, plus download links for the full TSV, XML, and text reports. Use after blast_status reports complete.
+
+```json
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "job_id": {
+      "description": "The job_id from blast_submit.",
+      "type": "string"
+    },
+    "job_token": {
+      "description": "The job_token from blast_submit.",
+      "type": "string"
+    },
+    "max_hits": {
+      "description": "Hits to return (default 25, max 100).",
+      "format": "uint32",
+      "minimum": 0,
+      "type": [
+        "integer",
+        "null"
+      ]
+    },
+    "max_hsps_per_hit": {
+      "description": "HSPs per hit (default 3, max 20).",
+      "format": "uint32",
+      "minimum": 0,
+      "type": [
+        "integer",
+        "null"
+      ]
+    }
+  },
+  "required": [
+    "job_id",
+    "job_token"
+  ],
+  "type": "object"
+}
+```
+
+## `blast_status`
+
+Check a BLAST job submitted with blast_submit: queued, running, complete, failed, or cancelled. Use after the poll interval blast_submit gave; when complete, call blast_results.
+
+```json
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "job_id": {
+      "description": "The job_id from blast_submit.",
+      "type": "string"
+    },
+    "job_token": {
+      "description": "The job_token from blast_submit.",
+      "type": "string"
+    }
+  },
+  "required": [
+    "job_id",
+    "job_token"
+  ],
+  "type": "object"
+}
+```
+
+## `blast_submit`
+
+Submit a BLAST search of a nucleotide or protein sequence against FlyBase databases (genome assembly, transcripts, polypeptides, transposons, and more) for one or more Drosophila species. Returns a job_id and job_token; poll blast_status, then fetch blast_results. Use list_options=true to see programs, databases, and species.
+
+```json
+{
+  "$defs": {
+    "Database": {
+      "enum": [
+        "assembly",
+        "transcript",
+        "translation",
+        "intergenic",
+        "syntenic_region",
+        "transposon",
+        "canonical_transposons",
+        "genbank",
+        "est",
+        "gss",
+        "genpept"
+      ],
+      "type": "string"
+    },
+    "Program": {
+      "enum": [
+        "blastn",
+        "blastp",
+        "blastx",
+        "tblastn",
+        "tblastx"
+      ],
+      "type": "string"
+    }
+  },
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "advanced": {
+      "description": "Extra BLAST+ options, letters, digits, spaces, \"-\", \"_\", \".\" and \"=\" only (for example \"-word_size 11\").",
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "database": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/Database"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "description": "Target database; translation and genpept are protein, the rest nucleotide. list_options=true describes them."
+    },
+    "evalue": {
+      "description": "Expectation value cutoff (service default when omitted).",
+      "format": "double",
+      "type": [
+        "number",
+        "null"
+      ]
+    },
+    "genetic_code": {
+      "description": "NCBI genetic code for translated searches (1 to 33).",
+      "format": "uint8",
+      "maximum": 255,
+      "minimum": 0,
+      "type": [
+        "integer",
+        "null"
+      ]
+    },
+    "list_options": {
+      "description": "If true, return the programs, databases, species, and matrices and nothing else.",
+      "type": [
+        "boolean",
+        "null"
+      ]
+    },
+    "matrix": {
+      "description": "Protein scoring matrix: BLOSUM62, BLOSUM45, BLOSUM80, PAM30, PAM70.",
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "max_hits": {
+      "description": "Maximum hits the service keeps (1 to 1000; service default when omitted).",
+      "format": "uint32",
+      "minimum": 0,
+      "type": [
+        "integer",
+        "null"
+      ]
+    },
+    "megablast": {
+      "description": "blastn only: use megablast.",
+      "type": [
+        "boolean",
+        "null"
+      ]
+    },
+    "program": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/Program"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "description": "blastn, blastp, blastx, tblastn, or tblastx."
+    },
+    "sequence": {
+      "description": "Query sequence, raw or FASTA (one record), up to 100,000 residues.",
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "species": {
+      "description": "Species to search, FlyBase abbreviations (default [\"Dmel\"]).",
+      "items": {
+        "type": "string"
+      },
+      "type": [
+        "array",
+        "null"
+      ]
+    }
+  },
+  "type": "object"
+}
+```
+
+## `convert_coordinates`
+
+Convert genome coordinates between assembly releases using FlyBase's published maps (currently D. melanogaster release 5 to release 6). Each input gets a status: mapped (both ends convert to one scaffold; a range that spans regions of change is still mapped, but its length can change, so compare from_length with to_length and check regions_spanned), partial (an end falls in a region of change, the two ends land on different scaffolds or strands, or the blocks between them are not in order in the target; the mapped blocks are listed), unmapped, or invalid. Use when a paper or dataset gives release 5 (pre-2014) coordinates and you need current ones; use list_options=true to see supported pairs.
+
+```json
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "coordinates": {
+      "description": "Up to 500 positions or ranges: \"2L:21485500..21485700\", \"X:330\", \"chr3R:3,020,320\", \"2R:1-10000\".",
+      "items": {
+        "type": "string"
+      },
+      "type": [
+        "array",
+        "null"
+      ]
+    },
+    "from_release": {
+      "description": "Source assembly release number (default 5). Only Dmel release 5 is supported.",
+      "format": "uint8",
+      "maximum": 255,
+      "minimum": 0,
+      "type": [
+        "integer",
+        "null"
+      ]
+    },
+    "list_options": {
+      "description": "If true, return only the supported species and release pairs with their scaffold names.",
+      "type": [
+        "boolean",
+        "null"
+      ]
+    },
+    "species": {
+      "description": "Species abbreviation. Only Dmel has a bundled map (default Dmel).",
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "to_release": {
+      "description": "Target assembly release number (default 6).",
+      "format": "uint8",
+      "maximum": 255,
+      "minimum": 0,
+      "type": [
+        "integer",
+        "null"
+      ]
+    }
+  },
+  "type": "object"
+}
+```
+
 ## `cytosearch`
 
 Find genes, insertions, other features, and aberrations in a cytological location: a band (91A1), subdivision (91A), division (91), band range (91A1-91B2), or genomic range (3R:18268611..18297020). Bands resolve to genome coordinates; aberrations are those with mapped breakpoints only; insertion sites are points (start = end). D. melanogaster only. Windows over 2 Mb are refused, so a division that spans more (such as 20) must be searched by subdivision or band. Use when a paper gives a cytological position; use map_features when you already have coordinates.
@@ -914,6 +1178,155 @@ Turn one gene, allele, insertion, stock, cell line, library, strain, or other sy
   "required": [
     "query"
   ],
+  "type": "object"
+}
+```
+
+## `rnaseq_profile_search`
+
+Find D. melanogaster genes whose RNA-seq expression (RPKM) meets every condition you give, such as high in adult testis and low in ovary, over the FlyAtlas2 tissue atlas or the modENCODE developmental, tissue, treatment, and cell-line series. Results are ordered by the first condition's value, descending, so put the 'high in' condition first. Use list_options=true first to see dataset and sample names. Use rnaseq_similar_genes to rank genes by profile similarity instead.
+
+```json
+{
+  "$defs": {
+    "Condition": {
+      "additionalProperties": false,
+      "properties": {
+        "dataset": {
+          "description": "Dataset name from list_options (FlyAtlas2, modENCODE_development, modENCODE_tissues, modENCODE_treatments, modENCODE_cell_lines).",
+          "type": "string"
+        },
+        "operator": {
+          "$ref": "#/$defs/Operator",
+          "description": "Comparison of the gene's value in that sample."
+        },
+        "sample": {
+          "description": "Sample name within the dataset, from list_options (for example Adult_Male_Testis).",
+          "type": "string"
+        },
+        "value": {
+          "description": "RPKM threshold. Stored RPKM values are whole numbers, so `eq` with a fraction never matches; prefer gte/lte for ranges.",
+          "format": "float",
+          "type": "number"
+        }
+      },
+      "required": [
+        "dataset",
+        "sample",
+        "operator",
+        "value"
+      ],
+      "type": "object"
+    },
+    "Operator": {
+      "enum": [
+        "gt",
+        "gte",
+        "lt",
+        "lte",
+        "eq"
+      ],
+      "type": "string"
+    }
+  },
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "conditions": {
+      "description": "One to ten conditions, all in the same dataset; a gene must satisfy every one.",
+      "items": {
+        "$ref": "#/$defs/Condition"
+      },
+      "type": [
+        "array",
+        "null"
+      ]
+    },
+    "limit": {
+      "description": "Genes per page (default 25, max 100).",
+      "format": "uint32",
+      "minimum": 0,
+      "type": [
+        "integer",
+        "null"
+      ]
+    },
+    "list_options": {
+      "description": "If true, return only the datasets with their sample names.",
+      "type": [
+        "boolean",
+        "null"
+      ]
+    },
+    "offset": {
+      "description": "Genes to skip; offset + limit may not exceed 10,000.",
+      "format": "uint32",
+      "minimum": 0,
+      "type": [
+        "integer",
+        "null"
+      ]
+    },
+    "species": {
+      "description": "Only Dmel has RNA-seq profiles (default Dmel).",
+      "type": [
+        "string",
+        "null"
+      ]
+    }
+  },
+  "type": "object"
+}
+```
+
+## `rnaseq_similar_genes`
+
+Rank D. melanogaster genes by Pearson correlation of log2(RPKM + 1) expression profiles with a query gene's profile across one dataset (FlyAtlas2 tissues or a modENCODE series). genes_compared counts the genes with a varying profile, which can be below the dataset's gene_count. Use when you want co-expressed genes; use rnaseq_profile_search for threshold conditions on named samples.
+
+```json
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "dataset": {
+      "description": "Dataset name from list_options (FlyAtlas2, modENCODE_development, modENCODE_tissues, modENCODE_treatments, modENCODE_cell_lines). Required unless list_options is true.",
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "id": {
+      "description": "A gene ID (FBgn...). Required unless list_options is true.",
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "limit": {
+      "description": "Genes to return (default 25, max 100).",
+      "format": "uint32",
+      "minimum": 0,
+      "type": [
+        "integer",
+        "null"
+      ]
+    },
+    "list_options": {
+      "description": "If true, return only the datasets with their sample names.",
+      "type": [
+        "boolean",
+        "null"
+      ]
+    },
+    "min_correlation": {
+      "description": "Drop genes whose Pearson correlation is below this (for example 0.9).",
+      "format": "float",
+      "type": [
+        "number",
+        "null"
+      ]
+    }
+  },
   "type": "object"
 }
 ```

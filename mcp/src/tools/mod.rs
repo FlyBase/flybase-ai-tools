@@ -1,4 +1,6 @@
 pub mod batch;
+pub mod blast;
+pub mod coordinates;
 pub mod cyto;
 pub mod disease;
 pub mod entities;
@@ -8,6 +10,7 @@ pub mod map;
 pub mod orthologs;
 pub mod report;
 pub mod resolve;
+pub mod rnaseq;
 pub mod search;
 pub mod sequence;
 pub mod species;

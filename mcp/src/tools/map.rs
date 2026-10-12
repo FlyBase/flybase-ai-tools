@@ -1,3 +1,4 @@
+use crate::backends::cache::ResponseCache;
 use crate::{
     backends::{chado::Chado, species::normalize_species},
     error::{ToolError, ToolResult},
@@ -129,7 +130,7 @@ impl FeatureType {
     }
 }
 
-#[derive(Deserialize, JsonSchema)]
+#[derive(Deserialize, Serialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct MapParams {
     /// Genomic range, 1-based inclusive, max 500 kb. Provide this or `id`.
@@ -235,14 +236,20 @@ impl FlyBaseServer {
         const T: &str = "map_features";
         let started = std::time::Instant::now();
         let res = async {
-            if p.list_options.unwrap_or(false) {
-                return Ok(Envelope::new(T, &self.release)
-                    .summary("Feature types you can pass in `feature_types`.")
-                    .field("feature_types", FeatureType::catalog())
-                    .finish());
-            }
-            let _permit = self.limits.heavy(T).await?;
-            self.map_impl(p).await
+            let key = ResponseCache::key(T, &p);
+            self.caches
+                .response
+                .get_or_else(key, async {
+                    if p.list_options.unwrap_or(false) {
+                        return Ok(Envelope::new(T, &self.release)
+                            .summary("Feature types you can pass in `feature_types`.")
+                            .field("feature_types", FeatureType::catalog())
+                            .finish());
+                    }
+                    let _permit = self.limits.heavy(T).await?;
+                    self.map_impl(p).await
+                })
+                .await
         }
         .await;
         Ok(complete(T, started, res))

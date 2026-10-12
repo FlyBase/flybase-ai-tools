@@ -1,3 +1,4 @@
+use crate::backends::cache::ResponseCache;
 use crate::{
     backends::{chado::Chado, species::normalize_species},
     error::{ToolError, ToolResult},
@@ -11,13 +12,13 @@ use rmcp::{
     ErrorData, handler::server::wrapper::Parameters, model::CallToolResult, tool, tool_router,
 };
 use schemars::JsonSchema;
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 
 /// The gene and allele queries scan at most this many annotation rows (`limit 200001` in the SQL); more is refused.
 pub const MAX_HITS: i64 = 200_000;
 
-#[derive(Deserialize, JsonSchema, Clone, Copy, PartialEq, Eq, Debug)]
+#[derive(Deserialize, Serialize, JsonSchema, Clone, Copy, PartialEq, Eq, Debug)]
 #[serde(rename_all = "snake_case")]
 pub enum EntityClass {
     Gene,
@@ -37,7 +38,7 @@ impl EntityClass {
     }
 }
 
-#[derive(Deserialize, JsonSchema)]
+#[derive(Deserialize, Serialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct EntitiesParams {
     /// A vocabulary term ID (GO:0007219, FBbt:00004729, FBcv:..., DOID:162, SO:...).
@@ -68,8 +69,14 @@ impl FlyBaseServer {
         const T: &str = "entities_for_term";
         let started = std::time::Instant::now();
         let res = async {
-            let _permit = self.limits.heavy(T).await?;
-            self.entities_impl(p).await
+            let key = ResponseCache::key(T, &p);
+            self.caches
+                .response
+                .get_or_else(key, async {
+                    let _permit = self.limits.heavy(T).await?;
+                    self.entities_impl(p).await
+                })
+                .await
         }
         .await;
         Ok(complete(T, started, res))

@@ -1,3 +1,4 @@
+use crate::backends::cache::ResponseCache;
 use crate::{
     backends::{
         chado::Chado,
@@ -15,7 +16,7 @@ use rmcp::{
     ErrorData, handler::server::wrapper::Parameters, model::CallToolResult, tool, tool_router,
 };
 use schemars::JsonSchema;
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 
 pub const MAX_REGION: u64 = 500_000;
@@ -24,7 +25,7 @@ pub const INLINE_SEQ_MAX: usize = 100_000;
 /// Bytes of record payload a gene-kind result may carry; the rest of MAX_JSON_BYTES is envelope headroom.
 const RECORDS_BUDGET: usize = MAX_JSON_BYTES - 8 * 1024;
 
-#[derive(Deserialize, JsonSchema, Clone, Copy, PartialEq, Eq, Debug)]
+#[derive(Deserialize, Serialize, JsonSchema, Clone, Copy, PartialEq, Eq, Debug)]
 #[serde(rename_all = "snake_case")]
 pub enum SeqKind {
     Gene,
@@ -63,7 +64,7 @@ impl SeqKind {
     }
 }
 
-#[derive(Deserialize, JsonSchema, Clone)]
+#[derive(Deserialize, Serialize, JsonSchema, Clone)]
 #[serde(deny_unknown_fields)]
 pub struct Region {
     /// Chromosome arm name as in FlyBase (X, 2L, 2R, 3L, 3R, 4, Y).
@@ -76,7 +77,7 @@ pub struct Region {
     pub strand: Option<i8>,
 }
 
-#[derive(Deserialize, JsonSchema)]
+#[derive(Deserialize, Serialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct SequenceParams {
     /// FlyBase ID: FBgn, FBtr, FBpp, FBti, FBsf. Provide this or `region`.
@@ -106,8 +107,14 @@ impl FlyBaseServer {
         const T: &str = "get_sequence";
         let started = std::time::Instant::now();
         let res = async {
-            let _permit = self.limits.light(T).await?;
-            self.sequence_impl(p).await
+            let key = ResponseCache::key(T, &p);
+            self.caches
+                .response
+                .get_or_else(key, async {
+                    let _permit = self.limits.light(T).await?;
+                    self.sequence_impl(p).await
+                })
+                .await
         }
         .await;
         Ok(complete(T, started, res))

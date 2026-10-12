@@ -14,6 +14,6 @@ COPY --from=build /src/target/release/flybase-mcp /usr/local/bin/flybase-mcp
 USER flybase
 EXPOSE 7200
 ENV FLYBASE_MCP_BIND=0.0.0.0:7200 RUST_LOG=info
-HEALTHCHECK --interval=30s --timeout=5s CMD curl -fsS http://127.0.0.1:7200/health | grep -q '"status":"ok"' || exit 1
+HEALTHCHECK --interval=30s --timeout=10s CMD curl -fsS http://127.0.0.1:7200/health | grep -q '"status":"ok"' || exit 1
 ENTRYPOINT ["flybase-mcp"]
 CMD ["serve"]

@@ -8,7 +8,7 @@ use deadpool_postgres::{
 use tokio_postgres::{NoTls, Row, types::ToSql};
 
 /// Number of relations listed in `sql/queries/startup/tables.sql`.
-pub const STARTUP_RELATIONS: usize = 92;
+pub const STARTUP_RELATIONS: usize = 95;
 
 /// Pooled read-only chado access.
 ///
