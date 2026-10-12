@@ -1,0 +1,1 @@
+{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"entities_for_term","arguments":{"term_id":"GO:0007219","data_class":"gene","limit":100}}}
