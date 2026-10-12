@@ -58,14 +58,19 @@ the container.
        --test tools_report_group --test tools_report_insertion --test tools_report_other \
        --test tools_report_record --test tools_report_transcript --test tools_resolve --test tools_rnaseq \
        --test tools_search --test tools_sequence --test tools_validate --test tools_vocabulary \
-       -- --test-threads=2
+       --no-fail-fast -- --test-threads=2
    ```
 
    That is every test binary except `migrations`. **Never run the `migrations` test binary (or plain
    `cargo test` / `cargo test --tests`) against a serving database:** it rebuilds the derived tables under
    exclusive locks, empties `mcp.diopt_orthologs`, and rewrites the release recorded in `mcp.migration_log`.
-   Do not set `FLYBASE_TEST_MIGRATE` or `FLYBASE_TEST_FULL_DB` (the full-database assertions are pinned to
-   the development restore's counts). `CHADO_URL` is the only variable the tests read from the environment;
+   Never set `FLYBASE_TEST_MIGRATE`. Do set `FLYBASE_TEST_FULL_DB=1`: the harness otherwise recognises a
+   full database only by the development port, and without the flag it runs the small-fixture branch of each
+   test (which expects seeded rows on the first page and no annotation cap) against your full restore and
+   fails. The flag only selects expectations; it writes nothing. Add `--no-fail-fast` so every binary runs.
+   Some full-database assertions pin exact counts from the release the tests were written against; a count
+   that moved with the release is data drift, not a server fault, and is listed in the repo's test notes.
+   `CHADO_URL` and `FLYBASE_TEST_FULL_DB` are the only variables the tests read from the environment;
    the harness sets its own bind address, public URL, and release label (`FB_TEST`), so the deployment's
    `FLYBASE_RELEASE` is not needed here. Using the runtime role means a test cannot write even if its
    startup check fails, and `--test-threads=2` keeps the run to a few connections (each test server opens a
