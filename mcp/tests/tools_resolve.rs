@@ -224,3 +224,23 @@ async fn name_without_species_does_not_error() {
     assert_eq!(s["matches"][0]["id"], "FBtc0000033");
     assert_eq!(s["matches"][0]["data_class"], "cell_line");
 }
+
+#[tokio::test]
+async fn notch_name_ranks_gene_before_alleles() {
+    let c = client().await;
+    for q in ["Notch", "notch"] {
+        let s = call(&c, "resolve", json!({"query": q, "species": "Dmel"})).await;
+        let hits = s["matches"].as_array().unwrap();
+        let ids: Vec<&str> = hits.iter().map(|h| h["id"].as_str().unwrap()).collect();
+        assert_eq!(ids[0], "FBgn0004647", "query {q:?}: {ids:?}");
+        assert_eq!(hits[0]["data_class"], "gene");
+        if support::full_db() {
+            // Two alleles carry "notch"/"Notch" as synonyms and tie with the gene's full name on score;
+            // the class tie-break puts the gene ahead of them.
+            assert_eq!(ids[1..3], ["FBal0002094", "FBal0017897"], "query {q:?}");
+        } else {
+            // The fixture carries no tying allele; the gene still leads and the insertion follows.
+            assert_eq!(ids[1], "FBti0024374", "query {q:?}");
+        }
+    }
+}

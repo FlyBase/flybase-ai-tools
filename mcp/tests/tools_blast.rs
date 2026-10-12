@@ -251,6 +251,73 @@ async fn submit_validation_happens_before_the_service() {
 }
 
 #[tokio::test]
+async fn empty_species_list_is_invalid_input() {
+    let (mock, base) = blast_server().await;
+    submit_mock().expect(0).mount(&mock).await;
+    let c = client_at(&base).await;
+    let r = call_raw(
+        &c,
+        "blast_submit",
+        json!({"program": "blastn", "database": "assembly", "sequence": "ACGT", "species": []}),
+    )
+    .await
+    .unwrap();
+    let s = r.structured_content.unwrap();
+    assert_eq!(s["error"], "invalid_input");
+    let m = s["message"].as_str().unwrap();
+    assert!(m.starts_with("blast_submit: invalid species"), "{m}");
+    assert!(m.contains("Dmel") && m.contains("Dpse"), "{m}");
+    mock.verify().await;
+}
+
+#[tokio::test]
+async fn non_flybase_links_are_dropped() {
+    let (mock, base) = blast_server().await;
+    submit_mock().expect(1).mount(&mock).await;
+    Mock::given(method("GET"))
+        .and(path("/internal/jobs/job-0001"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+            "job_id": "job-0001", "state": "complete", "queue_position": 0, "error": null,
+            "result_url": "http://blast-web.internal:8080/results/job-0001",
+            "downloads": {
+                "tsv": "https://flybase.org/blast/results/job-0001.tsv",
+                "xml": "https://flybase.org.evil.example/job-0001.xml"
+            }
+        })))
+        .mount(&mock)
+        .await;
+    Mock::given(method("GET"))
+        .and(path("/internal/jobs/job-0001/results.tsv"))
+        .respond_with(
+            ResponseTemplate::new(200)
+                .set_body_string(TSV)
+                .insert_header("content-type", "text/tab-separated-values"),
+        )
+        .mount(&mock)
+        .await;
+    let c = client_at(&base).await;
+    let s = call(
+        &c,
+        "blast_submit",
+        json!({"program": "blastn", "database": "assembly", "sequence": "ACGTACGTACGT"}),
+    )
+    .await;
+    let token = s["job_token"].as_str().unwrap().to_string();
+    let args = json!({"job_id": "job-0001", "job_token": token});
+    let st = call(&c, "blast_status", args.clone()).await;
+    assert_eq!(st["state"], "complete");
+    assert!(st["result_url"].is_null(), "{st}");
+    assert!(st["downloads"].is_null(), "{st}");
+    assert!(st["links"].get("result_page").is_none(), "{st}");
+    let r = call(&c, "blast_results", args).await;
+    assert_eq!(r["total_hits"], 2);
+    assert!(r["downloads"].is_null(), "{r}");
+    assert!(r["links"].get("result_page").is_none(), "{r}");
+    assert!(!r.to_string().contains("internal") && !r.to_string().contains("evil"));
+    mock.verify().await;
+}
+
+#[tokio::test]
 async fn service_errors_map_to_tool_errors() {
     let (mock, base) = blast_server().await;
     let c = client_at(&base).await;

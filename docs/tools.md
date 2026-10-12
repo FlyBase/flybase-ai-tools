@@ -269,7 +269,7 @@ Submit a BLAST search of a nucleotide or protein sequence against FlyBase databa
 
 ## `convert_coordinates`
 
-Convert genome coordinates between assembly releases using FlyBase's published maps (currently D. melanogaster release 5 to release 6). Each input gets a status: mapped (both ends convert to one scaffold; a range that spans regions of change is still mapped, but its length can change, so compare from_length with to_length and check regions_spanned), partial (an end falls in a region of change or the two ends land on different scaffolds; the mapped blocks are listed), unmapped, or invalid. Use when a paper or dataset gives release 5 (pre-2014) coordinates and you need current ones; use list_options=true to see supported pairs.
+Convert genome coordinates between assembly releases using FlyBase's published maps (currently D. melanogaster release 5 to release 6). Each input gets a status: mapped (both ends convert to one scaffold; a range that spans regions of change is still mapped, but its length can change, so compare from_length with to_length and check regions_spanned), partial (an end falls in a region of change, the two ends land on different scaffolds or strands, or the blocks between them are not in order in the target; the mapped blocks are listed), unmapped, or invalid. Use when a paper or dataset gives release 5 (pre-2014) coordinates and you need current ones; use list_options=true to see supported pairs.
 
 ```json
 {
@@ -1184,7 +1184,7 @@ Turn one gene, allele, insertion, stock, cell line, library, strain, or other sy
 
 ## `rnaseq_profile_search`
 
-Find D. melanogaster genes whose RNA-seq expression (RPKM) meets every condition you give, such as high in adult testis and low in ovary, over the FlyAtlas2 tissue atlas or the modENCODE developmental, tissue, treatment, and cell-line series. Use list_options=true first to see dataset and sample names. Use rnaseq_similar_genes to rank genes by profile similarity instead.
+Find D. melanogaster genes whose RNA-seq expression (RPKM) meets every condition you give, such as high in adult testis and low in ovary, over the FlyAtlas2 tissue atlas or the modENCODE developmental, tissue, treatment, and cell-line series. Results are ordered by the first condition's value, descending, so put the 'high in' condition first. Use list_options=true first to see dataset and sample names. Use rnaseq_similar_genes to rank genes by profile similarity instead.
 
 ```json
 {
@@ -1281,7 +1281,7 @@ Find D. melanogaster genes whose RNA-seq expression (RPKM) meets every condition
 
 ## `rnaseq_similar_genes`
 
-Rank D. melanogaster genes by Pearson correlation of log2(RPKM + 1) expression profiles with a query gene's profile across one dataset (FlyAtlas2 tissues or a modENCODE series). Use when you want co-expressed genes; use rnaseq_profile_search for threshold conditions on named samples.
+Rank D. melanogaster genes by Pearson correlation of log2(RPKM + 1) expression profiles with a query gene's profile across one dataset (FlyAtlas2 tissues or a modENCODE series). genes_compared counts the genes with a varying profile, which can be below the dataset's gene_count. Use when you want co-expressed genes; use rnaseq_profile_search for threshold conditions on named samples.
 
 ```json
 {

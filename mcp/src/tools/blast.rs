@@ -342,6 +342,16 @@ impl FlyBaseServer {
         }
         let sequence = clean_sequence(p.sequence.as_deref().unwrap_or(""), T)?;
         let species_in = p.species.unwrap_or_else(|| vec!["Dmel".into()]);
+        if species_in.is_empty() {
+            return Err(ToolError::InvalidInput {
+                tool: T,
+                arg: "species",
+                message: format!(
+                    "give at least one species, or omit it for Dmel; choose from {}",
+                    BLAST_SPECIES.join(", ")
+                ),
+            });
+        }
         let mut species = Vec::new();
         for s in &species_in {
             let canon = BLAST_SPECIES

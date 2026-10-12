@@ -161,7 +161,7 @@ pub struct SimilarGenesParams {
 impl FlyBaseServer {
     #[tool(
         name = "rnaseq_profile_search",
-        description = "Find D. melanogaster genes whose RNA-seq expression (RPKM) meets every condition you give, such as high in adult testis and low in ovary, over the FlyAtlas2 tissue atlas or the modENCODE developmental, tissue, treatment, and cell-line series. Use list_options=true first to see dataset and sample names. Use rnaseq_similar_genes to rank genes by profile similarity instead."
+        description = "Find D. melanogaster genes whose RNA-seq expression (RPKM) meets every condition you give, such as high in adult testis and low in ovary, over the FlyAtlas2 tissue atlas or the modENCODE developmental, tissue, treatment, and cell-line series. Results are ordered by the first condition's value, descending, so put the 'high in' condition first. Use list_options=true first to see dataset and sample names. Use rnaseq_similar_genes to rank genes by profile similarity instead."
     )]
     pub async fn rnaseq_profile_search(
         &self,
@@ -315,7 +315,7 @@ impl FlyBaseServer {
 
     #[tool(
         name = "rnaseq_similar_genes",
-        description = "Rank D. melanogaster genes by Pearson correlation of log2(RPKM + 1) expression profiles with a query gene's profile across one dataset (FlyAtlas2 tissues or a modENCODE series). Use when you want co-expressed genes; use rnaseq_profile_search for threshold conditions on named samples."
+        description = "Rank D. melanogaster genes by Pearson correlation of log2(RPKM + 1) expression profiles with a query gene's profile across one dataset (FlyAtlas2 tissues or a modENCODE series). genes_compared counts the genes with a varying profile, which can be below the dataset's gene_count. Use when you want co-expressed genes; use rnaseq_profile_search for threshold conditions on named samples."
     )]
     pub async fn rnaseq_similar_genes(
         &self,

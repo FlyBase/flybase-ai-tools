@@ -57,6 +57,27 @@ pub struct JobStatus {
     pub downloads: Option<HashMap<String, String>>,
 }
 
+/// Prefix every link the service hands back must carry; anything else is dropped before it reaches a client.
+const PUBLIC_LINK_PREFIX: &str = "https://flybase.org/";
+
+/// Null `result_url`, and `downloads` as a whole, when any URL is not a public flybase.org page.
+fn public_links_only(s: &mut JobStatus) {
+    if s.result_url
+        .as_deref()
+        .is_some_and(|u| !u.starts_with(PUBLIC_LINK_PREFIX))
+    {
+        tracing::warn!(job_id = %s.job_id, field = "result_url", "BLAST service returned a non-flybase.org link; dropped");
+        s.result_url = None;
+    }
+    if s.downloads
+        .as_ref()
+        .is_some_and(|d| d.values().any(|u| !u.starts_with(PUBLIC_LINK_PREFIX)))
+    {
+        tracing::warn!(job_id = %s.job_id, field = "downloads", "BLAST service returned a non-flybase.org link; dropped");
+        s.downloads = None;
+    }
+}
+
 #[derive(Deserialize, Debug, Default)]
 struct ErrorBody {
     error: Option<String>,
@@ -225,9 +246,12 @@ impl BlastClient {
             .auth(self.http.get(self.url(&format!("internal/jobs/{job_id}"))?))
             .timeout(Duration::from_secs(5));
         let resp = self.send(rb).await?;
-        resp.json()
+        let mut s: JobStatus = resp
+            .json()
             .await
-            .map_err(|e| BlastError::Unavailable(format!("bad status response: {e}")))
+            .map_err(|e| BlastError::Unavailable(format!("bad status response: {e}")))?;
+        public_links_only(&mut s);
+        Ok(s)
     }
 
     /// The results table, read in chunks and capped at MAX_RESULTS_BYTES.

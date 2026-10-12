@@ -100,6 +100,8 @@ pub struct Conversion {
     pub from_length: u64,
     /// Bases in the converted range; differs from `from_length` when the range spans a region of change.
     pub to_length: Option<u64>,
+    /// For `mapped`: the ends' blocks are on the minus strand of the target, so the range is reversed.
+    /// For `partial`: any overlapping block is on the minus strand; read each block's own `strand_flipped`.
     pub strand_flipped: bool,
     pub regions_spanned: usize,
     pub blocks: Vec<MappedBlock>,

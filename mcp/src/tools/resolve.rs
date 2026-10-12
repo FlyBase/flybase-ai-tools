@@ -158,7 +158,23 @@ pub fn class_of(id: &str) -> &'static str {
     }
 }
 
+/// Tie-break order on equal score: genes first, then the classes a name most often also belongs to.
+fn class_rank(class: &str) -> u8 {
+    match class {
+        "gene" => 0,
+        "allele" => 1,
+        "transcript" => 2,
+        "polypeptide" => 3,
+        "insertion" => 4,
+        "construct" => 5,
+        "aberration" => 6,
+        "balancer" => 7,
+        _ => 8,
+    }
+}
+
 /// Rank: exact symbol > exact name of any kind > symbol prefix > other prefix > trigram similarity; a current name outranks any stale one; Dmel preferred when species unspecified.
+/// Equal scores order by data class (gene first, see `class_rank`), then ID.
 /// One entry per ID (best score wins, ties broken by matched name).
 pub fn rank(query: &str, mut c: Vec<Candidate>, species: Option<&str>) -> Vec<Candidate> {
     let q = query.to_lowercase();
@@ -186,6 +202,7 @@ pub fn rank(query: &str, mut c: Vec<Candidate>, species: Option<&str>) -> Vec<Ca
     c.sort_by(|a, b| {
         b.score
             .cmp(&a.score)
+            .then(class_rank(&a.data_class).cmp(&class_rank(&b.data_class)))
             .then(a.id.cmp(&b.id))
             .then(a.matched.cmp(&b.matched))
     });
@@ -405,6 +422,23 @@ mod tests {
         assert_eq!(x.len(), 1);
         assert_eq!(x[0].matched, y[0].matched);
         assert_eq!(x[0].matched, "Notch");
+    }
+    #[test]
+    fn gene_beats_alleles_on_equal_score() {
+        let mut ct = c("FBal0002094", "notch", "synonym", "Dmel", true, 1.0);
+        ct.data_class = "allele".into();
+        let mut vg = c("FBal0017897", "Notch", "synonym", "Dmel", true, 1.0);
+        vg.data_class = "allele".into();
+        let mut tr = c("FBtr0000001", "Notch", "synonym", "Dmel", true, 1.0);
+        tr.data_class = "transcript".into();
+        let n = c("FBgn0004647", "Notch", "fullname", "Dmel", true, 1.0);
+        let r = rank("Notch", vec![tr, ct, vg, n], Some("Dmel"));
+        assert!(r.iter().all(|x| x.score == 1300));
+        let ids: Vec<&str> = r.iter().map(|x| x.id.as_str()).collect();
+        assert_eq!(
+            ids,
+            ["FBgn0004647", "FBal0002094", "FBal0017897", "FBtr0000001"]
+        );
     }
     #[test]
     fn like_escape_quotes_wildcards() {
