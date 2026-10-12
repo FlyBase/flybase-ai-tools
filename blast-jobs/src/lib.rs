@@ -3,8 +3,10 @@
 //! from the config file; nothing site-specific is compiled in.
 pub mod advanced;
 pub mod catalogue;
+pub mod command;
 pub mod config;
 pub mod jobid;
+pub mod runner;
 pub mod store;
 pub mod types;
 pub mod validate;

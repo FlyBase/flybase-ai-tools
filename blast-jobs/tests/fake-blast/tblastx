@@ -1,0 +1,53 @@
+#!/bin/sh
+# Fake BLAST+ program for the blast-jobs tests (the same script is committed as blastn, blastp, blastx,
+# tblastn and tblastx, mode 100755). It records its argv, one element per line, to argv.txt in the job
+# directory, then writes canned.tsv to the -out path.
+#
+# The runner gives BLAST+ a fixed environment, so the test controls come from
+# <state_root>/fake-blast.env (sourced when present; state_root is three levels above -out):
+#   FAKE_BLAST_SLEEP=<s>   sleep before doing anything else
+#   FAKE_BLAST_FAIL=db     BLAST database error on stderr, exit 2
+#   FAKE_BLAST_FAIL=oom    die by SIGKILL, as under the container's memory cap
+#   FAKE_BLAST_FAIL=noisy  200 KiB of error lines on stderr, exit 4
+#   FAKE_BLAST_FAIL=<any>  one options error line on stderr, exit 3
+#   FAKE_BLAST_BIG=1       write 20 MiB of rows instead of canned.tsv
+PATH=/usr/bin:/bin
+export PATH
+here=$(dirname "$0")
+out=
+prev=
+for a in "$@"; do
+    if [ "$prev" = "-out" ]; then out=$a; fi
+    prev=$a
+done
+if [ -z "$out" ]; then
+    echo "fake-blast: no -out argument" >&2
+    exit 64
+fi
+job=$(dirname "$out")
+ctl=$(dirname "$(dirname "$job")")/fake-blast.env
+if [ -f "$ctl" ]; then . "$ctl"; fi
+printf '%s\n' "$0" "$@" > "$job/argv.txt"
+if [ -n "$FAKE_BLAST_SLEEP" ]; then
+    # Detached from the stderr pipe, so a killed parent does not leave the pipe open.
+    sleep "$FAKE_BLAST_SLEEP" </dev/null >/dev/null 2>&1
+fi
+case "$FAKE_BLAST_FAIL" in
+    "") ;;
+    db)
+        echo "BLAST Database error: No alias or index file found for nucleotide database [/db/dmel/x] in search path [/tmp::]" >&2
+        exit 2 ;;
+    oom)
+        kill -9 $$ ;;
+    noisy)
+        yes "Error: noisy failure reading /some/private/path/file.nsq" | head -c 204800 >&2
+        exit 4 ;;
+    *)
+        echo "BLAST query/options error: fake failure for /opt/private/thing" >&2
+        exit 3 ;;
+esac
+if [ -n "$FAKE_BLAST_BIG" ]; then
+    yes "$(head -n 1 "$here/canned.tsv")" | head -c 20971520 > "$out"
+else
+    cat "$here/canned.tsv" > "$out"
+fi
