@@ -61,6 +61,64 @@ Download chosen fields for up to 500 FlyBase IDs at once as rows (JSON or TSV): 
 }
 ```
 
+## `convert_coordinates`
+
+Convert genome coordinates between assembly releases using FlyBase's published maps (currently D. melanogaster release 5 to release 6). Each input gets a status: mapped, partial (the range crosses a region of change; mapped blocks are listed), unmapped, or invalid. Use when a paper or dataset gives release 5 (pre-2014) coordinates and you need current ones; use list_options=true to see supported pairs.
+
+```json
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "coordinates": {
+      "description": "Up to 500 positions or ranges: \"2L:21485500..21485700\", \"X:330\", \"chr3R:3,020,320\", \"2R:1-10000\".",
+      "items": {
+        "type": "string"
+      },
+      "type": [
+        "array",
+        "null"
+      ]
+    },
+    "from_release": {
+      "description": "Source assembly release number (default 5). Only Dmel release 5 is supported.",
+      "format": "uint8",
+      "maximum": 255,
+      "minimum": 0,
+      "type": [
+        "integer",
+        "null"
+      ]
+    },
+    "list_options": {
+      "description": "If true, return only the supported species and release pairs with their scaffold names.",
+      "type": [
+        "boolean",
+        "null"
+      ]
+    },
+    "species": {
+      "description": "Species abbreviation. Only Dmel has a bundled map (default Dmel).",
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "to_release": {
+      "description": "Target assembly release number (default 6).",
+      "format": "uint8",
+      "maximum": 255,
+      "minimum": 0,
+      "type": [
+        "integer",
+        "null"
+      ]
+    }
+  },
+  "type": "object"
+}
+```
+
 ## `cytosearch`
 
 Find genes, insertions, other features, and aberrations in a cytological location: a band (91A1), subdivision (91A), division (91), band range (91A1-91B2), or genomic range (3R:18268611..18297020). Bands resolve to genome coordinates; aberrations are those with mapped breakpoints only; insertion sites are points (start = end). D. melanogaster only. Windows over 2 Mb are refused, so a division that spans more (such as 20) must be searched by subdivision or band. Use when a paper gives a cytological position; use map_features when you already have coordinates.

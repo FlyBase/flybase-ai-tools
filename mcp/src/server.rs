@@ -57,6 +57,7 @@ impl FlyBaseServer {
             + Self::tool_router_groups()
             + Self::tool_router_disease()
             + Self::tool_router_stocks()
+            + Self::tool_router_coordinates()
     }
 
     pub fn new(chado: Chado, limits: Limits, release: String) -> Self {
