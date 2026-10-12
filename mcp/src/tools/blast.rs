@@ -176,6 +176,18 @@ fn unconfigured(tool: &'static str) -> ToolError {
 
 /// Strip FASTA headers and whitespace, uppercase, and validate residues and length.
 fn clean_sequence(raw: &str, tool: &'static str) -> ToolResult<String> {
+    if raw
+        .lines()
+        .filter(|l| l.trim_start().starts_with('>'))
+        .count()
+        > 1
+    {
+        return Err(ToolError::InvalidInput {
+            tool,
+            arg: "sequence",
+            message: "one sequence per job; the input has more than one FASTA record".into(),
+        });
+    }
     let seq: String = raw
         .lines()
         .filter(|l| !l.trim_start().starts_with('>'))
@@ -339,7 +351,7 @@ impl FlyBaseServer {
                     tool: T,
                     arg: "species",
                     message: format!(
-                        "'{s}' has no BLAST database; choose from {}",
+                        "species has no BLAST database; choose from {}",
                         BLAST_SPECIES.join(", ")
                     ),
                 })?;

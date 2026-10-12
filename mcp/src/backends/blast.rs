@@ -138,7 +138,12 @@ pub struct BlastClient {
 
 impl BlastClient {
     /// `base` is the service root; a missing trailing slash is added so `Url::join` keeps its path.
+    /// Only `http://` is accepted: this build compiles no TLS backend, so an `https://` base would fail
+    /// every request; failing here surfaces the mistake once at startup.
     pub fn new(mut base: Url, token: Option<String>) -> anyhow::Result<Self> {
+        if base.scheme() != "http" {
+            anyhow::bail!("BLAST_BASE_URL must be http://; this build has no TLS backend");
+        }
         if !base.path().ends_with('/') {
             let p = format!("{}/", base.path());
             base.set_path(&p);
@@ -146,6 +151,9 @@ impl BlastClient {
         let http = reqwest::Client::builder()
             .timeout(Duration::from_secs(15))
             .connect_timeout(Duration::from_secs(3))
+            // The private API never redirects; following one could fetch an arbitrary reachable URL
+            // and return its body as hits.
+            .redirect(reqwest::redirect::Policy::none())
             .build()?;
         Ok(Self { http, base, token })
     }
@@ -180,6 +188,9 @@ impl BlastClient {
             },
             401 | 403 => BlastError::Unavailable("service token rejected".into()),
             404 => BlastError::NotFound,
+            300..=399 => {
+                BlastError::Unavailable(format!("unexpected redirect (HTTP {})", status.as_u16()))
+            }
             409 => BlastError::NotReady(body.state.unwrap_or_else(|| "not complete".into())),
             429 => BlastError::QueueFull {
                 retry_after: body.retry_after_seconds.unwrap_or(30),
@@ -229,6 +240,21 @@ impl BlastClient {
                 ),
             )
             .await?;
+        if let Some(ct) = resp.headers().get(reqwest::header::CONTENT_TYPE) {
+            let media = ct
+                .to_str()
+                .unwrap_or("")
+                .split(';')
+                .next()
+                .unwrap_or("")
+                .trim()
+                .to_ascii_lowercase();
+            if media != "text/tab-separated-values" && media != "text/plain" {
+                return Err(BlastError::Unavailable(format!(
+                    "results.tsv has content-type {media:?}, not a TSV table"
+                )));
+            }
+        }
         if resp
             .content_length()
             .is_some_and(|n| n as usize > MAX_RESULTS_BYTES)
@@ -456,6 +482,14 @@ mod tests {
         assert!(!valid_job_id("short"));
         assert!(!valid_job_id("has/slash1"));
         assert!(!valid_job_id(&"x".repeat(65)));
+    }
+
+    #[test]
+    fn https_base_is_rejected_at_startup() {
+        match BlastClient::new("https://blast.example/".parse().unwrap(), None) {
+            Ok(_) => panic!("https base must be rejected"),
+            Err(e) => assert!(e.to_string().contains("http://"), "{e}"),
+        }
     }
 
     #[test]

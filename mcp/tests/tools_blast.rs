@@ -414,3 +414,127 @@ async fn results_before_completion_and_cache_bypass() {
         "BLAST tools never touch the response cache"
     );
 }
+
+/// A redirect from the service is a fault, never followed: the body at the other end must not become hits.
+#[tokio::test]
+async fn results_redirect_is_not_followed() {
+    let (mock, base) = blast_server().await;
+    let elsewhere = MockServer::start().await;
+    Mock::given(method("GET"))
+        .and(path("/stolen.tsv"))
+        .respond_with(ResponseTemplate::new(200).set_body_string(TSV))
+        .expect(0)
+        .mount(&elsewhere)
+        .await;
+    submit_mock().mount(&mock).await;
+    Mock::given(method("GET"))
+        .and(path("/internal/jobs/job-0001"))
+        .respond_with(
+            ResponseTemplate::new(200).set_body_json(
+                json!({"job_id": "job-0001", "state": "complete", "queue_position": 0}),
+            ),
+        )
+        .mount(&mock)
+        .await;
+    Mock::given(method("GET"))
+        .and(path("/internal/jobs/job-0001/results.tsv"))
+        .respond_with(ResponseTemplate::new(302).insert_header(
+            "location",
+            format!("{}/stolen.tsv", elsewhere.uri()).as_str(),
+        ))
+        .mount(&mock)
+        .await;
+    let c = client_at(&base).await;
+    let s = call(
+        &c,
+        "blast_submit",
+        json!({"program": "blastn", "database": "assembly", "sequence": "ACGTACGTACGTACGTACGT"}),
+    )
+    .await;
+    let token = s["job_token"].as_str().unwrap().to_string();
+    let e = call_raw(
+        &c,
+        "blast_results",
+        json!({"job_id": "job-0001", "job_token": token}),
+    )
+    .await
+    .unwrap()
+    .structured_content
+    .unwrap();
+    assert_eq!(e["error"], "backend_unavailable", "{e}");
+    assert!(e.get("hits").is_none());
+    elsewhere.verify().await;
+}
+
+/// A 200 that is not a TSV table (a proxy login or maintenance page) is a fault, not "no hits".
+#[tokio::test]
+async fn results_with_html_content_type_is_a_fault() {
+    let (mock, base) = blast_server().await;
+    submit_mock().mount(&mock).await;
+    Mock::given(method("GET"))
+        .and(path("/internal/jobs/job-0001"))
+        .respond_with(
+            ResponseTemplate::new(200).set_body_json(
+                json!({"job_id": "job-0001", "state": "complete", "queue_position": 0}),
+            ),
+        )
+        .mount(&mock)
+        .await;
+    Mock::given(method("GET"))
+        .and(path("/internal/jobs/job-0001/results.tsv"))
+        .respond_with(
+            // set_body_raw: wiremock derives the content-type from the body setter, so set_body_string
+            // plus insert_header would still answer text/plain.
+            ResponseTemplate::new(200).set_body_raw(
+                "<html><body>Sign in</body></html>",
+                "text/html; charset=utf-8",
+            ),
+        )
+        .mount(&mock)
+        .await;
+    let c = client_at(&base).await;
+    let s = call(
+        &c,
+        "blast_submit",
+        json!({"program": "blastn", "database": "assembly", "sequence": "ACGTACGTACGTACGTACGT"}),
+    )
+    .await;
+    let token = s["job_token"].as_str().unwrap().to_string();
+    let e = call_raw(
+        &c,
+        "blast_results",
+        json!({"job_id": "job-0001", "job_token": token}),
+    )
+    .await
+    .unwrap()
+    .structured_content
+    .unwrap();
+    assert_eq!(e["error"], "backend_unavailable", "{e}");
+    assert!(!e["message"].as_str().unwrap().contains("no hits"));
+}
+
+/// More than one FASTA record is rejected instead of being concatenated into one query.
+#[tokio::test]
+async fn multi_record_fasta_is_rejected() {
+    let (mock, base) = blast_server().await;
+    submit_mock().expect(0).mount(&mock).await;
+    let c = client_at(&base).await;
+    let e = call_raw(
+        &c,
+        "blast_submit",
+        json!({"program": "blastn", "database": "assembly", "sequence": ">a\nACGTACGT\n>b\nTTTTGGGG\n"}),
+    )
+    .await
+    .unwrap()
+    .structured_content
+    .unwrap();
+    assert_eq!(e["error"], "invalid_input");
+    assert!(
+        e["message"]
+            .as_str()
+            .unwrap()
+            .contains("one sequence per job"),
+        "{e}"
+    );
+    mock.verify().await;
+}
