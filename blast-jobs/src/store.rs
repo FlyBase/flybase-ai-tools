@@ -7,9 +7,16 @@
 //! `job.json`: a job that was queued or running when the service stopped is marked `failed` at the next
 //! start, never re-run.
 //!
-//! Blocking: `open`, `create`, `claim_next`, `finish` and `sweep` touch the disk (a few small files and
-//! an fsync, never while the mutex is held). `get`, `counts`, `state_writable`, `job_dir` and
-//! `notified` are memory-only and safe to call from any async handler.
+//! Blocking: `create`, `claim_next` and `finish` are async and run their file IO (small files and an
+//! fsync) on the blocking pool via `spawn_blocking`, never while the mutex is held. `open` and `sweep`
+//! are synchronous (startup, and the sweeper already runs `sweep` on the blocking pool). `get`,
+//! `counts`, `state_writable`, `job_dir` and `notified` are memory-only.
+//!
+//! Cancellation: the in-memory transition of `claim_next` and `finish` happens before their first
+//! await, so a dropped future loses at most the `job.json` write. Workers should not cancel
+//! `claim_next` (a dropped one would leave a job `running` with nobody to finish it). A dropped
+//! `create` gives back its queue slot; a directory it had already written stays `queued` on disk and
+//! the next start marks it failed, after which the sweep removes it.
 //!
 //! One writer per job: after `claim_next` hands a job out, only that worker calls `finish` for it, so
 //! the two `job.json` writes of a job never race. `sweep` only touches terminal jobs.
@@ -148,7 +155,8 @@ impl Store {
                 record.state = State::Failed;
                 record.error = Some(RESTART_MESSAGE.to_owned());
                 record.finished_at_ms = Some(now);
-                store.persist(&id, &record);
+                let written = write_record(&store.job_dir(&id), &record);
+                store.note_write(&id, written);
                 recovered += 1;
             }
             loaded += 1;
@@ -171,18 +179,12 @@ impl Store {
         Ok(Arc::new(store))
     }
 
-    /// Queues a validated request: writes `query.fa` and `job.json`, pushes it on the FIFO and wakes a
-    /// worker. Returns the id and the 1-based queue position. `QueueFull` when the FIFO already holds
+    /// Queues a validated request: writes `job.json` then `query.fa`, pushes it on the FIFO and wakes
+    /// a worker. Returns the id and the 1-based queue position. `QueueFull` when the FIFO already holds
     /// `max_queued` jobs (running ones do not count); `Io` when the directory cannot be written, which
     /// also turns `state_writable` false until a later write succeeds.
-    pub fn create(&self, req: Validated) -> Result<(JobId, u32), CreateError> {
-        {
-            let mut inner = self.lock();
-            if inner.fifo.len() + inner.reserved >= self.max_queued {
-                return Err(CreateError::QueueFull);
-            }
-            inner.reserved += 1;
-        }
+    pub async fn create(&self, req: Validated) -> Result<(JobId, u32), CreateError> {
+        let slot = self.reserve()?;
         let id = JobId::new();
         let record = Record {
             job_id: id.to_string(),
@@ -198,14 +200,20 @@ impl Store {
             query_length: req.residues.len(),
             client: req.client.clone(),
         };
-        let written = self.write_new_job(&id, &req, &record);
-        self.writable.store(written.is_ok(), Ordering::Relaxed);
+        let (jobs_root, dir) = (self.jobs_root.clone(), self.job_dir(&id));
+        let joined = tokio::task::spawn_blocking(move || {
+            let written = write_new_job(&jobs_root, &dir, &req.residues, &record);
+            (written, req, record)
+        })
+        .await;
+        let (req, record) = match joined {
+            Ok((Ok(()), req, record)) => (req, record),
+            Ok((Err(e), _, _)) => return Err(self.create_failed(e)),
+            Err(e) => return Err(self.create_failed(io::Error::other(e))),
+        };
+        self.writable.store(true, Ordering::Relaxed);
         let mut inner = self.lock();
-        inner.reserved -= 1;
-        if let Err(e) = written {
-            tracing::error!(error = %e, "could not write a new job directory");
-            return Err(CreateError::Io(e));
-        }
+        slot.commit(&mut inner);
         inner.jobs.insert(
             id.clone(),
             Job {
@@ -222,11 +230,12 @@ impl Store {
         Ok((id, position))
     }
 
-    /// Pops the oldest queued job, marks it `running` (memory and `job.json`) and hands its request to
-    /// the caller. `None` when the FIFO is empty. Workers loop: `claim_next()`, else
-    /// `notified().await`, then try again.
-    pub fn claim_next(&self) -> Option<(JobId, Validated)> {
-        let (id, req, snapshot) = {
+    /// Pops the oldest queued job, marks it `running` (memory, then `job.json`) and hands its request
+    /// to the caller. `None` when the FIFO is empty. Workers loop: `claim_next().await`, else
+    /// `notified().await`, then try again. When jobs remain after the pop another worker is woken, so
+    /// two creates that coalesced into one stored permit still reach two idle workers.
+    pub async fn claim_next(&self) -> Option<(JobId, Validated)> {
+        let (id, req, snapshot, more) = {
             let mut inner = self.lock();
             loop {
                 let id = inner.fifo.pop_front()?;
@@ -238,10 +247,14 @@ impl Store {
                 };
                 job.record.state = State::Running;
                 job.record.started_at_ms = Some(now_ms(SystemTime::now()));
-                break (id, req, job.record.clone());
+                let snapshot = job.record.clone();
+                break (id, req, snapshot, !inner.fifo.is_empty());
             }
         };
-        self.persist(&id, &snapshot);
+        if more {
+            self.notify.notify_one();
+        }
+        self.persist(&id, snapshot).await;
         Some((id, req))
     }
 
@@ -283,7 +296,7 @@ impl Store {
 
     /// Records the end of a job and rewrites its `job.json`. A job already terminal or unknown (swept)
     /// is left as it is.
-    pub fn finish(&self, id: &JobId, outcome: Outcome) {
+    pub async fn finish(&self, id: &JobId, outcome: Outcome) {
         let snapshot = {
             let mut inner = self.lock();
             let Some(job) = inner.jobs.get_mut(id) else {
@@ -318,7 +331,7 @@ impl Store {
             }
             snapshot
         };
-        self.persist(id, &snapshot);
+        self.persist(id, snapshot).await;
     }
 
     /// Removes terminal jobs submitted more than `retention` before `now`, from memory and disk.
@@ -406,32 +419,82 @@ impl Store {
         self.inner.lock().unwrap_or_else(|e| e.into_inner())
     }
 
-    fn write_new_job(&self, id: &JobId, req: &Validated, record: &Record) -> io::Result<()> {
-        std::fs::create_dir_all(&self.jobs_root)?;
-        let dir = self.job_dir(id);
-        // `create_dir`, not `_all`: an existing directory is an error, never reused or removed.
-        std::fs::create_dir(&dir)?;
-        let res = (|| {
-            let mut q = std::fs::File::create(dir.join(QUERY_FILE))?;
-            q.write_all(b">query\n")?;
-            q.write_all(req.residues.as_bytes())?;
-            q.write_all(b"\n")?;
-            q.sync_all()?;
-            write_record(&dir, record)
-        })();
-        if res.is_err() {
-            let _ = std::fs::remove_dir_all(&dir);
+    /// Takes a queue slot, or `QueueFull`. The slot is given back when the guard drops uncommitted.
+    fn reserve(&self) -> Result<Slot<'_>, CreateError> {
+        let mut inner = self.lock();
+        if inner.fifo.len() + inner.reserved >= self.max_queued {
+            return Err(CreateError::QueueFull);
         }
-        res
+        inner.reserved += 1;
+        Ok(Slot {
+            store: self,
+            live: true,
+        })
     }
 
-    fn persist(&self, id: &JobId, record: &Record) {
-        let res = write_record(&self.job_dir(id), record);
-        self.writable.store(res.is_ok(), Ordering::Relaxed);
-        if let Err(e) = res {
+    fn create_failed(&self, e: io::Error) -> CreateError {
+        self.writable.store(false, Ordering::Relaxed);
+        tracing::error!(error = %e, "could not write a new job directory");
+        CreateError::Io(e)
+    }
+
+    async fn persist(&self, id: &JobId, record: Record) {
+        let dir = self.job_dir(id);
+        let written = tokio::task::spawn_blocking(move || write_record(&dir, &record))
+            .await
+            .unwrap_or_else(|e| Err(io::Error::other(e)));
+        self.note_write(id, written);
+    }
+
+    fn note_write(&self, id: &JobId, written: io::Result<()>) {
+        self.writable.store(written.is_ok(), Ordering::Relaxed);
+        if let Err(e) = written {
             tracing::error!(job_id = %id, error = %e, "could not write job.json");
         }
     }
+}
+
+/// A reserved queue slot held by an in-flight `create`.
+struct Slot<'a> {
+    store: &'a Store,
+    live: bool,
+}
+
+impl Slot<'_> {
+    /// Turns the reservation into a FIFO entry the caller is about to push (lock already held).
+    fn commit(mut self, inner: &mut Inner) {
+        inner.reserved -= 1;
+        self.live = false;
+    }
+}
+
+impl Drop for Slot<'_> {
+    fn drop(&mut self) {
+        if self.live {
+            self.store.lock().reserved -= 1;
+        }
+    }
+}
+
+/// Creates `dir` and writes `job.json` (queued) before `query.fa`, so a crash between the two leaves a
+/// known job that restart recovery fails and the sweep later removes, never a stray directory holding a
+/// query. Removes the directory again on any error.
+fn write_new_job(jobs_root: &Path, dir: &Path, residues: &str, record: &Record) -> io::Result<()> {
+    std::fs::create_dir_all(jobs_root)?;
+    // `create_dir`, not `_all`: an existing directory is an error, never reused or removed.
+    std::fs::create_dir(dir)?;
+    let res = (|| {
+        write_record(dir, record)?;
+        let mut q = std::fs::File::create(dir.join(QUERY_FILE))?;
+        q.write_all(b">query\n")?;
+        q.write_all(residues.as_bytes())?;
+        q.write_all(b"\n")?;
+        q.sync_all()
+    })();
+    if res.is_err() {
+        let _ = std::fs::remove_dir_all(dir);
+    }
+    res
 }
 
 /// Writes `job.json` atomically: the whole record to `job.json.tmp`, fsync, rename over `job.json`.
@@ -473,6 +536,7 @@ fn now_ms(t: SystemTime) -> u64 {
 mod tests {
     use super::*;
     use crate::catalogue::Resolved;
+    use std::future::Future;
     use std::os::unix::fs::PermissionsExt;
 
     fn validated(residues: &str) -> Validated {
@@ -519,12 +583,12 @@ mod tests {
         serde_json::from_slice(&std::fs::read(store.job_dir(id).join(JOB_FILE)).unwrap()).unwrap()
     }
 
-    #[test]
-    fn create_writes_query_and_job_json() {
+    #[tokio::test]
+    async fn create_writes_query_and_job_json() {
         let tmp = tempfile::tempdir().unwrap();
         let store = Store::open(tmp.path(), 5).unwrap();
         assert!(store.state_writable());
-        let (id, pos) = store.create(validated("ACGTACGT")).unwrap();
+        let (id, pos) = store.create(validated("ACGTACGT")).await.unwrap();
         assert_eq!(pos, 1);
         let dir = store.job_dir(&id);
         assert_eq!(dir, tmp.path().join("jobs").join(id.as_str()));
@@ -543,16 +607,16 @@ mod tests {
         assert!(!tmp.path().join("jobs").join(PROBE_FILE).exists());
     }
 
-    #[test]
-    fn fifo_positions_queue_full_and_claim_shifts() {
+    #[tokio::test]
+    async fn fifo_positions_queue_full_and_claim_shifts() {
         let tmp = tempfile::tempdir().unwrap();
         let store = Store::open(tmp.path(), 3).unwrap();
-        let (a, pa) = store.create(validated("AAAA")).unwrap();
-        let (b, pb) = store.create(validated("CCCC")).unwrap();
-        let (c, pc) = store.create(validated("GGGG")).unwrap();
+        let (a, pa) = store.create(validated("AAAA")).await.unwrap();
+        let (b, pb) = store.create(validated("CCCC")).await.unwrap();
+        let (c, pc) = store.create(validated("GGGG")).await.unwrap();
         assert_eq!((pa, pb, pc), (1, 2, 3));
         assert!(matches!(
-            store.create(validated("TTTT")),
+            store.create(validated("TTTT")).await,
             Err(CreateError::QueueFull)
         ));
         assert_eq!(store.counts(), (3, 0));
@@ -561,7 +625,7 @@ mod tests {
             assert_eq!((s.state, s.queue_position), (State::Queued, Some(p)));
         }
 
-        let (claimed, req) = store.claim_next().unwrap();
+        let (claimed, req) = store.claim_next().await.unwrap();
         assert_eq!(claimed, a, "FIFO order");
         assert_eq!(req.residues, "AAAA");
         let s = store.get(&a).unwrap();
@@ -573,32 +637,36 @@ mod tests {
         assert_eq!(store.counts(), (2, 1));
 
         // A running job frees its queue slot.
-        let (d, pd) = store.create(validated("TTTT")).unwrap();
+        let (d, pd) = store.create(validated("TTTT")).await.unwrap();
         assert_eq!(pd, 3);
         assert!(matches!(
-            store.create(validated("TTTT")),
+            store.create(validated("TTTT")).await,
             Err(CreateError::QueueFull)
         ));
 
-        assert_eq!(store.claim_next().unwrap().0, b);
-        assert_eq!(store.claim_next().unwrap().0, c);
-        assert_eq!(store.claim_next().unwrap().0, d);
-        assert!(store.claim_next().is_none());
+        assert_eq!(store.claim_next().await.unwrap().0, b);
+        assert_eq!(store.claim_next().await.unwrap().0, c);
+        assert_eq!(store.claim_next().await.unwrap().0, d);
+        assert!(store.claim_next().await.is_none());
         assert_eq!(store.counts(), (0, 4));
     }
 
-    #[test]
-    fn finish_records_outcome_and_survives_reopen() {
+    #[tokio::test]
+    async fn finish_records_outcome_and_survives_reopen() {
         let tmp = tempfile::tempdir().unwrap();
         let store = Store::open(tmp.path(), 5).unwrap();
-        let (ok, _) = store.create(validated("AAAA")).unwrap();
-        let (bad, _) = store.create(validated("CCCC")).unwrap();
-        store.claim_next().unwrap();
-        store.claim_next().unwrap();
-        store.finish(&ok, Outcome::Complete { truncated: true });
-        store.finish(&bad, Outcome::Failed("BLAST failed (exit 2)".into()));
+        let (ok, _) = store.create(validated("AAAA")).await.unwrap();
+        let (bad, _) = store.create(validated("CCCC")).await.unwrap();
+        store.claim_next().await.unwrap();
+        store.claim_next().await.unwrap();
+        store
+            .finish(&ok, Outcome::Complete { truncated: true })
+            .await;
+        store
+            .finish(&bad, Outcome::Failed("BLAST failed (exit 2)".into()))
+            .await;
         // A second finish does not overwrite the first.
-        store.finish(&ok, Outcome::Failed("late".into()));
+        store.finish(&ok, Outcome::Failed("late".into())).await;
         assert_eq!(store.counts(), (0, 0));
 
         let s = store.get(&ok).unwrap();
@@ -618,32 +686,34 @@ mod tests {
         assert_eq!(s.state, State::Failed);
         assert_eq!(s.error.as_deref(), Some("BLAST failed (exit 2)"));
         assert!(
-            store.claim_next().is_none(),
+            store.claim_next().await.is_none(),
             "terminal jobs are not requeued"
         );
     }
 
-    #[test]
-    fn finish_on_a_queued_job_removes_it_from_the_fifo() {
+    #[tokio::test]
+    async fn finish_on_a_queued_job_removes_it_from_the_fifo() {
         let tmp = tempfile::tempdir().unwrap();
         let store = Store::open(tmp.path(), 5).unwrap();
-        let (a, _) = store.create(validated("AAAA")).unwrap();
-        let (b, _) = store.create(validated("CCCC")).unwrap();
-        store.finish(&a, Outcome::Failed("x".into()));
+        let (a, _) = store.create(validated("AAAA")).await.unwrap();
+        let (b, _) = store.create(validated("CCCC")).await.unwrap();
+        store.finish(&a, Outcome::Failed("x".into())).await;
         assert_eq!(store.get(&b).unwrap().queue_position, Some(1));
-        assert_eq!(store.claim_next().unwrap().0, b);
+        assert_eq!(store.claim_next().await.unwrap().0, b);
         assert!(store.get(&JobId::new()).is_none());
     }
 
-    #[test]
-    fn restart_fails_queued_and_running_jobs() {
+    #[tokio::test]
+    async fn restart_fails_queued_and_running_jobs() {
         let tmp = tempfile::tempdir().unwrap();
         let store = Store::open(tmp.path(), 5).unwrap();
-        let (running, _) = store.create(validated("AAAA")).unwrap();
-        let (queued, _) = store.create(validated("CCCC")).unwrap();
-        let (done, _) = store.create(validated("GGGG")).unwrap();
-        assert_eq!(store.claim_next().unwrap().0, running);
-        store.finish(&done, Outcome::Complete { truncated: false });
+        let (running, _) = store.create(validated("AAAA")).await.unwrap();
+        let (queued, _) = store.create(validated("CCCC")).await.unwrap();
+        let (done, _) = store.create(validated("GGGG")).await.unwrap();
+        assert_eq!(store.claim_next().await.unwrap().0, running);
+        store
+            .finish(&done, Outcome::Complete { truncated: false })
+            .await;
         assert_eq!(read_record(&store, &queued).state, State::Queued);
         // The process dies here: `running` is running and `queued` queued on disk.
         drop(store);
@@ -661,11 +731,11 @@ mod tests {
         }
         assert_eq!(store.get(&done).unwrap().state, State::Complete);
         assert_eq!(store.counts(), (0, 0));
-        assert!(store.claim_next().is_none());
+        assert!(store.claim_next().await.is_none());
     }
 
-    #[test]
-    fn open_leaves_foreign_entries_alone() {
+    #[tokio::test]
+    async fn open_leaves_foreign_entries_alone() {
         let tmp = tempfile::tempdir().unwrap();
         let jobs = tmp.path().join("jobs");
         std::fs::create_dir_all(jobs.join("not a job")).unwrap();
@@ -718,8 +788,8 @@ mod tests {
         }
     }
 
-    #[test]
-    fn sweep_removes_only_expired_terminal_jobs() {
+    #[tokio::test]
+    async fn sweep_removes_only_expired_terminal_jobs() {
         let tmp = tempfile::tempdir().unwrap();
         let day = Duration::from_secs(86_400);
         let now = SystemTime::now();
@@ -729,9 +799,9 @@ mod tests {
         std::fs::create_dir_all(tmp.path().join("jobs").join("foreign-dir")).unwrap();
         let store = Store::open(tmp.path(), 5).unwrap();
         // Fresh jobs: one running, one queued; never swept however old `now` makes them.
-        let (running, _) = store.create(validated("AAAA")).unwrap();
-        store.claim_next().unwrap();
-        let (queued, _) = store.create(validated("CCCC")).unwrap();
+        let (running, _) = store.create(validated("AAAA")).await.unwrap();
+        store.claim_next().await.unwrap();
+        let (queued, _) = store.create(validated("CCCC")).await.unwrap();
 
         assert_eq!(store.sweep(now, day), 2);
         let jobs = tmp.path().join("jobs");
@@ -754,17 +824,19 @@ mod tests {
         assert_eq!(store.get(&queued).unwrap().state, State::Queued);
         assert_eq!(store.get(&running).unwrap().state, State::Running);
 
-        store.finish(&running, Outcome::Complete { truncated: false });
+        store
+            .finish(&running, Outcome::Complete { truncated: false })
+            .await;
         assert_eq!(store.sweep(far, day), 1);
         assert!(!store.job_dir(&running).exists());
         assert!(store.get(&running).is_none());
         // `finish` after a sweep is ignored rather than resurrecting the directory.
-        store.finish(&running, Outcome::Failed("late".into()));
+        store.finish(&running, Outcome::Failed("late".into())).await;
         assert!(!store.job_dir(&running).exists());
     }
 
-    #[test]
-    fn read_only_directory_gives_io_and_flips_writable() {
+    #[tokio::test]
+    async fn read_only_directory_gives_io_and_flips_writable() {
         let tmp = tempfile::tempdir().unwrap();
         let jobs = tmp.path().join("jobs");
         std::fs::create_dir_all(&jobs).unwrap();
@@ -778,21 +850,21 @@ mod tests {
         let store = Store::open(tmp.path(), 5).unwrap();
         assert!(!store.state_writable());
         assert!(matches!(
-            store.create(validated("AAAA")),
+            store.create(validated("AAAA")).await,
             Err(CreateError::Io(_))
         ));
         assert!(!store.state_writable());
         assert_eq!(store.counts(), (0, 0), "a failed create takes no slot");
 
         std::fs::set_permissions(&jobs, std::fs::Permissions::from_mode(0o755)).unwrap();
-        let (id, pos) = store.create(validated("AAAA")).unwrap();
+        let (id, pos) = store.create(validated("AAAA")).await.unwrap();
         assert_eq!(pos, 1);
         assert!(store.state_writable(), "a successful write clears the flag");
         assert!(store.job_dir(&id).join(JOB_FILE).exists());
     }
 
-    #[test]
-    fn open_creates_missing_state_root() {
+    #[tokio::test]
+    async fn open_creates_missing_state_root() {
         let tmp = tempfile::tempdir().unwrap();
         let root = tmp.path().join("a").join("b");
         let store = Store::open(&root, 5).unwrap();
@@ -809,14 +881,14 @@ mod tests {
         let s = Arc::clone(&store);
         let worker = tokio::spawn(async move {
             loop {
-                if let Some((id, _)) = s.claim_next() {
+                if let Some((id, _)) = s.claim_next().await {
                     return id;
                 }
                 s.notified().await;
             }
         });
         tokio::task::yield_now().await;
-        let (id, _) = store.create(validated("AAAA")).unwrap();
+        let (id, _) = store.create(validated("AAAA")).await.unwrap();
         let got = tokio::time::timeout(Duration::from_secs(5), worker)
             .await
             .expect("worker woke")
@@ -824,12 +896,12 @@ mod tests {
         assert_eq!(got, id);
 
         // A worker that saw an empty FIFO just before the push still wakes (stored permit).
-        assert!(store.claim_next().is_none());
-        store.create(validated("CCCC")).unwrap();
+        assert!(store.claim_next().await.is_none());
+        store.create(validated("CCCC")).await.unwrap();
         tokio::time::timeout(Duration::from_secs(5), store.notified())
             .await
             .expect("permit was stored");
-        assert!(store.claim_next().is_some());
+        assert!(store.claim_next().await.is_some());
     }
 
     #[tokio::test]
@@ -856,5 +928,61 @@ mod tests {
         assert!(store.get(&id).is_none(), "swept after one interval");
         assert!(!store.job_dir(&id).exists());
         handle.abort();
+    }
+
+    #[tokio::test]
+    async fn coalesced_wakeups_still_reach_every_job() {
+        let tmp = tempfile::tempdir().unwrap();
+        let store = Store::open(tmp.path(), 5).unwrap();
+        // Two creates with no worker waiting: `Notify` keeps a single permit.
+        let (a, _) = store.create(validated("AAAA")).await.unwrap();
+        let (b, _) = store.create(validated("CCCC")).await.unwrap();
+        // Worker one takes the permit and claims `a`; the claim must pass the wake-up on.
+        tokio::time::timeout(Duration::from_secs(5), store.notified())
+            .await
+            .expect("first permit");
+        assert_eq!(store.claim_next().await.unwrap().0, a);
+        // Worker two, already past its empty-FIFO check, must be woken for `b`.
+        tokio::time::timeout(Duration::from_secs(5), store.notified())
+            .await
+            .expect("claim_next chains the wake-up while jobs remain");
+        assert_eq!(store.claim_next().await.unwrap().0, b);
+        assert_eq!(store.counts(), (0, 2));
+    }
+
+    #[tokio::test]
+    async fn crash_before_query_fa_leaves_a_recoverable_sweepable_job() {
+        // What `write_new_job` leaves if the process dies after `job.json` and before `query.fa`.
+        let tmp = tempfile::tempdir().unwrap();
+        let old = SystemTime::now() - Duration::from_secs(2 * 86_400);
+        record_on_disk(tmp.path(), "crashed_mid_create", State::Queued, old);
+        let store = Store::open(tmp.path(), 5).unwrap();
+        let id = JobId::parse("crashed_mid_create").unwrap();
+        let s = store.get(&id).unwrap();
+        assert_eq!(
+            (s.state, s.error.as_deref()),
+            (State::Failed, Some(RESTART_MESSAGE))
+        );
+        assert_eq!(
+            store.sweep(SystemTime::now(), Duration::from_secs(86_400)),
+            1
+        );
+        assert!(!store.job_dir(&id).exists());
+    }
+
+    #[tokio::test]
+    async fn dropped_create_gives_its_slot_back() {
+        let tmp = tempfile::tempdir().unwrap();
+        let store = Store::open(tmp.path(), 1).unwrap();
+        {
+            // Polled once (slot reserved, write handed to the blocking pool), then dropped.
+            let mut fut = Box::pin(store.create(validated("AAAA")));
+            let waker = std::task::Waker::noop();
+            let _ = fut
+                .as_mut()
+                .poll(&mut std::task::Context::from_waker(waker));
+        }
+        assert_eq!(store.counts(), (0, 0));
+        store.create(validated("CCCC")).await.unwrap();
     }
 }
