@@ -18,7 +18,8 @@ all come from the config file and the catalogue.
 | `GET /internal/health` | `200 {status: "ok", queued, running, database_release}` or `503 {status: "degraded", reason}`; `?liveness=1` skips the queue-full check |
 
 `X-Blast-Jobs-Truncated: true` is the only sign that rows were dropped: the body is still a well-formed
-table, so a client that ignores the header under-counts the hits.
+table, so a client that ignores the header under-counts the hits. The MCP's `blast_results` reports it as
+`results_truncated: true` and says so in its summary.
 
 Every route except health needs `Authorization: Bearer <BLAST_JOBS_TOKEN>`; the token is compared in
 constant time. `result_url` and `downloads` are never sent, and `cancelled` is never produced. Job ids

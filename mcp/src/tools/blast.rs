@@ -588,7 +588,7 @@ impl FlyBaseServer {
                 ),
             });
         }
-        let tsv = client
+        let (tsv, results_truncated) = client
             .results_tsv(&p.job_id)
             .await
             .map_err(|e| e.into_tool(T))?;
@@ -601,7 +601,7 @@ impl FlyBaseServer {
                 v
             })
             .collect();
-        let summary = if hits.is_empty() {
+        let mut summary = if hits.is_empty() {
             format!("Job {} finished with no hits.", p.job_id)
         } else {
             let top = &hits[0];
@@ -615,12 +615,19 @@ impl FlyBaseServer {
                 top.bitscore
             )
         };
+        if results_truncated {
+            summary.push_str(
+                " Results truncated at the service's size cap, so total_hits is a lower bound; narrow the search or lower blast_submit's max_hits.",
+            );
+        }
         let mut env = Envelope::new(T, &self.release)
             .summary(summary)
             .field("job_id", json!(p.job_id))
             .field("hits", json!(hits_json))
             .field("hits_shown", json!(hits.len()))
             .field("total_hits", json!(total))
+            // Not `truncated`: the envelope uses that key for its own size cut.
+            .field("results_truncated", json!(results_truncated))
             .field("downloads", json!(status.downloads));
         if let Some(u) = &status.result_url {
             env = env.link("result_page", u.clone());

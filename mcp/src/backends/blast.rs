@@ -9,6 +9,8 @@ use url::Url;
 pub const MAX_SEQUENCE: usize = 100_000;
 /// Largest results.tsv body the client reads (16 MiB); longer reports are available through `downloads`.
 pub const MAX_RESULTS_BYTES: usize = 16 * 1024 * 1024;
+/// Response header the service sets to `true` when it cut results.tsv at its own size cap.
+pub const TRUNCATED_HEADER: &str = "x-blast-jobs-truncated";
 /// Species with BLAST databases, as FlyBase abbreviations; the service takes them lowercased.
 pub const BLAST_SPECIES: &[&str] = &[
     "Dmel", "Dsim", "Dsec", "Dyak", "Dere", "Dana", "Dpse", "Dper", "Dwil", "Dmoj", "Dvir", "Dgri",
@@ -259,8 +261,9 @@ impl BlastClient {
         Ok(s)
     }
 
-    /// The results table, read in chunks and capped at MAX_RESULTS_BYTES.
-    pub async fn results_tsv(&self, job_id: &str) -> Result<String, BlastError> {
+    /// The results table, read in chunks and capped at MAX_RESULTS_BYTES, and whether the service
+    /// says it cut the rows (`X-Blast-Jobs-Truncated: true`).
+    pub async fn results_tsv(&self, job_id: &str) -> Result<(String, bool), BlastError> {
         let mut resp = self
             .send(
                 self.auth(
@@ -284,6 +287,11 @@ impl BlastClient {
                 )));
             }
         }
+        let truncated = resp
+            .headers()
+            .get(TRUNCATED_HEADER)
+            .and_then(|v| v.to_str().ok())
+            .is_some_and(|v| v.trim().eq_ignore_ascii_case("true"));
         if resp
             .content_length()
             .is_some_and(|n| n as usize > MAX_RESULTS_BYTES)
@@ -305,7 +313,7 @@ impl BlastClient {
             }
             buf.extend_from_slice(&chunk);
         }
-        Ok(String::from_utf8_lossy(&buf).into_owned())
+        Ok((String::from_utf8_lossy(&buf).into_owned(), truncated))
     }
 
     /// True when `GET /internal/health` answers 2xx within 2 s.
