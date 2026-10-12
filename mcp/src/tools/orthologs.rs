@@ -151,8 +151,17 @@ impl FlyBaseServer {
                 list,
             )
         } else {
-            let is_hgnc = input.len() > 5 && input[..5].eq_ignore_ascii_case("HGNC:");
-            let acc = if is_hgnc { &input[5..] } else { &input[..] }.to_string();
+            // Byte-safe slicing: `get` returns None when byte 5 is inside a multi-byte character.
+            let is_hgnc = input.len() > 5
+                && input
+                    .get(..5)
+                    .is_some_and(|p| p.eq_ignore_ascii_case("HGNC:"));
+            let acc = if is_hgnc {
+                input.get(5..).unwrap_or_default()
+            } else {
+                &input
+            }
+            .to_string();
             let h = Chado::query_on(&conn, T, "orthologs/human_gene", &[&acc]).await?;
             let h = h.first().ok_or_else(|| ToolError::NotFound {
                 tool: T,

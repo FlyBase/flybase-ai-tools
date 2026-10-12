@@ -97,6 +97,14 @@ async fn bad_species_and_unknown_gene() {
         .await
         .unwrap();
     assert_eq!(r.structured_content.unwrap()["error"], "not_found");
+    // Non-ASCII input must give a structured error, never a byte-index panic.
+    for q in ["HGNCé1", "é", "hgnc:é", "Hsap\\é"] {
+        let r = call_raw(&c, "get_orthologs", json!({"id": q}))
+            .await
+            .unwrap();
+        let e = r.structured_content.unwrap()["error"].clone();
+        assert!(e == "invalid_input" || e == "not_found", "{q}: {e}");
+    }
 }
 
 /// TkR86C has 1,496 orthologs, over the 1,000-row cap: the cap must apply after scoring and ordering, so no
