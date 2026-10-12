@@ -20,9 +20,31 @@ Run every command below from `blast-jobs/`.
     cargo fmt && cargo clippy --all-targets -- -D warnings
     cargo deny check advisories licenses
 
+`tests/real_blast.rs` runs only when `BLAST_JOBS_REAL_BLAST` names a BLAST+ bin directory; otherwise each
+test prints `skipped: ...` and passes. It builds two tiny databases from `fixture/` (Notch N-RA and N-PA
+from the FB2023_04 archive, see `fixture/README.md`) and searches them through the API with all five
+programs:
+
+    BLAST_JOBS_REAL_BLAST=/path/to/ncbi-blast-2.17.0+/bin cargo test --test real_blast
+
+## Running
+
+    blast-jobs check <config.json>   # validate config, catalogue, volumes and binaries; exit 0 or 1
+    blast-jobs serve <config.json>   # run the API (needs BLAST_JOBS_TOKEN, or BLAST_JOBS_ALLOW_NO_AUTH=1)
+
+The image bundles NCBI BLAST+ 2.17.0 (pinned tarball) and runs `serve /etc/blast-jobs/config.json` as
+uid 10002:
+
+    docker build -t blast-jobs:dev .
+    tests/image-smoke.sh blast-jobs:dev    # check + one real search inside the image
+
+`deploy/config.sample.json` and `deploy/run.sample.sh` are the config and `docker run` shape used next to
+the MCP. [`docs/blast-jobs.md`](../docs/blast-jobs.md) covers the API, the masking defaults, limits, token
+pairing with the MCP and rollback.
+
 ## Configuration
 
-One JSON file, passed as the first argument (`blast-jobs <config.json>`). Unknown keys are refused.
+One JSON file, passed after the subcommand (`blast-jobs serve <config.json>`). Unknown keys are refused.
 
 | Key | Default | Meaning |
 |---|---|---|

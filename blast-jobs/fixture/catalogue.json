@@ -1,0 +1,7 @@
+{
+  "version": 1,
+  "databases": [
+    { "species": "dmel", "category": "transcript", "label": "Notch fixture transcripts", "protein": false, "prefix": "dmel/dmel-transcript" },
+    { "species": "dmel", "category": "translation", "label": "Notch fixture translations", "protein": true, "prefix": "dmel/dmel-translation" }
+  ]
+}

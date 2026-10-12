@@ -144,7 +144,12 @@ example `FB2023_04 (Dmel r6.53)`) is shown to users, so keep it accurate. The `e
 also shown to users verbatim, so it must carry no paths or hostnames. The service never sees the MCP's
 per-job client tokens.
 
-- [ ] Routes implemented; the base URL and token recorded with the deployment secrets.
+`blast-jobs/` in this repository implements these routes ([docs/blast-jobs.md](blast-jobs.md)): NCBI BLAST+
+2.17.0 in its own container, run against a read-only BLAST database directory. It omits `result_url` and
+`downloads` and never produces `cancelled`. Its `BLAST_JOBS_TOKEN` is the MCP's `BLAST_SERVICE_TOKEN`.
+
+- [x] Routes implemented (`blast-jobs/`, reference implementation).
+- [ ] Service deployed next to the MCP; the base URL and token recorded with the deployment secrets.
 - [ ] `BLAST_BASE_URL` and `BLAST_SERVICE_TOKEN` added to the compose service; `/health` shows `blast: ok`.
 
 ## 8. Monitoring and secrets
