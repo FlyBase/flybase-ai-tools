@@ -1,0 +1,8 @@
+//! `blast-jobs`: a minimal BLAST+ job runner implementing the FlyBase MCP's internal BLAST job API
+//! (`docs/handoff-private-side.md` §7). Database mapping comes from a catalogue file and every limit
+//! from the config file; nothing site-specific is compiled in.
+pub mod advanced;
+pub mod catalogue;
+pub mod config;
+pub mod types;
+pub mod validate;

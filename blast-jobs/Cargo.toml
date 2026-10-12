@@ -1,0 +1,33 @@
+[package]
+name = "blast-jobs"
+version = "0.1.0"
+edition = "2024"
+license = "MIT"
+description = "Minimal BLAST+ job runner behind the FlyBase MCP's internal BLAST API"
+repository = "https://github.com/FlyBase/flybase-ai-tools"
+publish = false
+
+[lib]
+name = "blast_jobs"
+path = "src/lib.rs"
+
+[[bin]]
+name = "blast-jobs"
+path = "src/main.rs"
+
+[dependencies]
+axum = "0.8"
+tokio = { version = "1.53", features = ["full"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter", "json"] }
+rand = "0.9"
+base64 = "0.22"
+subtle = "2"
+anyhow = "1"
+thiserror = "2"
+
+[dev-dependencies]
+reqwest = { version = "0.13", default-features = false, features = ["json"] }
+tempfile = "3"
