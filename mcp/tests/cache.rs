@@ -104,4 +104,22 @@ async fn cache_hits_and_key_sensitivity() {
         6,
         "every call records exactly one cache event"
     );
+    // /health reports the cache sizes.
+    let v: serde_json::Value = reqwest::get(format!("{}/health", base()))
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    assert!(
+        v["caches"]["response"]["entries"]
+            .as_u64()
+            .is_some_and(|n| n >= 1),
+        "{v}"
+    );
+    assert!(
+        v["caches"]["response"]["bytes"]
+            .as_u64()
+            .is_some_and(|n| n > 0)
+    );
 }

@@ -15,8 +15,8 @@ All variables are required unless marked optional.
 | `FLYBASE_RELEASE` | `FB2026_03` | Reported in every result and in `/health`. Chado has no release marker, so set it per load. |
 | `CHADO_URL` | `postgres://flybase_mcp:<secret>@chado-mcp:5432/flybase` | Runtime role for `serve`; the owner role for `migrate`. |
 | `CHADO_POOL_SIZE` | `32` | Optional, default 32. Keep it below the role's connection limit. |
-| `BLAST_BASE_URL` | `http://blast-web:8080` | Optional. Root of the private BLAST job API. Must be `http://`: no TLS is compiled in, and an `https://` value is rejected at startup (logged, BLAST tools then answer as unconfigured). Unset, `blast_submit`, `blast_status`, and `blast_results` answer `backend_unavailable` and point at flybase.org/blast. |
-| `BLAST_SERVICE_TOKEN` | `<secret>` | Optional. Sent as `Authorization: Bearer` to the BLAST job API; a URL without a token is allowed and logged at warn. Never logged or returned. |
+| `BLAST_BASE_URL` | `http://blast-web:8080` | Optional. Base URL of the private BLAST job API (see `docs/handoff-private-side.md` for the contract). Must be `http://`: no TLS is compiled in, and an `https://` value is rejected at startup (logged, BLAST tools then answer as unconfigured). Unset: BLAST tools answer `backend_unavailable` and `/health` reports `blast: unconfigured`. |
+| `BLAST_SERVICE_TOKEN` | `<secret>` | Optional. Bearer token the BLAST API expects. A URL without a token is allowed and logged at warn. Never logged or returned. |
 | `FLYBASE_MCP_RESPONSE_CACHE_MB` | `256` | Optional. Response cache bound in MiB; 0 disables it. |
 | `RUST_LOG` | `info` | Log filter. The image sets `info`. At `debug`, rmcp logs every tool call's arguments, including BLAST job tokens. |
 
@@ -88,15 +88,40 @@ sticky sessions are needed. Request bodies are capped at 1 MiB.
 `/health` returns:
 
 ```json
-{"status": "ok", "release": "FB2026_03", "database": "ok",
- "pool": {"size": 4, "available": 3}, "blast": "unconfigured"}
+{"status": "ok", "release": "FB2026_03", "database": "ok", "migrations": "ok",
+ "pool": {"size": 4, "available": 3}, "blast": "unconfigured",
+ "caches": {"response": {"entries": 12, "bytes": 48213}, "rnaseq_matrix": [{"dataset": "FlyAtlas2", "genes": 16608, "bytes": 3271000}], "blast_jobs": 0}}
 ```
 
-`status` is `ok` when a trivial query succeeds and `degraded` otherwise, and `database` is `ok` or `error`
-accordingly. `pool` reports the open and idle connections. The route always answers 200, so check `status`.
+- `database` is `ok` when a trivial query succeeds and `error` otherwise.
+- `migrations` is `ok` when every migration in the binary is recorded in `mcp.migration_log`, `missing: <names>`
+  when some are not, `error` when the log cannot be read, and `timeout` when the database checks run past 3 s.
+- `blast` is `unconfigured` (no `BLAST_BASE_URL`), `ok`, or `unreachable` (the BLAST API's health route did not
+  answer success within 2 s).
+- `status` is `ok` only when `database` and `migrations` are both `ok`, and `degraded` otherwise. BLAST
+  reachability never changes `status`, because every other tool keeps working without it.
+- `pool` reports the open and idle connections.
+- `caches` reports the response cache's entries and bytes, each loaded RNA-seq matrix, and the number of
+  BLAST jobs whose tokens are held.
+
+The database checks and the BLAST probe run concurrently, so the route answers within about 3 s even when a
+backend hangs; the image's `HEALTHCHECK` allows 10 s. The route always answers 200, so check `status`.
 
 `/metrics` carries `flybase_mcp_tool_calls_total` (labels `tool`, `outcome`, where outcome is `ok` or an
-error code) and the `flybase_mcp_tool_duration_seconds` histogram (label `tool`).
+error code), the `flybase_mcp_tool_duration_seconds` histogram (label `tool`),
+`flybase_mcp_cache_events_total` (labels `cache`, `event`, where event is `hit` or `miss`), and
+`flybase_mcp_rnaseq_matrix_loads_total` (label `dataset`).
+
+## Caches
+
+The response cache holds up to 256 MiB of tool results (`FLYBASE_MCP_RESPONSE_CACHE_MB`) for 6 h. It lives in
+process memory and is emptied by a restart; a release bump restarts the process, so no result outlives its
+release. Each RNA-seq matrix is loaded per dataset on first use (about 3 MB each) and kept for the life of the
+process. Both are reported in `/health`.
+
+BLAST job tokens live in process memory for 24 h. A restart, or a second replica without sticky routing, makes
+in-flight jobs read as `not_found` through the MCP tools, while their public result pages on flybase.org still
+work. One replica is the supported deployment.
 
 ## nginx
 

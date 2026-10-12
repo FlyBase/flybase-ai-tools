@@ -538,3 +538,31 @@ async fn multi_record_fasta_is_rejected() {
     );
     mock.verify().await;
 }
+
+#[tokio::test]
+async fn health_reports_blast_reachability() {
+    let (mock, base) = blast_server().await;
+    let h: serde_json::Value = reqwest::get(format!("{base}/health"))
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    assert_eq!(
+        h["blast"], "unreachable",
+        "no /internal/health route mounted yet: {h}"
+    );
+    assert_eq!(h["status"], "ok", "BLAST reachability is a separate flag");
+    Mock::given(method("GET"))
+        .and(path("/internal/health"))
+        .respond_with(ResponseTemplate::new(200))
+        .mount(&mock)
+        .await;
+    let h: serde_json::Value = reqwest::get(format!("{base}/health"))
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    assert_eq!(h["blast"], "ok");
+}

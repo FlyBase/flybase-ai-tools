@@ -3,23 +3,48 @@ use serde_json::json;
 use support::server::{base, call, call_raw, client};
 
 #[tokio::test]
-async fn health_reports_release() {
+async fn health_reports_release_migrations_blast_and_caches() {
     let v: serde_json::Value = reqwest::get(format!("{}/health", base()))
         .await
         .unwrap()
         .json()
         .await
         .unwrap();
+    assert_eq!(v["status"], "ok", "{v}");
     assert_eq!(v["release"], "FB_TEST");
     assert_eq!(v["database"], "ok");
+    assert_eq!(v["migrations"], "ok");
+    assert_eq!(v["blast"], "unconfigured");
+    assert!(v["pool"]["size"].is_number());
+    assert!(v["caches"]["response"]["entries"].is_number());
+    assert!(v["caches"]["rnaseq_matrix"].is_array());
+    assert_eq!(v["caches"]["blast_jobs"], 0);
 }
 
 #[tokio::test]
 async fn lists_tools_and_calls_list_species() {
     let c = client().await;
     let tools = c.list_all_tools().await.unwrap();
-    assert!(tools.iter().any(|t| t.name == "list_species"));
-    assert_eq!(tools.len(), 23, "Plan 3 tool count");
+    let mut names: Vec<&str> = tools.iter().map(|t| t.name.as_ref()).collect();
+    names.sort_unstable();
+    assert_eq!(names.len(), 23, "Plan 3 tool count: {names:?}");
+    for t in [
+        "list_species",
+        "convert_coordinates",
+        "rnaseq_profile_search",
+        "rnaseq_similar_genes",
+        "blast_submit",
+        "blast_status",
+        "blast_results",
+    ] {
+        assert!(names.contains(&t), "missing {t}");
+    }
+    assert!(
+        tools
+            .iter()
+            .all(|t| t.description.as_deref().is_some_and(|d| d.len() > 40)),
+        "every tool is described"
+    );
     let s = call(&c, "list_species", json!({})).await;
     assert_eq!(s["release"], "FB_TEST");
     assert!(

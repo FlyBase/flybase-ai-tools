@@ -45,10 +45,22 @@ and `call_raw` to assert on errors.
 - `src/tools/`: one module per tool, each with its own `#[tool_router]`.
 - `src/report/`: `get_report` section code, one `ReportType` per ID prefix.
 - `src/backends/`: the connection pool (`chado.rs`) and the named-query registry (`sql.rs`).
+- `src/backends/coordinates.rs`: the bundled release 5 to release 6 coordinate map.
+- `src/backends/cache.rs`: the response cache, the RNA-seq matrix cache, and BLAST job tokens.
+- `src/backends/blast.rs`: the client for the private BLAST job API.
 - `src/limits.rs`, `src/output.rs`, `src/error.rs`: permits, the result envelope, and error classes.
 - `sql/queries/<tool>/*.sql`: one query per file, parameters bound as `$1`, `$2`, ...
 - `sql/migrations/NNN_name.sql`: idempotent migrations run by `flybase-mcp migrate`.
 - `src/bin/tool-catalog.rs`: prints `docs/tools.md`.
+
+Data files: the coordinate map is described in `data/coordinates/README.md` (source, licence, and how it was
+built); `scripts/build_coordinate_map.sh` at the repository root rebuilds it.
+
+Scripts (repository root `scripts/`):
+
+- `scripts/coordinate_parity.sh`: converts FlyBase's release 5 anchor insertion sites through a running
+  server and compares them with FlyBase's release 6 anchor table.
+- `scripts/load_test.sh`: the load test (results in `docs/load-test.md`).
 
 ## Handler pattern
 
