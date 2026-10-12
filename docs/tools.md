@@ -976,6 +976,103 @@ Turn one gene, allele, insertion, stock, cell line, library, strain, or other sy
 }
 ```
 
+## `rnaseq_profile_search`
+
+Find D. melanogaster genes whose RNA-seq expression (RPKM) meets every condition you give, such as high in adult testis and low in ovary, over the FlyAtlas2 tissue atlas or the modENCODE developmental, tissue, treatment, and cell-line series. Use list_options=true first to see dataset and sample names. Use rnaseq_similar_genes to rank genes by profile similarity instead.
+
+```json
+{
+  "$defs": {
+    "Condition": {
+      "additionalProperties": false,
+      "properties": {
+        "dataset": {
+          "description": "Dataset name from list_options (FlyAtlas2, modENCODE_development, modENCODE_tissues, modENCODE_treatments, modENCODE_cell_lines).",
+          "type": "string"
+        },
+        "operator": {
+          "$ref": "#/$defs/Operator",
+          "description": "Comparison of the gene's value in that sample."
+        },
+        "sample": {
+          "description": "Sample name within the dataset, from list_options (for example Adult_Male_Testis).",
+          "type": "string"
+        },
+        "value": {
+          "description": "RPKM threshold.",
+          "format": "float",
+          "type": "number"
+        }
+      },
+      "required": [
+        "dataset",
+        "sample",
+        "operator",
+        "value"
+      ],
+      "type": "object"
+    },
+    "Operator": {
+      "enum": [
+        "gt",
+        "gte",
+        "lt",
+        "lte",
+        "eq"
+      ],
+      "type": "string"
+    }
+  },
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "conditions": {
+      "description": "One to ten conditions, all in the same dataset; a gene must satisfy every one.",
+      "items": {
+        "$ref": "#/$defs/Condition"
+      },
+      "type": [
+        "array",
+        "null"
+      ]
+    },
+    "limit": {
+      "description": "Genes per page (default 25, max 100).",
+      "format": "uint32",
+      "minimum": 0,
+      "type": [
+        "integer",
+        "null"
+      ]
+    },
+    "list_options": {
+      "description": "If true, return only the datasets with their sample names.",
+      "type": [
+        "boolean",
+        "null"
+      ]
+    },
+    "offset": {
+      "description": "Genes to skip; offset + limit may not exceed 10,000.",
+      "format": "uint32",
+      "minimum": 0,
+      "type": [
+        "integer",
+        "null"
+      ]
+    },
+    "species": {
+      "description": "Only Dmel has RNA-seq profiles (default Dmel).",
+      "type": [
+        "string",
+        "null"
+      ]
+    }
+  },
+  "type": "object"
+}
+```
+
 ## `search`
 
 Free-text search over FlyBase: symbols, names, and synonyms of genes, alleles, insertions, constructs, stocks (including stock numbers), cell lines, libraries, strains, gene groups, and disease models; reference titles with author and year filters; and vocabulary terms. Returns a paged hit list. Use resolve when you already know the exact symbol or ID.
