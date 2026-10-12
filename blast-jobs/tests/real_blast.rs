@@ -1,6 +1,7 @@
 //! End-to-end tests against real NCBI BLAST+ (design 3.12, Task 5). Skipped unless
-//! `BLAST_JOBS_REAL_BLAST` is set. Its value is the directory holding the BLAST+ binaries (`blastn` ...
-//! `makeblastdb`); any other non-empty value means "take them from `PATH`".
+//! `BLAST_JOBS_REAL_BLAST` is set. Its value must be the directory holding the BLAST+ 2.17.0 binaries
+//! (`blastn blastp blastx tblastn tblastx makeblastdb`). Every binary comes from that directory, never from
+//! `PATH`, and each must report `2.17.0+`; a set but wrong value fails the tests instead of skipping them.
 //!
 //! Each test builds the fixture databases (`fixture/build-db.sh`, the archive's `makeblastdb` flags) in a
 //! temp directory, starts the API over them on an ephemeral port, and drives submit, poll and results.
@@ -26,6 +27,16 @@ const ENV: &str = "BLAST_JOBS_REAL_BLAST";
 const TOKEN: &str = "real-blast-test-token";
 const NOTCH_TRANSCRIPT: &str = "fbdb.dmel.transcript.5460";
 const NOTCH_PROTEIN: &str = "fbdb.dmel.translation.529";
+/// The pinned BLAST+ release (ruling 6); the suite proves behaviour on exactly this version.
+const VERSION: &str = "2.17.0+";
+const BINARIES: [&str; 6] = [
+    "blastn",
+    "blastp",
+    "blastx",
+    "tblastn",
+    "tblastx",
+    "makeblastdb",
+];
 
 fn manifest() -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR"))
@@ -41,13 +52,19 @@ fn blast_bin() -> Option<PathBuf> {
         }
     };
     let dir = PathBuf::from(v.trim());
-    if dir.join("makeblastdb").is_file() {
-        return Some(dir);
-    }
-    let path = std::env::var_os("PATH").unwrap_or_default();
-    let found = std::env::split_paths(&path).find(|d| d.join("makeblastdb").is_file());
     // Set but unusable is a configuration error, not a skip.
-    Some(found.unwrap_or_else(|| panic!("{ENV}={v}: no makeblastdb there or on PATH")))
+    for b in BINARIES {
+        let out = Command::new(dir.join(b))
+            .arg("-version")
+            .output()
+            .unwrap_or_else(|e| panic!("{ENV}={v}: cannot run {b} from that directory: {e}"));
+        let text = String::from_utf8_lossy(&out.stdout);
+        assert!(
+            out.status.success() && text.contains(VERSION),
+            "{ENV}={v}: {b} -version does not report {VERSION}: {text}"
+        );
+    }
+    Some(dir)
 }
 
 /// Reads one FASTA record's residues by its id from a fixture file.
