@@ -2,7 +2,7 @@ use crate::{
     error::{ToolError, ToolResult},
     limits::clamp_limit,
     output::{Envelope, complete, report_link},
-    report::{ReportType, SectionCtx, group::Group},
+    report::{ReportType, SectionCtx, group::Group, strip_markup},
     server::FlyBaseServer,
     tools::resolve::{normalize_fb_prefix, resolve_ids},
 };
@@ -112,7 +112,7 @@ impl FlyBaseServer {
             .collect();
         let (pathways, groups): (Vec<Value>, Vec<Value>) =
             all.into_iter().partition(|g| g["is_pathway"] == true);
-        let symbol = st.symbol.unwrap_or_default();
+        let symbol = st.symbol.map(|s| strip_markup(&s)).unwrap_or_default();
         Ok(Envelope::new(T, &self.release)
             .summary(format!(
                 "{id} ({symbol}) is in {} pathway(s) and {} gene group(s).",

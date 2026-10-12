@@ -67,8 +67,9 @@ impl FlyBaseServer {
         const T: &str = "get_disease_models";
         let started = std::time::Instant::now();
         // A DOID query walks the term's descendants like entities_for_term and runs under the heavy permit; everything
-        // else is a few indexed lookups under the light permit.
-        let is_term = parse_term_id(&normalize_fb_prefix(p.id.trim())).is_some();
+        // else (including a non-DOID term ID, which is refused) is a few indexed lookups under the light permit.
+        let is_term =
+            parse_term_id(&normalize_fb_prefix(p.id.trim())).is_some_and(|(db, _)| db == "DOID");
         let res = async {
             let _permit = if is_term {
                 self.limits.heavy(T).await?
@@ -194,12 +195,23 @@ impl FlyBaseServer {
             }
         ));
         env = env.field("allele_annotations", ann);
-        // disease/variants.sql takes a fetch count without an offset; variants per gene are few (the largest,
-        // Hsap\HTT, has under 100), so the list is returned whole up to `fetch`.
+        // disease/variants.sql takes a fetch count without an offset: the list is the first page (limit items,
+        // has_more when there are more), as in the FBhh report's `variants` section.
         let r = ctx.query("disease/variants", &[&id, &fetch]).await?;
-        let variants = r.iter().map(variant_row).collect::<ToolResult<Vec<_>>>()?;
-        parts.push(format!("{} disease variant allele(s)", variants.len()));
-        env = env.field("disease_variants", json!(variants));
+        let variants = paged(
+            r.iter().map(variant_row).collect::<ToolResult<Vec<_>>>()?,
+            limit,
+        );
+        parts.push(format!(
+            "{} disease variant allele(s){}",
+            variants["count_shown"],
+            if variants["has_more"] == true {
+                " (first page)"
+            } else {
+                ""
+            }
+        ));
+        env = env.field("disease_variants", variants);
         let r = ctx.query("disease/gene_fbhh", &[&id]).await?;
         let entries = rows_to_json(&r, |r| {
             let hid: String = r.get("id");

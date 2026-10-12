@@ -105,6 +105,28 @@ async fn disease_models_for_gene_allele_entry_and_term() {
         first["allele_id"]
     );
 
+    // Disease variants are the first page: never more than `limit` items, has_more when there are more.
+    assert!(g["disease_variants"]["items"].as_array().unwrap().len() <= 5);
+    assert!(g["disease_variants"]["has_more"].is_boolean());
+    if support::full_db() {
+        // Hsap\HTT (not a fixture feature) has 41 disease variant alleles.
+        let htt = call(
+            &c,
+            "get_disease_models",
+            json!({"id": "FBgn0025587", "limit": 10}),
+        )
+        .await;
+        assert_eq!(
+            htt["disease_variants"]["items"].as_array().unwrap().len(),
+            10
+        );
+        assert_eq!(htt["disease_variants"]["has_more"], true);
+        assert_eq!(
+            htt["disease_variants"]["items"][0]["disease_model_id"],
+            "FBhh0000003"
+        );
+    }
+
     let a = call(&c, "get_disease_models", json!({"id": "FBal0125378"})).await;
     assert!(a.get("disease_associations").is_none());
     let ann = a["allele_annotations"]["items"].as_array().unwrap();
