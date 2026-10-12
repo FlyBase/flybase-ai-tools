@@ -20,6 +20,7 @@
 //!
 //! One writer per job: after `claim_next` hands a job out, only that worker calls `finish` for it, so
 //! the two `job.json` writes of a job never race. `sweep` only touches terminal jobs.
+use crate::command::QUERY_FILE;
 use crate::jobid::JobId;
 use crate::types::{JobStatus, Program, State};
 use crate::validate::Validated;
@@ -42,7 +43,6 @@ pub const SWEEP_INTERVAL: Duration = Duration::from_secs(300);
 const JOBS_DIR: &str = "jobs";
 const JOB_FILE: &str = "job.json";
 const JOB_TMP: &str = "job.json.tmp";
-const QUERY_FILE: &str = "query.fa";
 const PROBE_FILE: &str = ".write-probe";
 
 /// Why `Store::create` refused a job. The API maps `QueueFull` to `429 queue_full` and `Io` to `503`.

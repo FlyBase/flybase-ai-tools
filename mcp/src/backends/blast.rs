@@ -109,6 +109,11 @@ impl BlastError {
                     "invalid_program" => "program",
                     "invalid_database" => "database",
                     "invalid_species" => "species",
+                    "invalid_evalue" => "evalue",
+                    "invalid_max_hits" => "max_hits",
+                    "invalid_matrix" => "matrix",
+                    "invalid_megablast" => "megablast",
+                    "invalid_genetic_code" => "genetic_code",
                     "invalid_option" => "advanced",
                     _ => "sequence",
                 };
@@ -485,6 +490,33 @@ pub fn parse_results(tsv: &str, max_hits: usize, max_hsps: usize) -> (Vec<Hit>, 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn rejection_codes_name_the_tool_argument() {
+        for (code, want) in [
+            ("invalid_program", "program"),
+            ("invalid_database", "database"),
+            ("invalid_species", "species"),
+            ("invalid_sequence", "sequence"),
+            ("invalid_evalue", "evalue"),
+            ("invalid_max_hits", "max_hits"),
+            ("invalid_matrix", "matrix"),
+            ("invalid_megablast", "megablast"),
+            ("invalid_genetic_code", "genetic_code"),
+            ("invalid_option", "advanced"),
+            ("something_new", "sequence"),
+        ] {
+            let e = BlastError::Rejected {
+                code: code.into(),
+                message: "m".into(),
+            }
+            .into_tool("blast_submit");
+            match e {
+                ToolError::InvalidInput { arg, .. } => assert_eq!(arg, want, "{code}"),
+                other => panic!("{code}: {other:?}"),
+            }
+        }
+    }
 
     #[test]
     fn tokens_round_trip_and_reject_mismatch() {

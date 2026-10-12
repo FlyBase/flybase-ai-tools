@@ -20,26 +20,11 @@ pub const RAW_FILE: &str = "raw.tsv";
 /// Tabular output with the subject title appended; `runner::HEADER` names these columns.
 pub const OUTFMT: &str = "6 std stitle";
 
-/// Flags whose value only the service sets: paths, output format, resources and the request-field
-/// flags. An `advanced` pair with one of these names is never rendered, even if it reached `build`
-/// some way other than `advanced::parse` (which already rejects them).
-pub const SERVICE_OWNED: &[&str] = &[
-    "db",
-    "query",
-    "out",
-    "outfmt",
-    "evalue",
-    "max_target_seqs",
-    "num_threads",
-    "matrix",
-    "query_gencode",
-    "db_gencode",
-];
-
-/// Whether an `advanced` pair may reach the argv: not service-owned, and in `advanced::TABLE` for
+/// Whether an `advanced` pair may reach the argv: not service-owned (`advanced::SERVICE_OWNED`: paths,
+/// output format, resources and the request-field flags), and in `advanced::TABLE` for
 /// `program`. Defence in depth behind `advanced::parse`.
 fn allowed(program: Program, flag: &str) -> bool {
-    !SERVICE_OWNED.contains(&flag)
+    !advanced::SERVICE_OWNED.contains(&flag)
         && advanced::TABLE
             .iter()
             .any(|spec| spec.name == flag && spec.programs.contains(&program))
@@ -611,7 +596,7 @@ mod tests {
         // The one allowed pair still applies, in place.
         assert_eq!(value_of(&argv, "-dust"), Some("no"));
         assert_eq!(argv.len(), clean.len());
-        for f in SERVICE_OWNED {
+        for f in advanced::SERVICE_OWNED {
             assert!(
                 !advanced::TABLE.iter().any(|s| s.name == *f),
                 "{f} is service-owned and must not be in the allow-list"

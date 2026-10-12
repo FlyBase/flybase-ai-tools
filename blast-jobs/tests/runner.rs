@@ -292,20 +292,23 @@ async fn wall_limit_kills_and_fails_the_job() {
     assert!(!dir.join("results.tsv").exists());
     assert!(!dir.join("raw.tsv").exists(), "partial output removed");
     // Nothing the job started is still running: every process BLAST+ (or the fake) started has the
-    // job directory as its working directory, so scan /proc for one.
-    let left: Vec<String> = std::fs::read_dir("/proc")
-        .unwrap()
-        .flatten()
-        .filter(|e| {
-            e.file_name()
-                .to_string_lossy()
-                .bytes()
-                .all(|b| b.is_ascii_digit())
-        })
-        .filter(|e| std::fs::read_link(e.path().join("cwd")).is_ok_and(|c| c == dir))
-        .map(|e| e.file_name().to_string_lossy().into_owned())
-        .collect();
-    assert!(left.is_empty(), "processes left in the job dir: {left:?}");
+    // job directory as its working directory, so scan /proc for one. /proc is Linux-only; elsewhere
+    // the kill is covered by the timing and file checks above.
+    if cfg!(target_os = "linux") {
+        let left: Vec<String> = std::fs::read_dir("/proc")
+            .unwrap()
+            .flatten()
+            .filter(|e| {
+                e.file_name()
+                    .to_string_lossy()
+                    .bytes()
+                    .all(|b| b.is_ascii_digit())
+            })
+            .filter(|e| std::fs::read_link(e.path().join("cwd")).is_ok_and(|c| c == dir))
+            .map(|e| e.file_name().to_string_lossy().into_owned())
+            .collect();
+        assert!(left.is_empty(), "processes left in the job dir: {left:?}");
+    }
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]

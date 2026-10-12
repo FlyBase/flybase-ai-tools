@@ -44,14 +44,25 @@ fn is_code(s: &str) -> bool {
 }
 
 impl Catalogue {
-    /// Load `path` and check every entry against `root`: the prefix is relative, carries no whitespace
-    /// or quote characters (space separates databases in `-db`), and names an existing `.nsq`/`.psq`
-    /// volume; no `(species, category)` pair repeats and each category has one molecule type. Any
-    /// failure refuses to start, so a bad mount shows at boot rather than at the first job.
+    /// Load `path` and check every entry against `root`: the root and each prefix carry no whitespace or
+    /// quote characters (space separates databases in `-db`), the prefix is relative and names an
+    /// existing `.nsq`/`.psq` volume; no `(species, category)` pair repeats and each category has one
+    /// molecule type. Any failure refuses to start, so a bad mount shows at boot rather than at the
+    /// first job.
     pub fn load(path: impl AsRef<Path>, root: impl AsRef<Path>) -> anyhow::Result<Catalogue> {
         let path = path.as_ref();
         let root = std::path::absolute(root.as_ref())
             .with_context(|| format!("database root {}", root.as_ref().display()))?;
+        if root
+            .to_string_lossy()
+            .chars()
+            .any(|c| c.is_whitespace() || c == '"' || c == '\'')
+        {
+            bail!(
+                "database root {} contains whitespace or quotes, which would split the -db list",
+                root.display()
+            );
+        }
         let text = std::fs::read_to_string(path)
             .with_context(|| format!("reading catalogue {}", path.display()))?;
         let file: File = serde_json::from_str(&text)
@@ -295,6 +306,27 @@ pub(crate) mod tests {
             );
             assert!(m.contains("whitespace or quotes"), "{prefix}: {m}");
         }
+    }
+
+    #[test]
+    fn refuses_whitespace_in_database_root() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path().join("blast db");
+        std::fs::create_dir_all(root.join("dmel")).unwrap();
+        std::fs::write(root.join("dmel/dmel-assembly.nsq"), b"").unwrap();
+        let cat = dir.path().join("catalogue.json");
+        std::fs::write(
+            &cat,
+            json!({"databases": [{"species": "dmel", "category": "assembly", "protein": false,
+                "prefix": "dmel/dmel-assembly"}]})
+            .to_string(),
+        )
+        .unwrap();
+        let m = format!("{:#}", Catalogue::load(&cat, &root).unwrap_err());
+        assert!(
+            m.contains("database root") && m.contains("whitespace"),
+            "{m}"
+        );
     }
 
     #[test]

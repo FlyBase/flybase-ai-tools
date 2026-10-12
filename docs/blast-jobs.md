@@ -12,10 +12,13 @@ all come from the config file and the catalogue.
 
 | Route | Answers |
 |---|---|
-| `POST /internal/jobs` | `202 {job_id, state: "queued", queue_position, poll_after_seconds, database_release}`; `400 {error, message}` where `error` is `invalid_program`, `invalid_database`, `invalid_species`, `invalid_sequence`, `invalid_option`, or `invalid_request` for a malformed body; `413` over 1 MiB; `429 {error: "queue_full", retry_after_seconds: 30}` with `Retry-After`; `503` when the state directory cannot be written |
+| `POST /internal/jobs` | `202 {job_id, state: "queued", queue_position, poll_after_seconds, database_release}`; `400 {error, message}` where `error` is `invalid_program`, `invalid_database`, `invalid_species`, `invalid_sequence`, `invalid_evalue`, `invalid_max_hits`, `invalid_matrix`, `invalid_megablast`, `invalid_genetic_code` (each naming the request field, which the MCP maps to the tool argument of the same name), `invalid_option` for `advanced` and `client`, or `invalid_request` for a malformed body; `413` over 1 MiB; `429 {error: "queue_full", retry_after_seconds: 30}` with `Retry-After`; `503` when the state directory cannot be written |
 | `GET /internal/jobs/{id}` | `200 {job_id, state, queue_position?, error?}`, where `state` is `queued`, `running`, `complete` or `failed`; `404 {error: "unknown_job"}` |
 | `GET /internal/jobs/{id}/results.tsv` | `200 text/tab-separated-values`, a header line and then BLAST's `-outfmt "6 std stitle"` rows; `X-Blast-Jobs-Truncated: true` when the 16 MiB cap cut the rows (at a row boundary); `409 {error: "not_complete", state}`; `404` |
 | `GET /internal/health` | `200 {status: "ok", queued, running, database_release}` or `503 {status: "degraded", reason}`; `?liveness=1` skips the queue-full check |
+
+`X-Blast-Jobs-Truncated: true` is the only sign that rows were dropped: the body is still a well-formed
+table, so a client that ignores the header under-counts the hits.
 
 Every route except health needs `Authorization: Bearer <BLAST_JOBS_TOKEN>`; the token is compared in
 constant time. `result_url` and `downloads` are never sent, and `cancelled` is never produced. Job ids
@@ -73,7 +76,8 @@ species in the catalogue; the MCP's species list is a client-side restriction. `
 program: blastp and blastx search protein databases, and the others search nucleotide ones. Every
 requested species must have the category, otherwise the request is `invalid_species` naming the missing
 ones. `prefix` is relative to `database_root` and names a BLAST volume (`<prefix>.nsq` or `.psq`).
-At startup every prefix must exist and contain no whitespace or quotes, and no `(species, category)` pair
+At startup every prefix must exist, neither it nor `database_root` may contain whitespace or quotes
+(a space separates the databases in `-db`), and no `(species, category)` pair
 may repeat. Otherwise the service refuses to start.
 
 **Multi-species E-values.** A search over several species passes all their prefixes as one `-db` list. Its
@@ -108,8 +112,9 @@ programs. `advanced` options then override these defaults; they are never append
   a smaller database". A search killed by the container's memory cap fails with "search ran out of
   memory; try a shorter query or fewer species". Failure messages carry no paths.
 - **Request fields.** `evalue` is in (0, 1000]. `max_hits` is 1 to 1000. `matrix` is one of `BLOSUM62
-  BLOSUM45 BLOSUM80 PAM30 PAM70` and is refused for blastn. `megablast` is blastn only. `genetic_code` is in
-  the NCBI set 1-6, 9-16, 21-31 and 33, and is used by blastx, tblastn and tblastx. The sequence is one
+  BLOSUM45 BLOSUM80 PAM30 PAM70` and is refused for blastn. `megablast` is blastn only. `genetic_code` is
+  used by blastx, tblastn and tblastx and must be in the NCBI set 1-6, 9-16, 21-31 and 33; blastn and
+  blastp ignore it without checking it. A rejected field answers `invalid_<field>`. The sequence is one
   FASTA record in the program's alphabet.
 
 ### `advanced`
@@ -127,7 +132,7 @@ At most 200 characters of `[A-Za-z0-9 _.=-]`, written as `-flag value` or `-flag
 | `dust` | `yes` / `no` | blastn |
 | `seg` | `yes` / `no` | blastp blastx tblastn tblastx |
 | `soft_masking` | `true` / `false` | all |
-| `lcase_masking` | switch, no value | all |
+| `lcase_masking` | switch, no value; accepted but has no effect, because the service uppercases the query | all |
 | `ungapped` | switch, no value | all but tblastx |
 | `strand` | `both plus minus` | blastn blastx tblastx |
 | `perc_identity` | number 0 to 100 | blastn |
@@ -138,7 +143,8 @@ At most 200 characters of `[A-Za-z0-9 _.=-]`, written as `-flag value` or `-flag
 | `comp_based_stats` | `0 1 2 3 D F T t f` | blastp blastx tblastn |
 | `window_size` | integer >= 0 | all |
 
-Anything else is `invalid_option`. That covers a flag outside the table or not valid for the program, a
+Integers must also fit a C `int` (-2147483648 to 2147483647), so an oversized value is refused rather
+than failing the job. Anything else is `invalid_option`. That covers a flag outside the table or not valid for the program, a
 repeated flag, a `--` token, a value starting with `-` (except a negative number for a numeric flag, as in
 `-penalty -3`), and a value for a switch. The flags the service owns are refused too (`evalue
 max_target_seqs matrix num_threads query_gencode db_gencode outfmt db query out`), as is anything that
@@ -176,7 +182,8 @@ docker run -d --name blast-jobs --network <mcp network> --init \
 - `--init` reaps a BLAST process the service killed on timeout. `--cpus` should be at least
   `concurrency x threads_per_job`. `--cpu-shares 512` lets other services on the host win when it is busy.
 - No port is published. The MCP reaches the service by container name on the shared network. For
-  host-side checks, add `-p 127.0.0.1:<port>:8800`.
+  host-side checks, add `-p 127.0.0.1:<port>:8800`. The service has no slow-client timeout, so keep it
+  unpublished: its only peers should be the MCP, whose client has its own timeouts.
 - **Token pairing.** The MCP's `BLAST_SERVICE_TOKEN` must equal the service's `BLAST_JOBS_TOKEN`. Set
   `BLAST_BASE_URL=http://blast-jobs:8800` and `BLAST_SERVICE_TOKEN=<the same value>` in the MCP's
   environment and recreate the MCP container. Its `/health` then shows `blast: ok`.

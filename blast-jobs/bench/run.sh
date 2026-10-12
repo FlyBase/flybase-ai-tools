@@ -103,8 +103,18 @@ done <"$queries/manifest.tsv"
 
 tmp=$(mktemp -d)
 probe_pid=""
+pids=()
+# Background subshells of a non-interactive bash ignore SIGINT, so an interrupt would leave the job
+# workers polling (and loading the service) after this script exits. Kill each worker and the child it
+# is waiting on (curl or sleep), then remove $tmp, which also takes the auth header file away from
+# anything that escaped.
 cleanup() {
-    [[ -n $probe_pid ]] && kill "$probe_pid" 2>/dev/null
+    local p kids
+    for p in "${pids[@]}" ${probe_pid:+"$probe_pid"}; do
+        mapfile -t kids < <(pgrep -P "$p" 2>/dev/null || true)
+        kill "$p" 2>/dev/null || true
+        ((${#kids[@]} == 0)) || kill "${kids[@]}" 2>/dev/null || true
+    done
     rm -rf "$tmp"
 }
 trap cleanup EXIT
@@ -305,7 +315,6 @@ echo "== $label: $njobs jobs (${#q_name[@]} queries x $repeat) against $base, at
 touch "$tmp/load"
 t_start=$(now)
 i=0
-pids=()
 for ((rep = 1; rep <= repeat; rep++)); do
     for q in "${!q_name[@]}"; do
         while (($(jobs -rp | grep -cvx "${probe_pid:-x}") >= in_flight)); do wait -n || true; done
@@ -315,6 +324,7 @@ for ((rep = 1; rep <= repeat; rep++)); do
     done
 done
 for p in "${pids[@]}"; do wait "$p" || true; done
+pids=() # all reaped; cleanup must not signal pids the system may since have reused
 t_end=$(now)
 touch "$tmp/after"
 if [[ -n $probe_pid ]]; then

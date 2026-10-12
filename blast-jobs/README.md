@@ -79,7 +79,7 @@ Any JSON file with a `databases` array whose entries carry `species`, `category`
 
 A request's `database` is the `category`; its `species` are the `species` codes. `prefix` is relative to
 `database_root` and names a BLAST volume (`<prefix>.nsq` for nucleotide, `<prefix>.psq` for protein). At
-startup every prefix must exist and contain no whitespace or quotes, no `(species, category)` pair may
+startup every prefix must exist, neither it nor `database_root` may contain whitespace or quotes, no `(species, category)` pair may
 repeat, and a category must have one molecule type; otherwise the service refuses to start. A search over
 several species passes all their prefixes as one `-db` list, so its E-values are computed against the
 combined database length.
@@ -89,6 +89,8 @@ combined database length.
 Every submit is checked independently of the MCP: program, database and molecule type, species (1 to 20
 lowercase codes, deduplicated), one FASTA record within the program's residue cap and alphabet, `evalue`
 in (0, 1000], `max_hits` 1 to 1000, `matrix` (not with blastn), `megablast` (blastn only), `genetic_code`
-in the NCBI set (1-6, 9-16, 21-31, 33). The `advanced` string is checked against a typed per-program
+in the NCBI set (1-6, 9-16, 21-31, 33) for the translated programs (blastn and blastp ignore it). A bad
+field answers `invalid_<field>` (`invalid_evalue`, `invalid_max_hits`, ...), which the MCP shows under the
+tool argument of that name. The `advanced` string is checked against a typed per-program
 allow-list of BLAST+ flags (`src/advanced.rs`, `TABLE`); everything else, including the flags the service
 sets itself and anything that could reach the filesystem or network, is refused with `invalid_option`.

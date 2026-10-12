@@ -74,12 +74,14 @@ pub struct SubmitRequest {
     pub evalue: Option<f64>,
     #[serde(default)]
     pub megablast: Option<bool>,
+    /// Signed, so a negative value is a coded `invalid_max_hits` rather than a serde failure.
     #[serde(default)]
-    pub max_hits: Option<u32>,
+    pub max_hits: Option<i64>,
     #[serde(default)]
     pub matrix: Option<String>,
+    /// Signed for the same reason as `max_hits`.
     #[serde(default)]
-    pub genetic_code: Option<u32>,
+    pub genetic_code: Option<i64>,
     #[serde(default)]
     pub advanced: Option<String>,
     #[serde(default)]
@@ -117,18 +119,6 @@ pub enum State {
     Cancelled,
 }
 
-impl State {
-    pub fn as_str(self) -> &'static str {
-        match self {
-            State::Queued => "queued",
-            State::Running => "running",
-            State::Complete => "complete",
-            State::Failed => "failed",
-            State::Cancelled => "cancelled",
-        }
-    }
-}
-
 /// `202` body of `POST /internal/jobs`.
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
 pub struct SubmitResponse {
@@ -162,8 +152,9 @@ pub struct JobStatus {
     pub truncated: bool,
 }
 
-/// Error codes of a `400` answer. The first five are the ones the MCP maps to a tool argument;
-/// `InvalidRequest` is for a body that is not a valid request object at all.
+/// Error codes of a `400` answer. Each `invalid_<field>` code names the request field (and MCP tool
+/// argument) at fault, so the MCP shows the rejection under that argument; `InvalidOption` is for
+/// `advanced` and `client`, and `InvalidRequest` for a body that is not a valid request object at all.
 #[derive(Serialize, Deserialize, Debug, Clone, Copy, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
 pub enum Code {
@@ -171,6 +162,11 @@ pub enum Code {
     InvalidDatabase,
     InvalidSpecies,
     InvalidSequence,
+    InvalidEvalue,
+    InvalidMaxHits,
+    InvalidMatrix,
+    InvalidMegablast,
+    InvalidGeneticCode,
     InvalidOption,
     InvalidRequest,
 }
@@ -182,6 +178,11 @@ impl Code {
             Code::InvalidDatabase => "invalid_database",
             Code::InvalidSpecies => "invalid_species",
             Code::InvalidSequence => "invalid_sequence",
+            Code::InvalidEvalue => "invalid_evalue",
+            Code::InvalidMaxHits => "invalid_max_hits",
+            Code::InvalidMatrix => "invalid_matrix",
+            Code::InvalidMegablast => "invalid_megablast",
+            Code::InvalidGeneticCode => "invalid_genetic_code",
             Code::InvalidOption => "invalid_option",
             Code::InvalidRequest => "invalid_request",
         }

@@ -223,12 +223,15 @@ fn first_error_line(stderr: &[u8]) -> Option<&str> {
         .or_else(|| lines().next())
 }
 
-/// `line` with every token that starts an absolute path (after `[`, `(` or a quote) replaced by `<path>` and cut to `DETAIL_MAX` characters.
+/// `line` with every token that holds an absolute path (at its start after `[`, `(`, a quote or a
+/// backtick, or after `=` as in `key=/path`) replaced by `<path>`, cut to `DETAIL_MAX` characters.
 fn scrub(line: &str) -> String {
+    const OPENERS: [char; 5] = ['[', '(', '"', '\'', '`'];
     let words: Vec<&str> = line
         .split_whitespace()
         .map(|w| {
-            if w.trim_start_matches(['[', '(', '"', '\'']).starts_with('/') {
+            let starts_path = |t: &str| t.trim_start_matches(OPENERS).starts_with('/');
+            if starts_path(w) || w.split('=').skip(1).any(starts_path) {
                 "<path>"
             } else {
                 w
@@ -486,6 +489,10 @@ mod tests {
         assert_eq!(
             failure_message(status(15), None),
             "BLAST failed (signal 15)"
+        );
+        assert_eq!(
+            scrub("cannot open `/data/blast/x' or file=/data/y (key='/z') ok=1 a/b"),
+            "cannot open <path> or <path> <path> ok=1 a/b"
         );
         let long = "Error: ".to_string() + &"e".repeat(5000);
         assert!(failure_message(status(1 << 8), Some(&long)).chars().count() < DETAIL_MAX + 40);

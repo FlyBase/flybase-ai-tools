@@ -483,6 +483,21 @@ async fn validation_rejections_carry_the_mcp_codes() {
     cases.push((b, "invalid_sequence"));
     let mut b = request("blastn");
     b["evalue"] = json!(0);
+    cases.push((b, "invalid_evalue"));
+    let mut b = request("blastn");
+    b["max_hits"] = json!(-1);
+    cases.push((b, "invalid_max_hits"));
+    let mut b = request("blastn");
+    b["matrix"] = json!("BLOSUM62");
+    cases.push((b, "invalid_matrix"));
+    let mut b = request("blastp");
+    b["megablast"] = json!(true);
+    cases.push((b, "invalid_megablast"));
+    let mut b = request("tblastx");
+    b["genetic_code"] = json!(7);
+    cases.push((b, "invalid_genetic_code"));
+    let mut b = request("blastn");
+    b["advanced"] = json!("-remote");
     cases.push((b, "invalid_option"));
     for (body, code) in cases {
         let r = s.post(&body).await;
@@ -492,6 +507,16 @@ async fn validation_rejections_carry_the_mcp_codes() {
         assert!(v["message"].as_str().is_some_and(|m| !m.is_empty()));
         assert_eq!(v.as_object().unwrap().len(), 2, "{v}");
     }
+}
+
+#[tokio::test]
+async fn genetic_code_is_ignored_for_untranslated_programs() {
+    let s = start(json!({}), "").await;
+    let mut body = request("blastn");
+    body["genetic_code"] = json!(7);
+    let a = s.submit(&body).await;
+    let st = s.wait_terminal(a["job_id"].as_str().unwrap()).await;
+    assert_eq!(st["state"], "complete");
 }
 
 #[tokio::test]

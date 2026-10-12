@@ -2,7 +2,7 @@
 use crate::advanced;
 use crate::catalogue::{Catalogue, Resolved};
 use crate::config::Config;
-use crate::types::{Program, Rejection, SubmitRequest};
+use crate::types::{Code, Program, Rejection, SubmitRequest};
 use serde::{Deserialize, Serialize};
 use std::collections::HashSet;
 use std::fmt;
@@ -28,7 +28,7 @@ pub fn quoted(s: &str) -> String {
 }
 
 /// The NCBI genetic codes: 1-6, 9-16, 21-31, 33 (no 7, 8, 17-20, 32).
-pub fn genetic_code_known(g: u32) -> bool {
+pub fn genetic_code_known(g: i64) -> bool {
     matches!(g, 1..=6 | 9..=16 | 21..=31 | 33)
 }
 
@@ -80,7 +80,9 @@ impl fmt::Debug for Validated {
 /// Validate `req` against the config and catalogue. Checks run in this order: program
 /// (`invalid_program`), database category and molecule type (`invalid_database`), species
 /// (`invalid_species`), sequence (`invalid_sequence`), then `evalue`, `max_hits`, `matrix`,
-/// `megablast`, `genetic_code`, `advanced` and `client` (`invalid_option`, message naming the field).
+/// `megablast` and `genetic_code` (each `invalid_<field>`), then `advanced` and `client`
+/// (`invalid_option`, message naming the field). `genetic_code` is checked only for the translated
+/// programs; blastn and blastp ignore it.
 pub fn check(req: &SubmitRequest, cfg: &Config, cat: &Catalogue) -> Result<Validated, Rejection> {
     let program = Program::parse(&req.program).ok_or_else(|| {
         Rejection::program(format!(
@@ -115,47 +117,59 @@ pub fn check(req: &SubmitRequest, cfg: &Config, cat: &Catalogue) -> Result<Valid
         None => cfg.default_evalue,
         Some(e) if e.is_finite() && e > 0.0 && e <= 1000.0 => e,
         Some(e) => {
-            return Err(Rejection::option(format!(
-                "evalue {e} must be greater than 0 and at most 1000"
-            )));
+            return Err(Rejection::new(
+                Code::InvalidEvalue,
+                format!("evalue {e} must be greater than 0 and at most 1000"),
+            ));
         }
     };
     let max_hits = match req.max_hits {
         None => cfg.default_max_hits,
-        Some(n) if (1..=1000).contains(&n) => n,
+        Some(n) if (1..=1000).contains(&n) => n as u32,
         Some(n) => {
-            return Err(Rejection::option(format!("max_hits {n} must be 1 to 1000")));
+            return Err(Rejection::new(
+                Code::InvalidMaxHits,
+                format!("max_hits {n} must be 1 to 1000"),
+            ));
         }
     };
     let matrix = match req.matrix.as_deref() {
         None => None,
         Some(_) if program == Program::Blastn => {
-            return Err(Rejection::option("matrix does not apply to blastn"));
+            return Err(Rejection::new(
+                Code::InvalidMatrix,
+                "matrix does not apply to blastn",
+            ));
         }
         Some(m) => {
             let up = m.trim().to_ascii_uppercase();
             if !MATRICES.contains(&up.as_str()) {
-                return Err(Rejection::option(format!(
-                    "matrix {} is not one of {}",
-                    quoted(m),
-                    MATRICES.join(" ")
-                )));
+                return Err(Rejection::new(
+                    Code::InvalidMatrix,
+                    format!("matrix {} is not one of {}", quoted(m), MATRICES.join(" ")),
+                ));
             }
             Some(up)
         }
     };
     let megablast = req.megablast == Some(true);
     if megablast && program != Program::Blastn {
-        return Err(Rejection::option("megablast applies to blastn only"));
+        return Err(Rejection::new(
+            Code::InvalidMegablast,
+            "megablast applies to blastn only",
+        ));
     }
     let genetic_code = match req.genetic_code {
+        // Ignored, unchecked, for programs that do not translate.
+        _ if !program.translated() => None,
         None => None,
         Some(g) if !genetic_code_known(g) => {
-            return Err(Rejection::option(format!(
-                "genetic_code {g} is not an NCBI genetic code (1-6, 9-16, 21-31, 33)"
-            )));
+            return Err(Rejection::new(
+                Code::InvalidGeneticCode,
+                format!("genetic_code {g} is not an NCBI genetic code (1-6, 9-16, 21-31, 33)"),
+            ));
         }
-        Some(g) => program.translated().then_some(g),
+        Some(g) => Some(g as u32),
     };
     let advanced = match req.advanced.as_deref() {
         None => Vec::new(),
@@ -200,11 +214,6 @@ pub fn check(req: &SubmitRequest, cfg: &Config, cat: &Catalogue) -> Result<Valid
         resolved,
         client,
     })
-}
-
-/// `check` with the argument order the API handler uses.
-pub fn validate(cfg: &Config, cat: &Catalogue, req: SubmitRequest) -> Result<Validated, Rejection> {
-    check(&req, cfg, cat)
 }
 
 fn species(raw: &[String]) -> Result<Vec<String>, Rejection> {
@@ -347,15 +356,6 @@ mod tests {
     }
 
     #[test]
-    fn validate_alias_matches_check() {
-        let r = req("blastp", "translation", "MKV");
-        assert_eq!(
-            validate(&cfg(), &fixture(), r.clone()).unwrap(),
-            run(&r).unwrap()
-        );
-    }
-
-    #[test]
     fn invalid_program() {
         for p in ["psiblast", "BLASTN", ""] {
             assert!(rejected(&req(p, "assembly", "ACGT"), Code::InvalidProgram).contains("blastn"));
@@ -404,7 +404,7 @@ mod tests {
         assert!(rejected(&r, Code::InvalidSpecies).len() < 200);
         let mut r = req("blastp", "translation", "MKV");
         r.matrix = Some(huge.clone());
-        assert!(rejected(&r, Code::InvalidOption).len() < 200);
+        assert!(rejected(&r, Code::InvalidMatrix).len() < 200);
         // Cut on a char boundary for multi-byte input; short strings are untouched.
         assert_eq!(
             quoted(&"é".repeat(50)),
@@ -508,16 +508,16 @@ mod tests {
         let mut r = req("blastn", "assembly", "ACGT");
         for e in [0.0, -1.0, 1000.5, f64::NAN, f64::INFINITY] {
             r.evalue = Some(e);
-            assert!(rejected(&r, Code::InvalidOption).contains("evalue"));
+            assert!(rejected(&r, Code::InvalidEvalue).contains("evalue"));
         }
         r.evalue = Some(1000.0);
         assert_eq!(run(&r).unwrap().evalue, 1000.0);
         r.evalue = Some(1e-30);
         assert_eq!(run(&r).unwrap().evalue, 1e-30);
         r.evalue = None;
-        for n in [0, 1001] {
+        for n in [0, 1001, -1] {
             r.max_hits = Some(n);
-            assert!(rejected(&r, Code::InvalidOption).contains("max_hits"));
+            assert!(rejected(&r, Code::InvalidMaxHits).contains("max_hits"));
         }
         r.max_hits = Some(1000);
         assert_eq!(run(&r).unwrap().max_hits, 1000);
@@ -527,19 +527,19 @@ mod tests {
     fn matrix_rules() {
         let mut r = req("blastn", "assembly", "ACGT");
         r.matrix = Some("BLOSUM62".into());
-        assert!(rejected(&r, Code::InvalidOption).contains("matrix does not apply to blastn"));
+        assert!(rejected(&r, Code::InvalidMatrix).contains("matrix does not apply to blastn"));
         let mut r = req("blastp", "translation", "MKV");
         r.matrix = Some("pam30".into());
         assert_eq!(run(&r).unwrap().matrix.as_deref(), Some("PAM30"));
         r.matrix = Some("BLOSUM90".into());
-        assert!(rejected(&r, Code::InvalidOption).contains("matrix"));
+        assert!(rejected(&r, Code::InvalidMatrix).contains("matrix"));
     }
 
     #[test]
     fn megablast_rules() {
         let mut r = req("blastp", "translation", "MKV");
         r.megablast = Some(true);
-        assert!(rejected(&r, Code::InvalidOption).contains("megablast"));
+        assert!(rejected(&r, Code::InvalidMegablast).contains("megablast"));
         r.megablast = Some(false);
         run(&r).unwrap();
         let mut r = req("blastn", "assembly", "ACGT");
@@ -549,7 +549,7 @@ mod tests {
         run(&r).unwrap();
         r.advanced = Some("-task blastn-short".into());
         assert!(rejected(&r, Code::InvalidOption).contains("conflicts with megablast"));
-        // megablast:false with -task megablast is an allowed override (Task 3 argv tests).
+        // megablast:false with any -task is accepted: the task then decides (Task 3 argv tests).
         r.megablast = Some(false);
         assert_eq!(
             run(&r).unwrap().advanced,
@@ -560,27 +560,30 @@ mod tests {
     #[test]
     fn genetic_code_set() {
         let mut r = req("tblastx", "assembly", "ACGT");
-        for g in 0..=40u32 {
+        for g in -1..=40i64 {
             r.genetic_code = Some(g);
             let known = matches!(g, 1..=6 | 9..=16 | 21..=31 | 33);
             match run(&r) {
                 Ok(v) => {
                     assert!(known, "{g} accepted");
-                    assert_eq!(v.genetic_code, Some(g));
+                    assert_eq!(v.genetic_code, Some(g as u32));
                 }
                 Err(e) => {
                     assert!(!known, "{g} rejected");
-                    assert_eq!(e.code, Code::InvalidOption);
+                    assert_eq!(e.code, Code::InvalidGeneticCode);
                     assert!(e.message.contains("genetic_code"));
                 }
             }
         }
-        // Valid but ignored for programs that do not translate.
+        // Ignored, and not checked, for programs that do not translate: the MCP accepts 1 to 33 for
+        // every program, so code 7 with blastn must not be refused.
         let mut r = req("blastn", "assembly", "ACGT");
-        r.genetic_code = Some(2);
-        assert_eq!(run(&r).unwrap().genetic_code, None);
+        for g in [2, 7, -1] {
+            r.genetic_code = Some(g);
+            assert_eq!(run(&r).unwrap().genetic_code, None);
+        }
         let mut r = req("blastp", "translation", "MKV");
-        r.genetic_code = Some(2);
+        r.genetic_code = Some(7);
         assert_eq!(run(&r).unwrap().genetic_code, None);
         let mut r = req("blastx", "translation", "ACGT");
         r.genetic_code = Some(2);

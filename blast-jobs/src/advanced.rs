@@ -41,10 +41,14 @@ const PROTEIN_SCORED: &[Program] = &[Blastp, Blastx, Tblastn];
 const SEG: &[Program] = &[Blastp, Blastx, Tblastn, Tblastx];
 const NUCLEOTIDE_QUERY: &[Program] = &[Blastn, Blastx, Tblastx];
 
+/// BLAST+ parses integer flags as a C `int`; a larger value fails the job, so it is refused here.
+const INT_MAX: i64 = i32::MAX as i64;
+const INT_MIN: i64 = i32::MIN as i64;
+
 const fn int_min(min: i64) -> Kind {
     Kind::Int {
         min: Some(min),
-        max: None,
+        max: Some(INT_MAX),
     }
 }
 
@@ -98,7 +102,7 @@ pub const TABLE: &[FlagSpec] = &[
     FlagSpec {
         name: "penalty",
         kind: Kind::Int {
-            min: None,
+            min: Some(INT_MIN),
             max: Some(0),
         },
         programs: &[Blastn],
@@ -164,7 +168,12 @@ pub const TABLE: &[FlagSpec] = &[
     },
     FlagSpec {
         name: "max_hsps",
-        kind: int_min(1),
+        // No upper bound: `command::build` clamps the value to the service cap, so it never reaches
+        // BLAST+ above it.
+        kind: Kind::Int {
+            min: Some(1),
+            max: None,
+        },
         programs: ALL,
     },
     FlagSpec {
@@ -188,8 +197,8 @@ pub const TABLE: &[FlagSpec] = &[
 ];
 
 /// Flags the service sets from request fields or its own config; named in the rejection so the caller
-/// knows where the setting lives.
-const SERVICE_OWNED: &[&str] = &[
+/// knows where the setting lives. `command::build` also drops them as defence in depth.
+pub const SERVICE_OWNED: &[&str] = &[
     "evalue",
     "max_target_seqs",
     "matrix",
@@ -284,7 +293,11 @@ fn check_value(name: &str, kind: Kind, v: &str) -> Result<(), Rejection> {
             if min.is_some_and(|m| n < m) || max.is_some_and(|m| n > m) {
                 return Err(reject(format_args!(
                     "-{name} {n} is out of range ({})",
-                    range(min.map(|m| m as f64), max.map(|m| m as f64))
+                    // The C-int bounds are implicit; name them only when they are the limit hit.
+                    range(
+                        min.filter(|&m| m != INT_MIN || n < m).map(|m| m as f64),
+                        max.filter(|&m| m != INT_MAX || n > m).map(|m| m as f64)
+                    )
                 )));
             }
         }
@@ -679,6 +692,15 @@ mod tests {
         err(Blastn, "-perc_identity -");
         err(Blastn, "-word_size 1.5");
         err(Blastn, "-word_size 99999999999999999999");
+        // Integers are bounded to a C int, so an oversized value is a 400 rather than a failed job.
+        assert!(
+            err(Blastn, "-culling_limit 9999999999").contains("out of range (0 to 2147483647)")
+        );
+        assert!(err(Blastn, "-penalty -9999999999").contains("out of range (-2147483648 to 0)"));
+        assert_eq!(
+            ok(Blastn, "-culling_limit 2147483647"),
+            vec![pair("culling_limit", Some("2147483647"))]
+        );
         assert_eq!(
             ok(Blastn, "-perc_identity 100"),
             vec![pair("perc_identity", Some("100"))]
