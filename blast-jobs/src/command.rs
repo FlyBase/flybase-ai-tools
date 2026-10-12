@@ -5,6 +5,7 @@
 //! in place (so `-dust no` replaces the default `-dust yes` and never adds a second `-dust`), any other
 //! pair is appended in the order given. A Switch is rendered as one element. Nothing goes through a
 //! shell: the `-db` list of prefixes is one argv element with spaces, as BLAST+ expects.
+use crate::advanced;
 use crate::catalogue::Resolved;
 use crate::config::Config;
 use crate::types::Program;
@@ -18,6 +19,31 @@ pub const QUERY_FILE: &str = "query.fa";
 pub const RAW_FILE: &str = "raw.tsv";
 /// Tabular output with the subject title appended; `runner::HEADER` names these columns.
 pub const OUTFMT: &str = "6 std stitle";
+
+/// Flags whose value only the service sets: paths, output format, resources and the request-field
+/// flags. An `advanced` pair with one of these names is never rendered, even if it reached `build`
+/// some way other than `advanced::parse` (which already rejects them).
+pub const SERVICE_OWNED: &[&str] = &[
+    "db",
+    "query",
+    "out",
+    "outfmt",
+    "evalue",
+    "max_target_seqs",
+    "num_threads",
+    "matrix",
+    "query_gencode",
+    "db_gencode",
+];
+
+/// Whether an `advanced` pair may reach the argv: not service-owned, and in `advanced::TABLE` for
+/// `program`. Defence in depth behind `advanced::parse`.
+fn allowed(program: Program, flag: &str) -> bool {
+    !SERVICE_OWNED.contains(&flag)
+        && advanced::TABLE
+            .iter()
+            .any(|spec| spec.name == flag && spec.programs.contains(&program))
+}
 
 /// An ordered `flag -> value` map; `None` is a Switch.
 #[derive(Default)]
@@ -59,7 +85,12 @@ fn format_evalue(e: f64) -> String {
 ///
 /// `-task` is explicit for blastn (BLAST+'s own default there is megablast): `megablast` when the
 /// request says so, else `blastn`, unless `advanced` sets it. Other programs get `-task` only from
-/// `advanced`. An `advanced` `-max_hsps` is clamped to `max_hsps_per_subject`.
+/// `advanced`. An `advanced` `-max_hsps` is clamped to `max_hsps_per_subject`. A pair that is
+/// service-owned or not in the allow-list for the program is dropped (and logged), never rendered.
+///
+/// Disk use before truncation is bounded only by this argv: at most 1000 subjects
+/// (`-max_target_seqs`) x `max_hsps_per_subject` HSPs (50) rows. Recheck the state volume before raising
+/// either cap.
 pub fn build(cfg: &Config, req: &Validated, resolved: &Resolved, job_dir: &Path) -> Vec<OsString> {
     let program = req.program;
     let mut a = Argv::default();
@@ -98,6 +129,10 @@ pub fn build(cfg: &Config, req: &Validated, resolved: &Resolved, job_dir: &Path)
     }
 
     for (flag, value) in &req.advanced {
+        if !allowed(program, flag) {
+            tracing::error!(%program, flag = %flag, "advanced flag not allowed here; dropped from argv");
+            continue;
+        }
         let value = match (flag.as_str(), value) {
             // Validated as an integer >= 1; anything that does not fit a u64 is above the cap anyway.
             ("max_hsps", Some(v)) => Some(
@@ -531,6 +566,56 @@ mod tests {
                 Some(w) => assert_eq!(got, Some(w), "{p} {adv}"),
                 None => assert!(got.is_none_or(|n| n.starts_with('-')), "{p} {adv}"),
             }
+        }
+    }
+
+    /// A `Validated` built by hand (bypassing `advanced::parse`) cannot move the service's paths,
+    /// output format or resources, nor add a flag outside the allow-list.
+    #[test]
+    fn service_owned_and_unlisted_pairs_never_reach_argv() {
+        let c = cfg();
+        let mut v = validate::check(&request(Program::Blastn), &c, &catalogue()).unwrap();
+        let clean = build(&c, &v, &v.resolved, Path::new(JOB));
+        let pair = |f: &str, x: Option<&str>| (f.to_string(), x.map(String::from));
+        v.advanced = vec![
+            pair("db", Some("/etc/passwd")),
+            pair("query", Some("/etc/shadow")),
+            pair("out", Some("/tmp/evil")),
+            pair("outfmt", Some("5")),
+            pair("num_threads", Some("64")),
+            pair("evalue", Some("1000")),
+            pair("remote", None),
+            pair("seg", Some("no")), // seg is not a blastn flag
+            pair("dust", Some("no")),
+        ];
+        let argv: Vec<String> = build(&c, &v, &v.resolved, Path::new(JOB))
+            .into_iter()
+            .map(|s| s.into_string().unwrap())
+            .collect();
+        assert_eq!(
+            value_of(&argv, "-db"),
+            Some(prefix("assembly", "dmel").as_str())
+        );
+        assert_eq!(
+            value_of(&argv, "-query"),
+            Some(format!("{JOB}/query.fa").as_str())
+        );
+        assert_eq!(
+            value_of(&argv, "-out"),
+            Some(format!("{JOB}/raw.tsv").as_str())
+        );
+        assert_eq!(value_of(&argv, "-outfmt"), Some("6 std stitle"));
+        assert_eq!(value_of(&argv, "-num_threads"), Some("3"));
+        assert_eq!(value_of(&argv, "-evalue"), Some("10"));
+        assert_eq!(count(&argv, "-remote") + count(&argv, "-seg"), 0);
+        // The one allowed pair still applies, in place.
+        assert_eq!(value_of(&argv, "-dust"), Some("no"));
+        assert_eq!(argv.len(), clean.len());
+        for f in SERVICE_OWNED {
+            assert!(
+                !advanced::TABLE.iter().any(|s| s.name == *f),
+                "{f} is service-owned and must not be in the allow-list"
+            );
         }
     }
 

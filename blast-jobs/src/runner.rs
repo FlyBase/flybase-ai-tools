@@ -76,6 +76,7 @@ async fn worker(n: usize, cfg: Arc<Config>, store: Arc<Store>) {
         let task = tokio::spawn(run_job(cfg.clone(), store.clone(), id.clone(), req));
         if let Err(e) = task.await {
             tracing::error!(worker = n, job_id = %id, error = %e, "job task ended abnormally");
+            let _ = std::fs::remove_file(store.job_dir(&id).join(RAW_FILE));
             store
                 .finish(&id, Outcome::Failed("internal error".into()))
                 .await;
@@ -87,6 +88,8 @@ async fn worker(n: usize, cfg: Arc<Config>, store: Arc<Store>) {
 enum Exit {
     Status(ExitStatus),
     TimedOut,
+    /// `wait` itself failed; the child is killed on drop.
+    WaitFailed(io::Error),
 }
 
 async fn run_job(cfg: Arc<Config>, store: Arc<Store>, id: JobId, req: Validated) {
@@ -107,6 +110,10 @@ async fn run_job(cfg: Arc<Config>, store: Arc<Store>, id: JobId, req: Validated)
             Outcome::Failed("BLAST could not be started".into())
         }
         Ok((Exit::TimedOut, _)) => Outcome::Failed(timeout_message(wall)),
+        Ok((Exit::WaitFailed(e), _)) => {
+            tracing::error!(job_id = %id, error = %e, "waiting for BLAST failed");
+            Outcome::Failed("BLAST failed".into())
+        }
         Ok((Exit::Status(status), _)) if status.success() => {
             let cap = cfg.max_results_bytes;
             let d = dir.clone();
@@ -141,7 +148,8 @@ async fn run_job(cfg: Arc<Config>, store: Arc<Store>, id: JobId, req: Validated)
 }
 
 /// Runs `argv` in `dir` under the wall limit; returns how it ended and the captured stderr (also
-/// written to `stderr.txt`). `Err` only when the process could not be spawned.
+/// written to `stderr.txt`). `Err` only when the process could not be spawned. The stderr reader is
+/// aborted if the pipe is still open `STDERR_GRACE` after the child ended.
 async fn execute(argv: &[OsString], dir: &Path, wall: Duration) -> io::Result<(Exit, Vec<u8>)> {
     let mut child = Command::new(&argv[0])
         .args(&argv[1..])
@@ -161,7 +169,10 @@ async fn execute(argv: &[OsString], dir: &Path, wall: Duration) -> io::Result<(E
 
     let exit = match tokio::time::timeout(wall, child.wait()).await {
         Ok(Ok(status)) => Exit::Status(status),
-        Ok(Err(e)) => return Err(e),
+        Ok(Err(e)) => {
+            let _ = child.start_kill();
+            Exit::WaitFailed(e)
+        }
         Err(_) => {
             let _ = child.start_kill();
             let _ = child.wait().await;
@@ -195,19 +206,21 @@ async fn collect_stderr(mut pipe: ChildStderr, kept: Arc<Mutex<Vec<u8>>>) {
     }
 }
 
-/// The first stderr line that reads as an error (`Error`, `error`, `Warning`), else the first non-empty
-/// line.
+/// The stderr line that best explains a failure: the first that starts with `Error` or `BLAST`, else
+/// the first containing `error`/`Error`, else the first `Warning`, else the first non-empty line. A
+/// benign early warning (BLAST+ warns when `max_target_seqs < 5`) never hides a later error.
 fn first_error_line(stderr: &[u8]) -> Option<&str> {
     let text = match std::str::from_utf8(stderr) {
         Ok(t) => t,
         // Cut at the last valid boundary (the 64 KiB cap can split a character).
         Err(e) => std::str::from_utf8(&stderr[..e.valid_up_to()]).unwrap_or(""),
     };
-    let mut lines = text.lines().map(str::trim).filter(|l| !l.is_empty());
-    let first = lines.clone().next();
-    lines
-        .find(|l| l.contains("Error") || l.contains("error") || l.contains("Warning"))
-        .or(first)
+    let lines = || text.lines().map(str::trim).filter(|l| !l.is_empty());
+    lines()
+        .find(|l| l.starts_with("Error") || l.starts_with("BLAST"))
+        .or_else(|| lines().find(|l| l.contains("Error") || l.contains("error")))
+        .or_else(|| lines().find(|l| l.contains("Warning")))
+        .or_else(|| lines().next())
 }
 
 /// `line` with every token that starts an absolute path (after `[`, `(` or a quote) replaced by `<path>` and cut to `DETAIL_MAX` characters.
@@ -481,7 +494,20 @@ mod tests {
     #[test]
     fn first_error_line_prefers_errors() {
         let s = b"\n  some banner\nWarning: thing\nError: bad\n";
-        assert_eq!(first_error_line(s), Some("Warning: thing"));
+        assert_eq!(first_error_line(s), Some("Error: bad"));
+        let s = b"Warning: [blastn] Examining 5 or more matches is recommended\nBLAST query/options error: bad word_size\n";
+        assert_eq!(
+            first_error_line(s),
+            Some("BLAST query/options error: bad word_size")
+        );
+        assert_eq!(
+            first_error_line(b"banner\nsomething error-ish\nWarning: w\n"),
+            Some("something error-ish")
+        );
+        assert_eq!(
+            first_error_line(b"banner\nWarning: w\n"),
+            Some("Warning: w")
+        );
         assert_eq!(first_error_line(b"\n\nplain\n"), Some("plain"));
         assert_eq!(first_error_line(b""), None);
         // A cut multi-byte character at the end is tolerated.

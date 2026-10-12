@@ -96,11 +96,29 @@ impl Config {
         let path = path.as_ref();
         let text = std::fs::read_to_string(path)
             .with_context(|| format!("reading config {}", path.display()))?;
-        let cfg: Config = serde_json::from_str(&text)
+        let mut cfg: Config = serde_json::from_str(&text)
             .with_context(|| format!("parsing config {}", path.display()))?;
+        cfg.make_paths_absolute()
+            .with_context(|| format!("invalid config {}", path.display()))?;
         cfg.validate()
             .with_context(|| format!("invalid config {}", path.display()))?;
         Ok(cfg)
+    }
+
+    /// Relative paths are resolved against the process working directory (as `Catalogue::load` does
+    /// for the database root), never the config file's directory. The runner starts BLAST+ with the
+    /// job directory as its working directory, so a relative program or job path would otherwise
+    /// resolve against that directory and every spawn would fail.
+    fn make_paths_absolute(&mut self) -> anyhow::Result<()> {
+        for (key, p) in [
+            ("blast_bin_dir", &mut self.blast_bin_dir),
+            ("database_root", &mut self.database_root),
+            ("catalogue", &mut self.catalogue),
+            ("state_root", &mut self.state_root),
+        ] {
+            *p = std::path::absolute(&*p).with_context(|| format!("{key} {}", p.display()))?;
+        }
+        Ok(())
     }
 
     fn validate(&self) -> anyhow::Result<()> {
@@ -283,6 +301,25 @@ pub(crate) mod tests {
         let mut v = sample();
         v.as_object_mut().unwrap().remove("state_root");
         assert!(err(&v).contains("state_root"));
+    }
+
+    #[test]
+    fn relative_paths_become_absolute_against_the_working_directory() {
+        let mut v = sample();
+        v["blast_bin_dir"] = json!("./blast/bin");
+        v["state_root"] = json!("state");
+        v["catalogue"] = json!("db/catalogue.json");
+        v["database_root"] = json!("db");
+        let c = load(&v).unwrap();
+        let cwd = std::env::current_dir().unwrap();
+        assert_eq!(c.blast_bin_dir, cwd.join("blast/bin"));
+        assert_eq!(c.state_root, cwd.join("state"));
+        assert_eq!(c.catalogue, cwd.join("db/catalogue.json"));
+        assert_eq!(c.database_root, cwd.join("db"));
+        // Absolute paths are kept as written.
+        let c = load(&sample()).unwrap();
+        assert_eq!(c.blast_bin_dir, PathBuf::from("/opt/ncbi-blast/bin"));
+        assert_eq!(c.state_root, PathBuf::from("/state"));
     }
 
     #[test]
