@@ -1,3 +1,4 @@
+use crate::backends::cache::ResponseCache;
 use crate::{
     backends::{chado::Chado, species::normalize_species},
     error::{ToolError, ToolResult},
@@ -169,8 +170,14 @@ impl FlyBaseServer {
         const T: &str = "rnaseq_profile_search";
         let started = std::time::Instant::now();
         let res = async {
-            let _permit = self.limits.light(T).await?;
-            self.rnaseq_profile_search_impl(p).await
+            let key = ResponseCache::key(T, &p);
+            self.caches
+                .response
+                .get_or_else(key, async {
+                    let _permit = self.limits.light(T).await?;
+                    self.rnaseq_profile_search_impl(p).await
+                })
+                .await
         }
         .await;
         Ok(complete(T, started, res))
@@ -317,8 +324,14 @@ impl FlyBaseServer {
         const T: &str = "rnaseq_similar_genes";
         let started = std::time::Instant::now();
         let res = async {
-            let _permit = self.limits.light(T).await?;
-            self.rnaseq_similar_genes_impl(p).await
+            let key = ResponseCache::key(T, &p);
+            self.caches
+                .response
+                .get_or_else(key, async {
+                    let _permit = self.limits.light(T).await?;
+                    self.rnaseq_similar_genes_impl(p).await
+                })
+                .await
         }
         .await;
         Ok(complete(T, started, res))

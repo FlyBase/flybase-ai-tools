@@ -1,3 +1,4 @@
+use crate::backends::cache::ResponseCache;
 use crate::{
     backends::species::normalize_species,
     error::{ToolError, ToolResult},
@@ -10,10 +11,10 @@ use rmcp::{
     ErrorData, handler::server::wrapper::Parameters, model::CallToolResult, tool, tool_router,
 };
 use schemars::JsonSchema;
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 
-#[derive(Deserialize, JsonSchema, Clone, Copy, PartialEq, Eq)]
+#[derive(Deserialize, Serialize, JsonSchema, Clone, Copy, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
 pub enum SearchClass {
     Gene,
@@ -60,7 +61,7 @@ impl SearchClass {
     }
 }
 
-#[derive(Deserialize, JsonSchema)]
+#[derive(Deserialize, Serialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct SearchParams {
     /// Free text, at least 2 characters. Matches symbols, names, synonyms, reference titles, and vocabulary terms.
@@ -103,8 +104,14 @@ impl FlyBaseServer {
         const T: &str = "search";
         let started = std::time::Instant::now();
         let res = async {
-            let _permit = self.limits.light(T).await?;
-            self.search_impl(p).await
+            let key = ResponseCache::key(T, &p);
+            self.caches
+                .response
+                .get_or_else(key, async {
+                    let _permit = self.limits.light(T).await?;
+                    self.search_impl(p).await
+                })
+                .await
         }
         .await;
         Ok(complete(T, started, res))

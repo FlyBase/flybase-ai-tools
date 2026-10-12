@@ -1,3 +1,4 @@
+use crate::backends::cache::ResponseCache;
 use crate::{
     backends::chado::Chado,
     error::{ToolError, ToolResult},
@@ -11,14 +12,14 @@ use rmcp::{
     ErrorData, handler::server::wrapper::Parameters, model::CallToolResult, tool, tool_router,
 };
 use schemars::JsonSchema;
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value, json};
 use std::collections::{BTreeMap, HashMap};
 
 /// Multi-valued cells stop at this many values and append "(+N more)".
 pub const CELL_CAP: i64 = 50;
 
-#[derive(Deserialize, JsonSchema, Clone, Copy, PartialEq, Eq, Default)]
+#[derive(Deserialize, Serialize, JsonSchema, Clone, Copy, PartialEq, Eq, Default)]
 #[serde(rename_all = "snake_case")]
 pub enum Format {
     #[default]
@@ -26,7 +27,7 @@ pub enum Format {
     Tsv,
 }
 
-#[derive(Deserialize, JsonSchema)]
+#[derive(Deserialize, Serialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct BatchParams {
     /// Up to 500 FlyBase IDs (secondary IDs are updated first).
@@ -203,14 +204,20 @@ impl FlyBaseServer {
         const T: &str = "batch_download";
         let started = std::time::Instant::now();
         let res = async {
-            if p.list_options.unwrap_or(false) {
-                return Ok(Envelope::new(T, &self.release)
-                    .summary("Fields by class; 'any' fields apply to every feature ID.")
-                    .field("fields", catalog())
-                    .finish());
-            }
-            let _permit = self.limits.heavy(T).await?;
-            self.batch_impl(p).await
+            let key = ResponseCache::key(T, &p);
+            self.caches
+                .response
+                .get_or_else(key, async {
+                    if p.list_options.unwrap_or(false) {
+                        return Ok(Envelope::new(T, &self.release)
+                            .summary("Fields by class; 'any' fields apply to every feature ID.")
+                            .field("fields", catalog())
+                            .finish());
+                    }
+                    let _permit = self.limits.heavy(T).await?;
+                    self.batch_impl(p).await
+                })
+                .await
         }
         .await;
         Ok(complete(T, started, res))

@@ -1,3 +1,4 @@
+use crate::backends::cache::ResponseCache;
 use crate::{
     backends::{chado::Chado, species::normalize_species},
     error::{ToolError, ToolResult},
@@ -11,11 +12,11 @@ use rmcp::{
     ErrorData, handler::server::wrapper::Parameters, model::CallToolResult, tool, tool_router,
 };
 use schemars::JsonSchema;
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 use std::collections::BTreeMap;
 
-#[derive(Deserialize, JsonSchema)]
+#[derive(Deserialize, Serialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct ValidateParams {
     /// Up to 500 inputs: FlyBase IDs (current, secondary, or obsolete), exact symbols or full names, or external IDs
@@ -56,8 +57,14 @@ impl FlyBaseServer {
         const T: &str = "validate_ids";
         let started = std::time::Instant::now();
         let res = async {
-            let _permit = self.limits.light(T).await?;
-            self.validate_impl(p).await
+            let key = ResponseCache::key(T, &p);
+            self.caches
+                .response
+                .get_or_else(key, async {
+                    let _permit = self.limits.light(T).await?;
+                    self.validate_impl(p).await
+                })
+                .await
         }
         .await;
         Ok(complete(T, started, res))

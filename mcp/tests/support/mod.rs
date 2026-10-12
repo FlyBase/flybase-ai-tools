@@ -11,6 +11,7 @@ pub fn test_config() -> Config {
             "postgres://flybase_mcp:flybase_mcp@127.0.0.1:5498/flybase".into()
         })),
         "CHADO_POOL_SIZE" => Some("4".into()),
+        "FLYBASE_MCP_RESPONSE_CACHE_MB" => std::env::var(k).ok(),
         _ => None,
     })
     .unwrap()

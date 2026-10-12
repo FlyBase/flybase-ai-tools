@@ -11,6 +11,8 @@ pub struct Config {
     pub pool_size: usize,
     pub blast_base_url: Option<Url>,
     pub blast_token: Option<String>,
+    /// Response cache bound in bytes (`FLYBASE_MCP_RESPONSE_CACHE_MB`, default 256 MiB; 0 disables it).
+    pub response_cache_bytes: u64,
 }
 
 impl Config {
@@ -39,6 +41,13 @@ impl Config {
                 .transpose()
                 .context("BLAST_BASE_URL")?,
             blast_token: get("BLAST_SERVICE_TOKEN"),
+            response_cache_bytes: get("FLYBASE_MCP_RESPONSE_CACHE_MB")
+                .map(|v| v.parse::<u64>())
+                .transpose()
+                .context("FLYBASE_MCP_RESPONSE_CACHE_MB")?
+                .unwrap_or(256)
+                * 1024
+                * 1024,
         })
     }
 
@@ -80,6 +89,7 @@ impl std::fmt::Debug for Config {
             .field("pool_size", &self.pool_size)
             .field("blast_base_url", &self.blast_base_url)
             .field("blast_token", &self.blast_token.as_ref().map(|_| "***"))
+            .field("response_cache_bytes", &self.response_cache_bytes)
             .finish()
     }
 }
@@ -100,6 +110,7 @@ mod tests {
     fn defaults_and_hosts() {
         let c = Config::from_lookup(env).unwrap();
         assert_eq!(c.pool_size, 32);
+        assert_eq!(c.response_cache_bytes, 256 * 1024 * 1024);
         assert!(c.allowed_hosts().contains(&"mcp.flybase.org".to_string()));
         assert_eq!(c.allowed_origins(), vec!["https://mcp.flybase.org"]);
     }

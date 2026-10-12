@@ -1,3 +1,4 @@
+use crate::backends::cache::ResponseCache;
 use crate::{
     error::{ToolError, ToolResult},
     limits::clamp_limit,
@@ -13,10 +14,10 @@ use rmcp::{
     ErrorData, handler::server::wrapper::Parameters, model::CallToolResult, tool, tool_router,
 };
 use schemars::JsonSchema;
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value, json};
 
-#[derive(Deserialize, JsonSchema)]
+#[derive(Deserialize, Serialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct GroupsParams {
     /// A gene (FBgn) for its groups and pathways, or a gene group or pathway (FBgg) for its members and hierarchy.
@@ -40,8 +41,14 @@ impl FlyBaseServer {
         const T: &str = "get_gene_groups_and_pathways";
         let started = std::time::Instant::now();
         let res = async {
-            let _permit = self.limits.light(T).await?;
-            self.groups_impl(p).await
+            let key = ResponseCache::key(T, &p);
+            self.caches
+                .response
+                .get_or_else(key, async {
+                    let _permit = self.limits.light(T).await?;
+                    self.groups_impl(p).await
+                })
+                .await
         }
         .await;
         Ok(complete(T, started, res))

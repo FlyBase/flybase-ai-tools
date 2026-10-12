@@ -2,7 +2,7 @@ use rmcp::model::{CallToolResult, ContentBlock};
 use serde_json::json;
 use tokio_postgres::error::SqlState;
 
-#[derive(Debug, thiserror::Error)]
+#[derive(Debug, Clone, thiserror::Error)]
 pub enum ToolError {
     #[error("{tool}: invalid {arg}: {message}")]
     InvalidInput {

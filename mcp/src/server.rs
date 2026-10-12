@@ -90,7 +90,7 @@ pub fn app(cfg: &Config, chado: Chado) -> Router {
     let release = cfg.release.clone();
     let health_chado = chado.clone();
     let health_release = release.clone();
-    let caches = Arc::new(Caches::new());
+    let caches = Arc::new(Caches::new(cfg.response_cache_bytes));
     let factory = move || {
         Ok(FlyBaseServer::new(
             chado.clone(),

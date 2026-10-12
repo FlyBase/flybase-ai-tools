@@ -1,3 +1,4 @@
+use crate::backends::cache::ResponseCache;
 use crate::{
     backends::chado::Chado,
     error::{ToolError, ToolResult},
@@ -16,10 +17,10 @@ use rmcp::{
     ErrorData, handler::server::wrapper::Parameters, model::CallToolResult, tool, tool_router,
 };
 use schemars::JsonSchema;
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 
-#[derive(Deserialize, JsonSchema)]
+#[derive(Deserialize, Serialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct CytoParams {
     /// A band (91A1), subdivision (91A), division (91), a band range on one arm (91A1-91B2), or a genomic range (3R:18268611..18297020).
@@ -142,8 +143,14 @@ impl FlyBaseServer {
         const T: &str = "cytosearch";
         let started = std::time::Instant::now();
         let res = async {
-            let _permit = self.limits.heavy(T).await?;
-            self.cyto_impl(p).await
+            let key = ResponseCache::key(T, &p);
+            self.caches
+                .response
+                .get_or_else(key, async {
+                    let _permit = self.limits.heavy(T).await?;
+                    self.cyto_impl(p).await
+                })
+                .await
         }
         .await;
         Ok(complete(T, started, res))

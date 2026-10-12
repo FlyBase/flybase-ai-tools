@@ -1,3 +1,4 @@
+use crate::backends::cache::ResponseCache;
 use crate::{
     backends::{chado::Chado, species::normalize_species},
     error::{ToolError, ToolResult},
@@ -54,7 +55,7 @@ impl DataClass {
     }
 }
 
-#[derive(Deserialize, JsonSchema)]
+#[derive(Deserialize, Serialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct ResolveParams {
     /// A symbol (N, w[1118]), full name (Notch), synonym, or any FlyBase ID (FBgn0004647, including obsolete or secondary IDs).
@@ -248,8 +249,14 @@ impl FlyBaseServer {
         const T: &str = "resolve";
         let started = std::time::Instant::now();
         let res = async {
-            let _permit = self.limits.light(T).await?;
-            self.resolve_impl(p).await
+            let key = ResponseCache::key(T, &p);
+            self.caches
+                .response
+                .get_or_else(key, async {
+                    let _permit = self.limits.light(T).await?;
+                    self.resolve_impl(p).await
+                })
+                .await
         }
         .await;
         Ok(complete(T, started, res))

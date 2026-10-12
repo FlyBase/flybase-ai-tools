@@ -1,3 +1,4 @@
+use crate::backends::cache::ResponseCache;
 use crate::{
     error::ToolResult,
     output::{Envelope, complete},
@@ -7,10 +8,10 @@ use rmcp::{
     ErrorData, handler::server::wrapper::Parameters, model::CallToolResult, tool, tool_router,
 };
 use schemars::JsonSchema;
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use serde_json::json;
 
-#[derive(Deserialize, JsonSchema, Default)]
+#[derive(Deserialize, Serialize, JsonSchema, Default)]
 #[serde(deny_unknown_fields)]
 pub struct ListSpeciesParams {
     /// Include organisms without a genome assembly (default false).
@@ -50,8 +51,14 @@ impl FlyBaseServer {
         const T: &str = "list_species";
         let started = std::time::Instant::now();
         let res = async {
-            let _permit = self.limits.light(T).await?;
-            self.list_species_impl(p).await
+            let key = ResponseCache::key(T, &p);
+            self.caches
+                .response
+                .get_or_else(key, async {
+                    let _permit = self.limits.light(T).await?;
+                    self.list_species_impl(p).await
+                })
+                .await
         }
         .await;
         Ok(complete(T, started, res))

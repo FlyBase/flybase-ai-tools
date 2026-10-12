@@ -1,3 +1,4 @@
+use crate::backends::cache::ResponseCache;
 use crate::{
     backends::chado::Chado,
     error::{ToolError, ToolResult},
@@ -14,10 +15,10 @@ use rmcp::{
     ErrorData, handler::server::wrapper::Parameters, model::CallToolResult, tool, tool_router,
 };
 use schemars::JsonSchema;
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 
-#[derive(Deserialize, JsonSchema, Clone, Copy, PartialEq, Eq, Debug)]
+#[derive(Deserialize, Serialize, JsonSchema, Clone, Copy, PartialEq, Eq, Debug)]
 #[serde(rename_all = "snake_case")]
 pub enum Provider {
     Bloomington,
@@ -69,7 +70,7 @@ impl Provider {
     }
 }
 
-#[derive(Deserialize, JsonSchema)]
+#[derive(Deserialize, Serialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct StocksParams {
     /// A gene (FBgn), allele (FBal), insertion (FBti), aberration (FBab), balancer (FBba) or balancer symbol (FM7c), construct (FBtp), or stock (FBst).
@@ -115,8 +116,14 @@ impl FlyBaseServer {
         const T: &str = "get_stocks";
         let started = std::time::Instant::now();
         let res = async {
-            let _permit = self.limits.light(T).await?;
-            self.stocks_impl(p).await
+            let key = ResponseCache::key(T, &p);
+            self.caches
+                .response
+                .get_or_else(key, async {
+                    let _permit = self.limits.light(T).await?;
+                    self.stocks_impl(p).await
+                })
+                .await
         }
         .await;
         Ok(complete(T, started, res))
