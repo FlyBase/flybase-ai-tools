@@ -10,7 +10,10 @@ async fn transcript_default_sections() {
     let sec = &s["sections"];
     assert_eq!(sec["identity"]["symbol"], "N-RA");
     assert_eq!(sec["identity"]["type"], "mRNA");
-    assert_eq!(sec["identity"]["length"], 10150);
+    assert!(sec["identity"]["length"].as_u64().unwrap() > 0);
+    if support::full_db() {
+        assert_eq!(sec["identity"]["length"], 10150); // FB2026_02
+    }
     assert_eq!(sec["gene"]["id"], "FBgn0004647");
     assert_eq!(sec["location"]["chromosome"], "X");
     let exons = sec["exons"].as_array().unwrap();
@@ -19,7 +22,26 @@ async fn transcript_default_sections() {
     assert_eq!(exons[0]["end"], 3135827);
     assert_eq!(sec["cds"]["segments"].as_array().unwrap().len(), 9);
     assert_eq!(sec["cds"]["segments"][0]["start"], 3135668);
+    assert!(sec["cds"]["length"].as_u64().unwrap() > 0);
     assert!(s["links"]["jbrowse"].as_str().unwrap().contains("loc=X:"));
+}
+
+/// A non-coding transcript has no CDS segments and a null coding length (FBtr0344909 is not in the fixture).
+#[tokio::test]
+async fn noncoding_transcript_cds_length_is_null() {
+    if !support::full_db() {
+        return;
+    }
+    let c = client().await;
+    let s = call(
+        &c,
+        "get_report",
+        json!({"id": "FBtr0344909", "sections": ["cds"]}),
+    )
+    .await;
+    let cds = &s["sections"]["cds"];
+    assert!(cds["segments"].as_array().unwrap().is_empty(), "{cds}");
+    assert!(cds["length"].is_null(), "{cds}");
 }
 
 #[tokio::test]
@@ -32,7 +54,10 @@ async fn transcript_polypeptide_section() {
     )
     .await;
     assert_eq!(s["sections"]["polypeptide"]["id"], "FBpp0070483");
-    assert_eq!(s["sections"]["polypeptide"]["length"], 2703);
+    assert!(s["sections"]["polypeptide"]["length"].as_u64().unwrap() > 0);
+    if support::full_db() {
+        assert_eq!(s["sections"]["polypeptide"]["length"], 2703); // FB2026_02
+    }
     assert_eq!(
         s["sections"]["utrs"]["five_prime"]
             .as_array()
@@ -58,12 +83,18 @@ async fn polypeptide_default_sections() {
     assert_eq!(sec["identity"]["molecular_weight"], "288851.1");
     assert_eq!(sec["gene"]["id"], "FBgn0004647");
     assert_eq!(sec["transcript"]["id"], "FBtr0070507");
-    assert_eq!(sec["length"], 2703);
+    assert!(sec["length"].as_u64().unwrap() > 0);
+    if support::full_db() {
+        assert_eq!(sec["length"], 2703); // FB2026_02
+    }
     let d = &sec["domains"];
     assert_eq!(d["items"].as_array().unwrap().len(), 5);
     assert_eq!(d["has_more"], true);
     assert_eq!(d["items"][0]["name"], "EGF-like domain");
-    assert_eq!(d["items"][0]["start"], 61);
+    assert!(d["items"][0]["start"].as_u64().unwrap() >= 1);
+    if support::full_db() {
+        assert_eq!(d["items"][0]["start"], 61); // FB2026_02
+    }
     assert!(
         d["items"][0]["accessions"]
             .as_str()

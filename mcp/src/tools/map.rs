@@ -343,9 +343,16 @@ impl FlyBaseServer {
                         message: format!("{id} has no coordinates"),
                     });
                 };
+                // A zero-length location (insertion site, breakpoint) becomes the one-base window
+                // (fmin - 1, fmax + 1) in chado coordinates, so the half-open overlap predicate includes the point.
+                let (fmin, fmax) = if fmin >= fmax {
+                    (fmax - 1, fmax + 1)
+                } else {
+                    (fmin, fmax)
+                };
                 let region = Region {
                     chromosome: r.get::<_, Option<String>>("chromosome").unwrap_or_default(),
-                    start: fmin as u64 + 1,
+                    start: (fmin + 1).max(1) as u64,
                     end: fmax as u64,
                     strand: None,
                 };

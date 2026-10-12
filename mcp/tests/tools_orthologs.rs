@@ -16,7 +16,15 @@ async fn human_orthologs_carry_scores() {
     let o = s["orthologs"].as_array().unwrap();
     let syms: Vec<&str> = o.iter().map(|x| x["symbol"].as_str().unwrap()).collect();
     assert_eq!(syms, vec!["Hsap\\NOTCH1", "Hsap\\NOTCH2", "Hsap\\NOTCH3"]);
-    assert_eq!(o[0]["score"], 11);
+    // Sorted by score descending and filtered by min_score; the exact DIOPT score drifts with releases.
+    assert!(o[0]["score"].as_u64().unwrap() >= 9);
+    assert!(
+        o.windows(2)
+            .all(|w| w[0]["score"].as_u64() >= w[1]["score"].as_u64())
+    );
+    if support::full_db() {
+        assert_eq!(o[0]["score"], 11); // FB2026_02
+    }
     assert_eq!(o[0]["best_score"], true);
     assert_eq!(o[0]["best_score_rev"], true);
     assert_eq!(o[0]["hgnc_id"], "HGNC:7881");
@@ -78,7 +86,10 @@ async fn human_gene_query_by_symbol_and_hgnc() {
             .iter()
             .find(|x| x["id"] == "FBgn0004647")
             .expect("Notch");
-        assert_eq!(n["score"], 11);
+        assert!(n["score"].as_u64().unwrap() >= 1, "{q}");
+        if support::full_db() {
+            assert_eq!(n["score"], 11, "{q}"); // FB2026_02
+        }
     }
 }
 

@@ -65,10 +65,14 @@ impl ReportType for Transcript {
             )),
             "cds" => {
                 let segs = parts_of(&ctx.query("report/transcript/parts", &[id]).await?, "CDS");
-                let length: i64 = segs
-                    .iter()
-                    .map(|s| s["end"].as_i64().unwrap_or(0) - s["start"].as_i64().unwrap_or(0) + 1)
-                    .sum();
+                // A non-coding transcript has no CDS segments: its coding length is null, not 0.
+                let length: Option<i64> = (!segs.is_empty()).then(|| {
+                    segs.iter()
+                        .map(|s| {
+                            s["end"].as_i64().unwrap_or(0) - s["start"].as_i64().unwrap_or(0) + 1
+                        })
+                        .sum()
+                });
                 json!({"segments": segs, "length": length})
             }
             "utrs" => {

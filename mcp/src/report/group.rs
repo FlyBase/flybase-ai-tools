@@ -36,7 +36,9 @@ impl ReportType for Group {
                 })
             }
             "members" => {
-                let r = ctx.query("report/group/members", &[id, &ctx.fetch]).await?;
+                let r = ctx
+                    .query("report/group/members", &[id, &ctx.fetch, &ctx.offset])
+                    .await?;
                 paged(
                     rows_to_json(&r, |r| {
                         json!({"id": r.get::<_, String>("id"), "symbol": r.get::<_, Option<String>>("symbol"), "membership": r.get::<_, String>("membership"),

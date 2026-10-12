@@ -4,7 +4,10 @@ use crate::{
     output::{Envelope, complete, report_link},
     report::{ReportType, SectionCtx, group::Group, strip_markup},
     server::FlyBaseServer,
-    tools::resolve::{normalize_fb_prefix, resolve_ids},
+    tools::{
+        resolve::{normalize_fb_prefix, resolve_ids},
+        search::MAX_OFFSET,
+    },
 };
 use rmcp::{
     ErrorData, handler::server::wrapper::Parameters, model::CallToolResult, tool, tool_router,
@@ -20,6 +23,8 @@ pub struct GroupsParams {
     pub id: String,
     /// Max members to list for a group (default 25, max 100).
     pub limit: Option<u32>,
+    /// Group members to skip; offset + limit may not exceed 10,000.
+    pub offset: Option<u32>,
 }
 
 #[tool_router(router = tool_router_groups, vis = "pub")]
@@ -65,12 +70,21 @@ impl FlyBaseServer {
             }
         };
         let limit = clamp_limit(p.limit);
+        let offset = i64::from(p.offset.unwrap_or(0));
+        if offset + limit > MAX_OFFSET {
+            return Err(ToolError::InvalidInput {
+                tool: T,
+                arg: "offset",
+                message: format!("offset + limit may not exceed {MAX_OFFSET}"),
+            });
+        }
         let ctx = SectionCtx {
             conn: self.chado.get(T).await?,
             tool: T,
             id: id.clone(),
             limit,
             fetch: limit + 1,
+            offset,
         };
         if id.starts_with("FBgg") {
             let rt = Group;
@@ -89,12 +103,18 @@ impl FlyBaseServer {
             };
             return Ok(Envelope::new(T, &self.release)
                 .summary(format!(
-                    "{id} ({label}) is a {kind} with {} member(s) shown.",
-                    sections["members"]["count_shown"]
+                    "{id} ({label}) is a {kind} with {} member(s) shown{}.",
+                    sections["members"]["count_shown"],
+                    if sections["members"]["has_more"] == true {
+                        "; more available with offset"
+                    } else {
+                        ""
+                    }
                 ))
                 .link("report", report_link(&id))
                 .field("id", json!(id))
                 .field("type", json!("gene_group"))
+                .field("offset", json!(offset))
                 .field("sections", Value::Object(sections))
                 .finish());
         }

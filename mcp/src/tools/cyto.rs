@@ -133,7 +133,7 @@ async fn band(tx: &Transaction<'_>, t: &'static str, name: &str) -> ToolResult<B
 impl FlyBaseServer {
     #[tool(
         name = "cytosearch",
-        description = "Find genes, insertions, other features, and aberrations in a cytological location: a band (91A1), subdivision (91A), division (91), band range (91A1-91B2), or genomic range (3R:18268611..18297020). Bands resolve to genome coordinates; aberrations are those with mapped breakpoints only; insertion sites are points (start = end). Use when a paper gives a cytological position; use map_features when you already have coordinates."
+        description = "Find genes, insertions, other features, and aberrations in a cytological location: a band (91A1), subdivision (91A), division (91), band range (91A1-91B2), or genomic range (3R:18268611..18297020). Bands resolve to genome coordinates; aberrations are those with mapped breakpoints only; insertion sites are points (start = end). D. melanogaster only. Windows over 2 Mb are refused, so a division that spans more (such as 20) must be searched by subdivision or band. Use when a paper gives a cytological position; use map_features when you already have coordinates."
     )]
     pub async fn cytosearch(
         &self,

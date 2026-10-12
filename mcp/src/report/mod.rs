@@ -33,6 +33,9 @@ pub struct SectionCtx {
     pub limit: i64,
     /// `limit + 1`: list sections fetch one extra row so `paged` can set `has_more`.
     pub fetch: i64,
+    /// Rows to skip in the one pageable list of a tool that exposes `offset` (`get_term` children,
+    /// `get_gene_groups_and_pathways` members); 0 for `get_report`, whose list sections return the first page.
+    pub offset: i64,
 }
 
 impl SectionCtx {
@@ -232,14 +235,15 @@ pub async fn feature_location(ctx: &SectionCtx) -> ToolResult<Option<Location>> 
     }))
 }
 
-/// `{located, chromosome, start, end, strand}` with start 1-based.
+/// `{located, chromosome, start, end, strand}` with start 1-based; a zero-length location (an insertion site
+/// between two bases) is the point start = end = fmax, as in `map_features`.
 pub fn location_json(loc: &Option<Location>) -> Value {
     match loc {
         None => json!({ "located": false }),
         Some(l) => json!({
             "located": true,
             "chromosome": l.chromosome,
-            "start": l.fmin + 1,
+            "start": if l.fmin >= l.fmax { l.fmax } else { l.fmin + 1 },
             "end": l.fmax,
             "strand": l.strand,
         }),

@@ -239,7 +239,7 @@ pub async fn resolve_ids(
 impl FlyBaseServer {
     #[tool(
         name = "resolve",
-        description = "Turn one gene, allele, insertion, stock, cell line, library, strain, or other symbol, name, synonym, stock number, or ID into current FlyBase IDs. Handles obsolete and secondary IDs. Use this first whenever you have a name and need an ID for another tool. For a batch of exact IDs use validate_ids; for free-text discovery use search."
+        description = "Turn one gene, allele, insertion, stock, cell line, library, strain, or other symbol, name, synonym, stock number, or ID into current FlyBase IDs. Handles obsolete and secondary IDs (secondary IDs are known for feature classes such as FBgn and FBal only, not FBgg or FBhh). Use this first whenever you have a name and need an ID for another tool. For a batch of exact IDs use validate_ids; for free-text discovery use search."
     )]
     pub async fn resolve(
         &self,

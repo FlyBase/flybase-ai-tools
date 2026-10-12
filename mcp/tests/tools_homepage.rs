@@ -261,7 +261,11 @@ async fn stocks_for_gene_with_filters() {
         json!({"id": "FBgn0260400", "gal4_only": true, "limit": 100}),
     )
     .await;
-    assert_eq!(g["total"], 17);
+    assert!(g["total"].as_i64().unwrap() >= 1);
+    assert!(g["total"].as_i64().unwrap() <= total);
+    if support::full_db() {
+        assert_eq!(g["total"], 17); // FB2026_02
+    }
     assert!(g["stocks"].as_array().unwrap().iter().all(|st| {
         st["allele_symbol"]
             .as_str()
@@ -395,6 +399,37 @@ async fn stocks_rejects_other_ids() {
         &c,
         "get_stocks",
         json!({"id": "FBgn0004647", "limit": 100, "offset": 9950}),
+    )
+    .await
+    .unwrap();
+    assert_eq!(r.structured_content.unwrap()["error"], "invalid_input");
+}
+
+/// Group members page with offset: offset 1 starts at the second member of offset 0 (FBgg0001068 has 43 fixture
+/// members).
+#[tokio::test]
+async fn group_members_page_with_offset() {
+    let c = client().await;
+    let p0 = call(
+        &c,
+        "get_gene_groups_and_pathways",
+        json!({"id": "FBgg0001068", "limit": 2}),
+    )
+    .await;
+    let p1 = call(
+        &c,
+        "get_gene_groups_and_pathways",
+        json!({"id": "FBgg0001068", "limit": 2, "offset": 1}),
+    )
+    .await;
+    let m0 = &p0["sections"]["members"];
+    assert_eq!(m0["has_more"], true);
+    assert_eq!(p1["offset"], 1);
+    assert_eq!(p1["sections"]["members"]["items"][0], m0["items"][1]);
+    let r = call_raw(
+        &c,
+        "get_gene_groups_and_pathways",
+        json!({"id": "FBgg0001068", "limit": 100, "offset": 9950}),
     )
     .await
     .unwrap();

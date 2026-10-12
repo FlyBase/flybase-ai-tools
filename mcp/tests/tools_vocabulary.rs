@@ -54,7 +54,11 @@ async fn broad_term_counts_direct_only() {
     let c = client().await;
     let s = call(&c, "get_term", json!({"term_id": "GO:0008150"})).await;
     let ac = &s["sections"]["annotation_counts"];
-    assert!(ac["descendants"].as_u64().unwrap() > 20000);
+    // Over MAX_DESCENDANTS (5,000) is what turns the closure off; the exact size drifts with each release.
+    assert!(ac["descendants"].as_u64().unwrap() > 5000);
+    if support::full_db() {
+        assert!(ac["descendants"].as_u64().unwrap() > 20000);
+    }
     assert_eq!(ac["descendants_included"], false);
 }
 
@@ -151,5 +155,30 @@ async fn search_vocabulary_guards() {
     let r = call_raw(&c, "search_vocabulary", json!({"query": "w"}))
         .await
         .unwrap();
+    assert_eq!(r.structured_content.unwrap()["error"], "invalid_input");
+}
+
+/// get_term children page with offset: offset 1 starts at the second child of offset 0.
+#[tokio::test]
+async fn term_children_page_with_offset() {
+    let c = client().await;
+    let p0 = call(&c, "get_term", json!({"term_id": "GO:0007219"})).await;
+    let p1 = call(
+        &c,
+        "get_term",
+        json!({"term_id": "GO:0007219", "offset": 1}),
+    )
+    .await;
+    let c0 = p0["sections"]["children"]["items"].as_array().unwrap();
+    assert!(c0.len() >= 2);
+    assert_eq!(p1["offset"], 1);
+    assert_eq!(p1["sections"]["children"]["items"][0], c0[1]);
+    let r = call_raw(
+        &c,
+        "get_term",
+        json!({"term_id": "GO:0007219", "offset": 9901}),
+    )
+    .await
+    .unwrap();
     assert_eq!(r.structured_content.unwrap()["error"], "invalid_input");
 }

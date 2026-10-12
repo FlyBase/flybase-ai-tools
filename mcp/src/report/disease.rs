@@ -32,14 +32,14 @@ pub fn gene_row(r: &tokio_postgres::Row) -> Value {
 }
 
 /// Rows of disease/variants.sql. The jsonb columns arrive as text; malformed JSON is a data error worth surfacing,
-/// not a null, so it is logged and reported as a backend error.
-pub fn variant_row(r: &tokio_postgres::Row) -> ToolResult<Value> {
+/// not a null, so it is logged and reported as a backend error naming the calling `tool`.
+pub fn variant_row(tool: &'static str, r: &tokio_postgres::Row) -> ToolResult<Value> {
     let parse = |col: &str| -> ToolResult<Value> {
         match r.get::<_, Option<String>>(col) {
             None => Ok(Value::Null),
             Some(s) => serde_json::from_str(&s).map_err(|e| {
                 tracing::error!(column = col, error = %e, "malformed JSON in humanhealth.allele_disease_variant");
-                ToolError::BackendUnavailable { tool: "get_report", message: format!("malformed {col} data for a disease variant; report this to FlyBase") }
+                ToolError::BackendUnavailable { tool, message: format!("malformed {col} data for a disease variant; report this to FlyBase") }
             }),
         }
     };
@@ -126,7 +126,9 @@ impl ReportType for Disease {
             "variants" => {
                 let r = ctx.query("disease/variants", &[id, &ctx.fetch]).await?;
                 paged(
-                    r.iter().map(variant_row).collect::<ToolResult<Vec<_>>>()?,
+                    r.iter()
+                        .map(|r| variant_row(ctx.tool, r))
+                        .collect::<ToolResult<Vec<_>>>()?,
                     ctx.limit,
                 )
             }

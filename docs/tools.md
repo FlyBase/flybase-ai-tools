@@ -63,7 +63,7 @@ Download chosen fields for up to 500 FlyBase IDs at once as rows (JSON or TSV): 
 
 ## `cytosearch`
 
-Find genes, insertions, other features, and aberrations in a cytological location: a band (91A1), subdivision (91A), division (91), band range (91A1-91B2), or genomic range (3R:18268611..18297020). Bands resolve to genome coordinates; aberrations are those with mapped breakpoints only; insertion sites are points (start = end). Use when a paper gives a cytological position; use map_features when you already have coordinates.
+Find genes, insertions, other features, and aberrations in a cytological location: a band (91A1), subdivision (91A), division (91), band range (91A1-91B2), or genomic range (3R:18268611..18297020). Bands resolve to genome coordinates; aberrations are those with mapped breakpoints only; insertion sites are points (start = end). D. melanogaster only. Windows over 2 Mb are refused, so a division that spans more (such as 20) must be searched by subdivision or band. Use when a paper gives a cytological position; use map_features when you already have coordinates.
 
 ```json
 {
@@ -222,7 +222,7 @@ List the genes, alleles, disease models, or gene groups annotated to a vocabular
 
 ## `get_disease_models`
 
-Human disease models: for a gene or allele, its Disease Ontology annotations with qualifiers (model of, ameliorates, exacerbates), evidence, and references, plus disease-variant alleles and the FlyBase disease model entries (FBhh) that cite it; for an FBhh entry, its human gene, DO terms, fly models, and variants; for a DOID term, the entries and alleles annotated to it or its descendants. Use for disease questions; use get_orthologs for the human gene itself.
+Human disease models: for a gene or allele, its Disease Ontology annotations with qualifiers (model of, ameliorates, exacerbates), evidence, and references, plus disease-variant alleles (first page only) and the FlyBase disease model entries (FBhh) that cite it; for an FBhh entry, its human gene, DO terms, fly models, and variants; for a DOID term, the entries and alleles annotated to it or its descendants. Use for disease questions; use get_orthologs for the human gene itself.
 
 ```json
 {
@@ -274,6 +274,15 @@ For a gene: the FlyBase gene groups and signaling pathways it belongs to. For a 
     },
     "limit": {
       "description": "Max members to list for a group (default 25, max 100).",
+      "format": "uint32",
+      "minimum": 0,
+      "type": [
+        "integer",
+        "null"
+      ]
+    },
+    "offset": {
+      "description": "Group members to skip; offset + limit may not exceed 10,000.",
       "format": "uint32",
       "minimum": 0,
       "type": [
@@ -407,7 +416,7 @@ Orthologs of a fly gene in human, mouse, rat, zebrafish, frog, worm, mosquito, y
 
 ## `get_report`
 
-Return the data shown on a FlyBase report page for an ID. Supported: genes, alleles, insertions, constructs, transcripts, polypeptides, aberrations, balancers, stocks, references, gene groups, disease models, cell lines, strains, libraries, vocabulary terms (GO, FBbt, FBcv, FBdv, DOID, SO, MI), clones, sequence features, natural transposons, chemicals, ortholog genes, split system combinations, plasmids. Choose sections to keep responses small; use list_options=true to see section names. Use resolve first if you only have a symbol.
+Return the data shown on a FlyBase report page for an ID. Supported: genes, alleles, insertions, constructs, transcripts, polypeptides, aberrations, balancers, stocks, references, gene groups, disease models, cell lines, strains, libraries, vocabulary terms (GO, FBbt, FBcv, FBdv, DOID, SO, MI), clones, sequence features, natural transposons, chemicals, ortholog genes, split system combinations, plasmids. Choose sections to keep responses small; use list_options=true to see section names. List sections (library features, alleles, references, and the like) return the first page only, up to limit_per_section items with has_more. Use resolve first if you only have a symbol.
 
 ```json
 {
@@ -644,13 +653,22 @@ Fly stocks available from stock centres (Bloomington, Kyoto, VDRC, NIG-Fly, Kore
 
 ## `get_term`
 
-Full report for one vocabulary term ID (GO:..., FBbt:..., FBcv:..., FBdv:..., DOID:..., SO:..., MI:...): definition, synonyms, parents, children, and annotation counts by data class. Use search_vocabulary first if you only have a term name; use entities_for_term to list the annotated genes or alleles.
+Full report for one vocabulary term ID (GO:..., FBbt:..., FBcv:..., FBdv:..., DOID:..., SO:..., MI:...): definition, synonyms, parents, children (100 per page; page with offset), and annotation counts by data class. Use search_vocabulary first if you only have a term name; use entities_for_term to list the annotated genes or alleles.
 
 ```json
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "additionalProperties": false,
   "properties": {
+    "offset": {
+      "description": "Children to skip (the children list is paged 100 at a time); offset + 100 may not exceed 10,000.",
+      "format": "uint32",
+      "minimum": 0,
+      "type": [
+        "integer",
+        "null"
+      ]
+    },
     "term_id": {
       "description": "A vocabulary term ID: GO:0007219, FBbt:00004729, FBcv:0000013, FBdv:00005289, DOID:1289, SO:0000704.",
       "type": "string"
@@ -833,7 +851,7 @@ List genome features (genes, transcripts, exons, insertions, regulatory regions,
 
 ## `resolve`
 
-Turn one gene, allele, insertion, stock, cell line, library, strain, or other symbol, name, synonym, stock number, or ID into current FlyBase IDs. Handles obsolete and secondary IDs. Use this first whenever you have a name and need an ID for another tool. For a batch of exact IDs use validate_ids; for free-text discovery use search.
+Turn one gene, allele, insertion, stock, cell line, library, strain, or other symbol, name, synonym, stock number, or ID into current FlyBase IDs. Handles obsolete and secondary IDs (secondary IDs are known for feature classes such as FBgn and FBal only, not FBgg or FBhh). Use this first whenever you have a name and need an ID for another tool. For a batch of exact IDs use validate_ids; for free-text discovery use search.
 
 ```json
 {
@@ -1086,7 +1104,7 @@ Search FlyBase controlled vocabularies (GO, anatomy FBbt, development FBdv, dise
 
 ## `validate_ids`
 
-Validate and update a batch of up to 500 identifiers at once: FlyBase IDs (reports secondary, split, and obsolete IDs with their current replacements), exact symbols or names, and external IDs (UniProt, GenBank, RefSeq, Entrez Gene, HGNC:n, PubMed). Use for lists of exact inputs; use resolve for one fuzzy name.
+Validate and update a batch of up to 500 identifiers at once: FlyBase IDs (reports secondary, split, and obsolete IDs with their current replacements; secondary IDs are known for feature classes such as FBgn and FBal only, not FBgg or FBhh), exact symbols or names, and external IDs (UniProt, GenBank, RefSeq, Entrez Gene, HGNC:n, PubMed). Use for lists of exact inputs; use resolve for one fuzzy name.
 
 ```json
 {

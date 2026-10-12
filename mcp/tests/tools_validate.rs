@@ -116,3 +116,22 @@ async fn batch_limit_and_empty_list() {
         .unwrap();
     assert_eq!(r.structured_content.unwrap()["error"], "invalid_input");
 }
+
+/// The HGNC prefix is case-insensitive, as in get_orthologs; each input is answered as written, and a non-ASCII
+/// accession after the prefix is simply unknown.
+#[tokio::test]
+async fn hgnc_prefix_is_case_insensitive() {
+    let c = client().await;
+    let s = call(
+        &c,
+        "validate_ids",
+        json!({"ids": ["hgnc:7881", "HGNC:7881", "hgnc:é"]}),
+    )
+    .await;
+    let r = s["results"].as_array().unwrap();
+    assert_eq!(r[0]["input"], "hgnc:7881");
+    assert_eq!(r[0]["matched_by"], "external_id");
+    assert_eq!(r[0]["current_ids"], json!(["FBog0000245780"]));
+    assert_eq!(r[0]["current_ids"], r[1]["current_ids"]);
+    assert_eq!(r[2]["status"], "unknown");
+}

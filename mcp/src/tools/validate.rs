@@ -47,7 +47,7 @@ fn push_unique(v: &mut Vec<String>, id: String) {
 impl FlyBaseServer {
     #[tool(
         name = "validate_ids",
-        description = "Validate and update a batch of up to 500 identifiers at once: FlyBase IDs (reports secondary, split, and obsolete IDs with their current replacements), exact symbols or names, and external IDs (UniProt, GenBank, RefSeq, Entrez Gene, HGNC:n, PubMed). Use for lists of exact inputs; use resolve for one fuzzy name."
+        description = "Validate and update a batch of up to 500 identifiers at once: FlyBase IDs (reports secondary, split, and obsolete IDs with their current replacements; secondary IDs are known for feature classes such as FBgn and FBal only, not FBgg or FBhh), exact symbols or names, and external IDs (UniProt, GenBank, RefSeq, Entrez Gene, HGNC:n, PubMed). Use for lists of exact inputs; use resolve for one fuzzy name."
     )]
     pub async fn validate_ids(
         &self,
@@ -253,37 +253,45 @@ impl FlyBaseServer {
             });
             push_unique(&mut h.ids, id);
         }
-        // HGNC:7881 is looked up as accession 7881 in the HGNC db only; a bare number is an Entrez Gene ID (and, below, a PubMed ID).
+        // HGNC:7881 (prefix in any case) is looked up as accession 7881 in the HGNC db only; a bare number is an Entrez
+        // Gene ID (and, below, a PubMed ID). The prefix is sliced with `get` so non-ASCII input cannot panic.
+        let hgnc_acc = |s: &str| -> Option<String> {
+            s.get(..5)
+                .filter(|p| p.eq_ignore_ascii_case("HGNC:"))
+                .map(|_| s[5..].to_string())
+        };
         let accessions: Vec<String> = inputs
             .iter()
-            .map(|s| s.strip_prefix("HGNC:").unwrap_or(s).to_string())
+            .map(|s| hgnc_acc(s).unwrap_or_else(|| s.clone()))
             .collect();
         let rows = Chado::query_on(conn, t, "validate/external", &[&accessions]).await?;
         for r in &rows {
             let acc: String = r.get("input");
             let db: String = r.get("db");
-            let original = if db == "HGNC" {
-                format!("HGNC:{acc}")
-            } else {
-                acc.clone()
-            };
-            if !inputs.contains(&original) {
-                continue;
-            }
-            let h = hits.entry(original).or_insert_with(|| Hit {
-                status: "matched",
-                matched_by: "external_id",
-                ..Hit::default()
+            // Map the row back to every input as the user wrote it (hgnc:7881 and HGNC:7881 are both answered).
+            let originals = inputs.iter().filter(|s| {
+                if db == "HGNC" {
+                    hgnc_acc(s).as_deref() == Some(acc.as_str())
+                } else {
+                    **s == acc
+                }
             });
-            if h.matched_by == "symbol" || h.matched_by == "stock_number" {
-                continue; // an exact symbol or stock number wins over an accidental accession match
+            for original in originals {
+                let h = hits.entry(original.clone()).or_insert_with(|| Hit {
+                    status: "matched",
+                    matched_by: "external_id",
+                    ..Hit::default()
+                });
+                if h.matched_by == "symbol" || h.matched_by == "stock_number" {
+                    continue; // an exact symbol or stock number wins over an accidental accession match
+                }
+                let id: String = r.get("uniquename");
+                h.symbols
+                    .entry(id.clone())
+                    .or_insert_with(|| r.get("symbol"));
+                push_unique(&mut h.ids, id);
+                h.note = Some(format!("via {db}"));
             }
-            let id: String = r.get("uniquename");
-            h.symbols
-                .entry(id.clone())
-                .or_insert_with(|| r.get("symbol"));
-            push_unique(&mut h.ids, id);
-            h.note = Some(format!("via {db}"));
         }
         let numbers: Vec<String> = inputs
             .iter()

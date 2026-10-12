@@ -58,7 +58,7 @@ fn annotation_row(r: &tokio_postgres::Row) -> Value {
 impl FlyBaseServer {
     #[tool(
         name = "get_disease_models",
-        description = "Human disease models: for a gene or allele, its Disease Ontology annotations with qualifiers (model of, ameliorates, exacerbates), evidence, and references, plus disease-variant alleles and the FlyBase disease model entries (FBhh) that cite it; for an FBhh entry, its human gene, DO terms, fly models, and variants; for a DOID term, the entries and alleles annotated to it or its descendants. Use for disease questions; use get_orthologs for the human gene itself."
+        description = "Human disease models: for a gene or allele, its Disease Ontology annotations with qualifiers (model of, ameliorates, exacerbates), evidence, and references, plus disease-variant alleles (first page only) and the FlyBase disease model entries (FBhh) that cite it; for an FBhh entry, its human gene, DO terms, fly models, and variants; for a DOID term, the entries and alleles annotated to it or its descendants. Use for disease questions; use get_orthologs for the human gene itself."
     )]
     pub async fn get_disease_models(
         &self,
@@ -132,6 +132,7 @@ impl FlyBaseServer {
             id: id.clone(),
             limit,
             fetch,
+            offset: 0,
         };
         let symbol = st
             .symbol
@@ -199,7 +200,9 @@ impl FlyBaseServer {
         // has_more when there are more), as in the FBhh report's `variants` section.
         let r = ctx.query("disease/variants", &[&id, &fetch]).await?;
         let variants = paged(
-            r.iter().map(variant_row).collect::<ToolResult<Vec<_>>>()?,
+            r.iter()
+                .map(|r| variant_row(T, r))
+                .collect::<ToolResult<Vec<_>>>()?,
             limit,
         );
         parts.push(format!(

@@ -8,7 +8,7 @@ use crate::{
         section_error,
     },
     server::FlyBaseServer,
-    tools::resolve::like_escape,
+    tools::{resolve::like_escape, search::MAX_OFFSET},
 };
 use rmcp::{
     ErrorData, handler::server::wrapper::Parameters, model::CallToolResult, tool, tool_router,
@@ -93,6 +93,8 @@ pub struct SearchVocabularyParams {
 pub struct GetTermParams {
     /// A vocabulary term ID: GO:0007219, FBbt:00004729, FBcv:0000013, FBdv:00005289, DOID:1289, SO:0000704.
     pub term_id: String,
+    /// Children to skip (the children list is paged 100 at a time); offset + 100 may not exceed 10,000.
+    pub offset: Option<u32>,
 }
 
 #[tool_router(router = tool_router_vocabulary, vis = "pub")]
@@ -196,7 +198,7 @@ impl FlyBaseServer {
 
     #[tool(
         name = "get_term",
-        description = "Full report for one vocabulary term ID (GO:..., FBbt:..., FBcv:..., FBdv:..., DOID:..., SO:..., MI:...): definition, synonyms, parents, children, and annotation counts by data class. Use search_vocabulary first if you only have a term name; use entities_for_term to list the annotated genes or alleles."
+        description = "Full report for one vocabulary term ID (GO:..., FBbt:..., FBcv:..., FBdv:..., DOID:..., SO:..., MI:...): definition, synonyms, parents, children (100 per page; page with offset), and annotation counts by data class. Use search_vocabulary first if you only have a term name; use entities_for_term to list the annotated genes or alleles."
     )]
     pub async fn get_term(
         &self,
@@ -224,12 +226,21 @@ impl FlyBaseServer {
                 "'{input}' is not a vocabulary term ID such as GO:0007219 or FBbt:00004729"
             ),
         })?;
+        let offset = i64::from(p.offset.unwrap_or(0));
+        if offset + 100 > MAX_OFFSET {
+            return Err(ToolError::InvalidInput {
+                tool: T,
+                arg: "offset",
+                message: format!("offset + 100 may not exceed {MAX_OFFSET}"),
+            });
+        }
         let ctx = SectionCtx {
             conn: self.chado.get(T).await?,
             tool: T,
             id: id.clone(),
             limit: 100,
             fetch: 101,
+            offset,
         };
         let rt = CvTerm::default();
         let names: Vec<&str> = rt
@@ -274,6 +285,7 @@ impl FlyBaseServer {
             .link("report", cv_term_link(&id))
             .field("id", json!(id))
             .field("type", json!("cv_term"))
+            .field("offset", json!(offset))
             .field("sections", Value::Object(sections));
         if !section_errors.is_empty() {
             env = env.field("section_errors", json!(section_errors));

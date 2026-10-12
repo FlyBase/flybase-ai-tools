@@ -201,6 +201,29 @@ async fn point_insertions_have_start_equal_end() {
     );
 }
 
+/// A zero-length feature as `id` input becomes a one-base window, so it finds itself without padding.
+#[tokio::test]
+async fn map_by_point_id_finds_the_point() {
+    let c = client().await;
+    let s = call(
+        &c,
+        "map_features",
+        json!({"id": "FBti0000488", "feature_types": ["insertion"]}),
+    )
+    .await;
+    assert_eq!(s["region"]["chromosome"], "3L");
+    assert_eq!(s["region"]["start"], 3337664);
+    assert_eq!(s["region"]["end"], 3337665);
+    assert!(
+        s["features"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|x| x["id"] == "FBti0000488"),
+        "{s}"
+    );
+}
+
 /// An arm that is not a golden_path feature is rejected up front, not answered with an empty success.
 #[tokio::test]
 async fn map_rejects_unknown_chromosome() {

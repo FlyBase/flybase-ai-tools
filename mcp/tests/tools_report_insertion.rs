@@ -15,7 +15,9 @@ async fn insertion_default_sections() {
     );
     assert_eq!(sec["identity"]["cytology"], "63D2");
     assert_eq!(sec["location"]["chromosome"], "3L");
-    assert_eq!(sec["location"]["start"], 3337665);
+    // Zero-length insertion site (fmin == fmax): reported as the point start == end == fmax.
+    assert_eq!(sec["location"]["start"], 3337664);
+    assert_eq!(sec["location"]["end"], 3337664);
     assert!(
         sec["genes"]
             .as_array()

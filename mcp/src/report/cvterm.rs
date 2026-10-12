@@ -110,7 +110,10 @@ impl ReportType for CvTerm {
             }
             "children" => {
                 let r = ctx
-                    .query("report/cvterm/children", &[&cvterm_id, &ctx.fetch])
+                    .query(
+                        "report/cvterm/children",
+                        &[&cvterm_id, &ctx.fetch, &ctx.offset],
+                    )
                     .await?;
                 paged(rows_to_json(&r, related_term), ctx.limit)
             }
