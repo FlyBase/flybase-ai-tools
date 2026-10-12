@@ -119,6 +119,12 @@ Per-client rate limits belong at the edge (WAF or CDN). Inside the server, globa
 concurrent database work regardless of how many clients connect; a call that cannot get a permit within 5 s
 fails with a "busy" error the client may retry.
 
+Known tuning step: a cold `map_features` or `cytosearch` query over a full 2 Mb window walks the whole range
+on the featureloc index before filtering by type, and can take about 20 s (2 to 3 s warm) while it holds a
+heavy permit. A few such calls at once can occupy every heavy permit. If load tests show heavy-permit
+starvation, the lever is a derived located-feature table (arm, type, fmin, fmax, ...) indexed on
+(arm, type, fmin), added in a later migration.
+
 ## Logs
 
 Logs are JSON lines on stdout, one object per event, from `tracing-subscriber`:

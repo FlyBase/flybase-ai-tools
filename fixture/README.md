@@ -30,6 +30,9 @@ Plan 2 tables: `feature_grpmember`, `grp_relationship`, `grp_pub`, `grp_cvterm`,
 are copied whole. `feature_relationship_pub`, `feature_relationshipprop`, `feature_interaction`, `interaction`,
 `interaction_pub`, `interactionprop`, `interaction_cvterm` and `phenotype_comparison` are restricted to the feature-id set.
 
-`fixture/data/diopt.tsv.gz` (git-ignored, downloaded by hand) is optional; no test depends on it.
+`fixture/data/diopt.tsv.gz` (git-ignored, downloaded by hand) is optional; no test depends on it. When it is
+absent, `tests/migrations.rs::diopt_loader_parses_the_release_file_format` leaves `mcp.diopt_orthologs` empty
+(truncated) after loading its sample file. That is harmless on the fixture, but running the suite against your own
+restore empties a DIOPT table you loaded there, so reload it with `--diopt` afterwards.
 
 Known gaps: `stock_pub` is empty in public chado.
