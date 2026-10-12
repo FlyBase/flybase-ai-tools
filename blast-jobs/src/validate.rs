@@ -4,6 +4,7 @@ use crate::catalogue::{Catalogue, Resolved};
 use crate::config::Config;
 use crate::types::{Program, Rejection, SubmitRequest};
 use serde::{Deserialize, Serialize};
+use std::collections::HashSet;
 use std::fmt;
 
 /// Most species in one search.
@@ -14,6 +15,17 @@ pub const NUCLEOTIDE: &str = "ACGTUNRYKMSWBDHV-";
 /// Query alphabet for blastp and tblastn: the 20 amino acids plus `BJOUXZ*-`.
 pub const PROTEIN: &str = "ACDEFGHIKLMNPQRSTVWYBJOUXZ*-";
 const CLIENT_MAX: usize = 64;
+/// Longest piece of a caller's string echoed back in a rejection message, in characters.
+pub const ECHO_MAX: usize = 40;
+
+/// `s` quoted for a rejection message, cut to `ECHO_MAX` characters (on a char boundary) with `…`
+/// appended when longer, so a huge field never produces a huge error body.
+pub fn quoted(s: &str) -> String {
+    match s.char_indices().nth(ECHO_MAX) {
+        None => format!("{s:?}"),
+        Some((cut, _)) => format!("{:?}…", &s[..cut]),
+    }
+}
 
 /// The NCBI genetic codes: 1-6, 9-16, 21-31, 33 (no 7, 8, 17-20, 32).
 pub fn genetic_code_known(g: u32) -> bool {
@@ -72,8 +84,8 @@ impl fmt::Debug for Validated {
 pub fn check(req: &SubmitRequest, cfg: &Config, cat: &Catalogue) -> Result<Validated, Rejection> {
     let program = Program::parse(&req.program).ok_or_else(|| {
         Rejection::program(format!(
-            "program {:?} is not one of blastn, blastp, blastx, tblastn, tblastx",
-            req.program
+            "program {} is not one of blastn, blastp, blastx, tblastn, tblastx",
+            quoted(&req.program)
         ))
     })?;
 
@@ -88,8 +100,8 @@ pub fn check(req: &SubmitRequest, cfg: &Config, cat: &Catalogue) -> Result<Valid
                 ("a nucleotide", "protein")
             };
             return Err(Rejection::database(format!(
-                "{program} searches {want} database; {:?} is {have}",
-                req.database
+                "{program} searches {want} database; {} is {have}",
+                quoted(&req.database)
             )));
         }
         Some(_) => {}
@@ -124,7 +136,8 @@ pub fn check(req: &SubmitRequest, cfg: &Config, cat: &Catalogue) -> Result<Valid
             let up = m.trim().to_ascii_uppercase();
             if !MATRICES.contains(&up.as_str()) {
                 return Err(Rejection::option(format!(
-                    "matrix {m:?} is not one of {}",
+                    "matrix {} is not one of {}",
+                    quoted(m),
                     MATRICES.join(" ")
                 )));
             }
@@ -198,7 +211,8 @@ fn species(raw: &[String]) -> Result<Vec<String>, Rejection> {
     if raw.is_empty() {
         return Err(Rejection::species("give at least one species"));
     }
-    let mut out: Vec<String> = Vec::with_capacity(raw.len());
+    let mut seen = HashSet::new();
+    let mut out: Vec<String> = Vec::new();
     for s in raw {
         let ok = !s.is_empty()
             && s.len() <= 32
@@ -206,18 +220,19 @@ fn species(raw: &[String]) -> Result<Vec<String>, Rejection> {
                 .all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || b == b'_');
         if !ok {
             return Err(Rejection::species(format!(
-                "species {s:?} must be a lowercase code such as \"dmel\""
+                "species {} must be a lowercase code such as \"dmel\"",
+                quoted(s)
             )));
         }
-        if !out.contains(s) {
+        if seen.insert(s.as_str()) {
             out.push(s.clone());
+            // Stop at the first species over the cap, so a huge list costs no more than 21 entries.
+            if out.len() > MAX_SPECIES {
+                return Err(Rejection::species(format!(
+                    "at most {MAX_SPECIES} species per search"
+                )));
+            }
         }
-    }
-    if out.len() > MAX_SPECIES {
-        return Err(Rejection::species(format!(
-            "at most {MAX_SPECIES} species per search, got {}",
-            out.len()
-        )));
     }
     Ok(out)
 }
@@ -374,6 +389,48 @@ mod tests {
         assert!(rejected(&r, Code::InvalidSpecies).contains("at most 20"));
         r.species = vec!["dmel".into(), "dyak".into()];
         assert!(rejected(&r, Code::InvalidSpecies).contains("dyak"));
+    }
+
+    #[test]
+    fn echoed_strings_are_clipped() {
+        let huge = "x".repeat(500_000);
+        let m = rejected(&req(&huge, "assembly", "ACGT"), Code::InvalidProgram);
+        assert!(m.len() < 200, "message is {} bytes", m.len());
+        assert!(m.contains(&format!("{:?}…", "x".repeat(ECHO_MAX))), "{m}");
+        let m = rejected(&req("blastn", &huge, "ACGT"), Code::InvalidDatabase);
+        assert!(m.len() < 300, "message is {} bytes", m.len());
+        let mut r = req("blastn", "assembly", "ACGT");
+        r.species = vec![huge.clone()];
+        assert!(rejected(&r, Code::InvalidSpecies).len() < 200);
+        let mut r = req("blastp", "translation", "MKV");
+        r.matrix = Some(huge.clone());
+        assert!(rejected(&r, Code::InvalidOption).len() < 200);
+        // Cut on a char boundary for multi-byte input; short strings are untouched.
+        assert_eq!(
+            quoted(&"é".repeat(50)),
+            format!("{:?}…", "é".repeat(ECHO_MAX))
+        );
+        assert_eq!(quoted("blastq"), "\"blastq\"");
+        assert_eq!(
+            quoted(&"y".repeat(ECHO_MAX)),
+            format!("{:?}", "y".repeat(ECHO_MAX))
+        );
+    }
+
+    #[test]
+    fn huge_species_list_is_rejected_fast() {
+        let mut r = req("blastn", "assembly", "ACGT");
+        r.species = (0..100_000).map(|i| format!("sp{i}")).collect();
+        let t = std::time::Instant::now();
+        assert!(rejected(&r, Code::InvalidSpecies).contains("at most 20"));
+        assert!(
+            t.elapsed() < std::time::Duration::from_secs(1),
+            "{:?}",
+            t.elapsed()
+        );
+        // Repeats of one code collapse to one species and pass.
+        r.species = vec!["dmel".to_string(); 100_000];
+        assert_eq!(run(&r).unwrap().species, vec!["dmel"]);
     }
 
     #[test]

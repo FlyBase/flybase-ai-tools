@@ -2,6 +2,7 @@
 //! (design 3.2, 3.3). Any JSON file with a `databases` array of `{species, category, protein, prefix}`
 //! works; extra fields are ignored.
 use crate::types::Rejection;
+use crate::validate::quoted;
 use anyhow::{Context, bail};
 use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, HashMap};
@@ -127,7 +128,8 @@ impl Catalogue {
     pub fn unknown_database(&self, category: &str) -> Rejection {
         let known: Vec<&str> = self.categories.keys().map(String::as_str).collect();
         Rejection::database(format!(
-            "database {category:?} is not available; available: {}",
+            "database {} is not available; available: {}",
+            quoted(category),
             known.join(", ")
         ))
     }
