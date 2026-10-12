@@ -1,8 +1,8 @@
 # Deploying the FlyBase MCP server
 
-The server is one Rust binary, `flybase-mcp`, packaged as a container. It reads a dedicated PostgreSQL 16
-database (`chado-mcp`) restored from a FlyBase release dump and serves the Model Context Protocol over
-Streamable HTTP at `/mcp`. The public endpoint is `https://mcp.flybase.org/mcp`.
+The server is one Rust binary, `flybase-mcp`, packaged as a container. It reads a database on a dedicated
+PostgreSQL 16 server (`chado-mcp`), restored from a FlyBase release dump, and serves the Model Context
+Protocol over Streamable HTTP at `/mcp`. The public endpoint is `https://mcp.flybase.org/mcp`.
 
 Private-side handoff: [handoff-private-side.md](handoff-private-side.md) is the checklist for what the hosting
 side provides (database, runtime role, release runbook step, proxy and CDN requirements, BLAST job API).
@@ -36,7 +36,7 @@ unprivileged `flybase` user (uid 10001). The image exposes 7200 and its `HEALTHC
 
 ## Prepare the database
 
-1. Restore the release dump into an empty `chado-mcp` database as its owner role.
+1. Restore the release dump into an empty database on the `chado-mcp` server as its owner role.
 2. Create the runtime role once per cluster (roles survive a database rebuild):
 
    ```sql

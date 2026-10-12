@@ -4,10 +4,11 @@ What the public repo cannot hold. This file states only what the server needs fr
 operational choice is marked "decide in the private repo" and recorded there, never here. The server itself
 is documented in `deployment.md`; the tool surface in `tools.md`.
 
-## 1. The `chado-mcp` database
+## 1. The `chado-mcp` server
 
-A dedicated PostgreSQL 16 database loaded from the same release dump as public chado and reachable only from
-the MCP container and the hosts that run migrations and tests. For sizing: the FB2026_02 development restore
+`chado-mcp` is a dedicated PostgreSQL 16 server (`<chado-mcp-host>` in `CHADO_URL`). Each release is a
+database on it restored from the same release dump as public chado. It is reachable only from the MCP
+container and the hosts that run migrations and tests. For sizing: the FB2026_02 development restore
 holds 98 million `feature` rows and the `mcp` schema adds the name index, CV closure, band coordinates,
 RNA-seq expression and matrix tables, the DIOPT ortholog table, and trigram indexes on top; keep room for two
 releases side by side during a load (section 3). The server sets its own statement timeouts per session;
@@ -31,16 +32,44 @@ the container.
 
 ## 3. Release runbook step (after the public chado load)
 
-1. Restore the release dump into a new database (for example `flybase_<release>`) as the owner role, so the
-   previous release keeps serving until the switch.
+1. Restore the release dump into a new database on the `chado-mcp` server (for example `flybase_<release>`) as
+   the owner role, so the previous release keeps serving until the switch.
 2. Download `precomputed_files/orthologs/dmel_human_orthologs_disease_fb_<release>.tsv.gz` from the release
    FTP directory.
 3. Run `flybase-mcp migrate --diopt <file>` against the new database with `CHADO_URL` set to the owner role
-   (same image as `serve`; a few minutes).
+   (same image as `serve`; a few minutes). `migrate` loads the full server configuration and records
+   `FLYBASE_RELEASE` in `mcp.migration_log`, so set `FLYBASE_RELEASE` to the new release value (and
+   `FLYBASE_MCP_PUBLIC_URL`) before it runs; the `migrate` example in `deployment.md` shows the variables.
 4. Set `CHADO_URL` to the new database with the runtime role and `FLYBASE_RELEASE=FB<year>_<n>` in the compose
    environment, then redeploy `flybase-mcp`. The server refuses to start if a migration is missing.
 5. Check `GET /health` on loopback: `status: ok`, `migrations: ok`, `release` equal to the new value.
-6. Run the conformance and live suites against the new database (`CHADO_URL=<url> cargo test --tests`) and
+6. Run the read-only test binaries against the new database with the runtime role, from an ops host that
+   can reach `<chado-mcp-host>`:
+
+   ```bash
+   git clone https://github.com/FlyBase/flybase-ai-tools && cd flybase-ai-tools
+   git checkout <deployed commit>          # the commit the running image was built from
+   cd mcp                                  # cargo runs from the crate directory
+   export PATH="$HOME/.cargo/bin:$PATH"    # rustup toolchain; mcp/rust-toolchain.toml pins the version
+   CHADO_URL='postgres://flybase_mcp:<secret>@<chado-mcp-host>:5432/flybase_<release>' \
+     cargo test --test cache --test conformance --test live --test tools_batch --test tools_blast \
+       --test tools_coordinates --test tools_entities --test tools_homepage --test tools_interactions \
+       --test tools_map --test tools_orthologs --test tools_report_aberration --test tools_report_gene \
+       --test tools_report_group --test tools_report_insertion --test tools_report_other \
+       --test tools_report_record --test tools_report_transcript --test tools_resolve --test tools_rnaseq \
+       --test tools_search --test tools_sequence --test tools_validate --test tools_vocabulary \
+       -- --test-threads=2
+   ```
+
+   That is every test binary except `migrations`. **Never run the `migrations` test binary (or plain
+   `cargo test` / `cargo test --tests`) against a serving database:** it rebuilds the derived tables under
+   exclusive locks, empties `mcp.diopt_orthologs`, and rewrites the release recorded in `mcp.migration_log`.
+   Do not set `FLYBASE_TEST_MIGRATE` or `FLYBASE_TEST_FULL_DB` (the full-database assertions are pinned to
+   the development restore's counts). `CHADO_URL` is the only variable the tests read from the environment;
+   the harness sets its own bind address, public URL, and release label (`FB_TEST`), so the deployment's
+   `FLYBASE_RELEASE` is not needed here. Using the runtime role means a test cannot write even if its
+   startup check fails, and `--test-threads=2` keeps the run to a few connections (each test server opens a
+   pool of 4) under the role's connection limit while the production pool is open. Then run
    `scripts/coordinate_parity.sh http://127.0.0.1:7200` on the container host (it also fetches FlyBase's
    public anchor tables).
 7. Drop the previous release's database once the new one has served a day.
@@ -96,7 +125,7 @@ any 3xx is a service fault. Timeouts on the MCP side: 3 s connect, 15 s per requ
 
 | Route | Request | Responses |
 |---|---|---|
-| `POST /internal/jobs` | JSON `{program, database, species[], sequence, evalue?, megablast?, max_hits?, matrix?, genetic_code?, advanced?, client}`; `program` in `blastn blastp blastx tblastn tblastx`; `database` in `assembly transcript translation intergenic syntenic_region transposon canonical_transposons genbank est gss genpept`; `species` lowercase abbreviations, deduplicated (`dmel dsim dsec dyak dere dana dpse dper dwil dmoj dvir dgri`); `sequence` one FASTA record headed `>query`, uppercase residues, up to 100,000 residues; `evalue` in (0, 1000]; `max_hits` 1 to 1000; `matrix` one of `BLOSUM62 BLOSUM45 BLOSUM80 PAM30 PAM70`; `genetic_code` 1 to 33; `advanced` at most 200 characters of `[A-Za-z0-9 -_.=]`; optional keys are omitted when unset; `client` is `flybase-mcp` | `202 {job_id, state: "queued", queue_position, poll_after_seconds, database_release}`; `400` (or `422`) `{error: invalid_sequence \| invalid_program \| invalid_database \| invalid_species \| invalid_option, message}`; `429 {error: "queue_full", retry_after_seconds}`; `401` or `403`; `503` |
+| `POST /internal/jobs` | JSON `{program, database, species[], sequence, evalue?, megablast?, max_hits?, matrix?, genetic_code?, advanced?, client}`; `program` in `blastn blastp blastx tblastn tblastx`; `database` in `assembly transcript translation intergenic syntenic_region transposon canonical_transposons genbank est gss genpept`; `species` lowercase abbreviations, deduplicated (`dmel dsim dsec dyak dere dana dpse dper dwil dmoj dvir dgri`); `sequence` one FASTA record headed `>query`, uppercase residues, up to 100,000 residues; `evalue` in (0, 1000]; `max_hits` 1 to 1000; `matrix` one of `BLOSUM62 BLOSUM45 BLOSUM80 PAM30 PAM70`; `genetic_code` 1 to 33; `advanced` at most 200 characters of `[A-Za-z0-9 _.=-]` (letters, digits, space, underscore, dot, equals, hyphen; the same set `mcp/src/tools/blast.rs` checks); optional keys are omitted when unset; `client` is `flybase-mcp` | `202 {job_id, state: "queued", queue_position, poll_after_seconds, database_release}`; `400` (or `422`) `{error: invalid_sequence \| invalid_program \| invalid_database \| invalid_species \| invalid_option, message}`; `429 {error: "queue_full", retry_after_seconds}`; `401` or `403`; `503` |
 | `GET /internal/jobs/{job_id}` | none | `200 {job_id, state: queued \| running \| complete \| failed \| cancelled, queue_position, error, result_url, downloads: {tsv, xml, txt}}` (`result_url` and `downloads` once complete, pointing at public flybase.org pages; the MCP returns them verbatim); `404 {error: "unknown_job"}` |
 | `GET /internal/jobs/{job_id}/results.tsv` | none | `200` with `Content-Type` `text/tab-separated-values` or `text/plain` (any charset), header `qseqid sseqid pident length mismatch gapopen qstart qend sstart send evalue bitscore stitle` (BLAST `-outfmt "6 std stitle"`, tab-separated), one row per HSP in BLAST order; `409 {error: "not_complete", state}`; `404` |
 | `GET /internal/health` | none, no auth | `200` when jobs can be accepted, else `503` |
