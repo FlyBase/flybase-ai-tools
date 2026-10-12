@@ -40,3 +40,37 @@ async fn statement_timeout_maps_to_limit_exceeded() {
     assert_eq!(mapped.code(), "limit_exceeded");
     assert!(!mapped.to_string().contains("pg_sleep"));
 }
+
+/// Review focus 2: the 45 s timeout is local to the heavy transaction; the pooled session keeps 10 s.
+#[tokio::test]
+async fn heavy_timeout_is_local_to_the_transaction() {
+    use flybase_mcp::config::Config;
+    let base = support::test_config();
+    let cfg = Config::from_lookup(|k| match k {
+        "CHADO_POOL_SIZE" => Some("1".into()),
+        "FLYBASE_MCP_BIND" => Some("127.0.0.1:0".into()),
+        "FLYBASE_MCP_PUBLIC_URL" => Some("http://127.0.0.1".into()),
+        "FLYBASE_RELEASE" => Some("FB_TEST".into()),
+        "CHADO_URL" => Some(base.chado_url.clone()),
+        _ => None,
+    })
+    .unwrap();
+    let chado = Chado::connect(&cfg).await.unwrap();
+    let inside: String = chado
+        .heavy("test", async |tx| {
+            let r = Chado::query_tx(tx, "test", "startup/timeout_setting", &[]).await?;
+            Ok(r[0].get::<_, String>("setting"))
+        })
+        .await
+        .unwrap();
+    assert_eq!(inside, "45s");
+    let after = chado
+        .query("test", "startup/timeout_setting", &[])
+        .await
+        .unwrap();
+    assert_eq!(
+        after[0].get::<_, String>("setting"),
+        "10s",
+        "pool size 1, so this is the same session"
+    );
+}

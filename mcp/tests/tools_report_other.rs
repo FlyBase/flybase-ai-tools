@@ -23,7 +23,10 @@ async fn allele_report() {
         .iter()
         .find(|i| i["phenotype"] == "visible")
         .expect("visible phenotype");
-    assert_eq!(visible["statements"], 31);
+    assert!(visible["statements"].as_u64().unwrap() >= 1);
+    if support::full_db() {
+        assert_eq!(visible["statements"], 31);
+    }
 
     let p = call(
         &c,

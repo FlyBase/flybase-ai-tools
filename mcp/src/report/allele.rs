@@ -1,4 +1,7 @@
-use super::{ReportType, SectionCtx, paged, rows_to_json, strip_markup};
+use super::{
+    ReportType, SectionCtx, paged, phenotype_section, references_section, rows_to_json,
+    strip_markup, synonyms_section,
+};
 use crate::error::{ToolError, ToolResult};
 use serde_json::{Value, json};
 
@@ -76,38 +79,7 @@ impl ReportType for Allele {
                     |r| json!({"name": r.get::<_, Option<String>>("name"), "term_id": r.get::<_, Option<String>>("fbcv_id")})
                 ))
             }
-            "phenotype_summary" => {
-                let r = ctx
-                    .query("report/allele/phenotype_summary", &[id, &ctx.fetch])
-                    .await?;
-                paged(
-                    rows_to_json(&r, |r| {
-                        json!({
-                            "phenotype": r.get::<_, String>("term"),
-                            "term_id": r.get::<_, Option<String>>("term_id"),
-                            "statements": r.get::<_, i64>("statements"),
-                        })
-                    }),
-                    ctx.limit,
-                )
-            }
-            "phenotypes" => {
-                let r = ctx
-                    .query("report/allele/phenotypes", &[id, &ctx.fetch])
-                    .await?;
-                paged(
-                    rows_to_json(&r, |r| {
-                        json!({
-                            "genotype": strip_markup(&r.get::<_, String>("genotype")),
-                            "phenotype": r.get::<_, Option<String>>("phenotype"),
-                            "qualifiers": r.get::<_, Option<String>>("qualifiers"),
-                            "reference": r.get::<_, String>("reference"),
-                            "citation": r.get::<_, Option<String>>("miniref"),
-                        })
-                    }),
-                    ctx.limit,
-                )
-            }
+            "phenotype_summary" | "phenotypes" => phenotype_section(ctx, name).await?,
             "transgenic_product_class" => {
                 let r = ctx
                     .query("report/allele/transgenic_product_class", &[id])
@@ -152,32 +124,8 @@ impl ReportType for Allele {
                 let r = ctx.query("report/allele/stock_count", &[id]).await?;
                 json!(r.first().map(|r| r.get::<_, i64>("n")).unwrap_or(0))
             }
-            "references" => {
-                let r = ctx
-                    .query("report/common/references", &[id, &ctx.fetch])
-                    .await?;
-                paged(
-                    rows_to_json(&r, |r| {
-                        json!({
-                            "id": r.get::<_, String>("uniquename"),
-                            "citation": r.get::<_, Option<String>>("miniref"),
-                            "year": r.get::<_, Option<String>>("pyear"),
-                            "pubmed_id": r.get::<_, Option<String>>("pmid"),
-                        })
-                    }),
-                    ctx.limit,
-                )
-            }
-            "synonyms" => {
-                let r = ctx.query("report/common/synonyms", &[id]).await?;
-                json!(rows_to_json(&r, |r| {
-                    json!({
-                        "name": strip_markup(&r.get::<_, String>("name")),
-                        "kind": r.get::<_, String>("kind"),
-                        "is_current": r.get::<_, bool>("is_current"),
-                    })
-                }))
-            }
+            "references" => references_section(ctx).await?,
+            "synonyms" => synonyms_section(ctx).await?,
             other => {
                 return Err(ToolError::InvalidInput {
                     tool: t,

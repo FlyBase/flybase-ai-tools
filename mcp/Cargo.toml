@@ -34,6 +34,7 @@ metrics = "0.24"
 metrics-exporter-prometheus = { version = "0.17", default-features = false }
 url = "2"
 clap = { version = "4", features = ["derive"] }
+flate2 = "1"
 
 [dev-dependencies]
 rmcp = { version = "3.5", features = ["client", "transport-streamable-http-client-reqwest"] }

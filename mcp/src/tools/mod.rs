@@ -1,5 +1,16 @@
+pub mod batch;
+pub mod cyto;
+pub mod disease;
+pub mod entities;
+pub mod groups;
+pub mod interactions;
+pub mod map;
+pub mod orthologs;
 pub mod report;
 pub mod resolve;
 pub mod search;
 pub mod sequence;
 pub mod species;
+pub mod stocks;
+pub mod validate;
+pub mod vocabulary;

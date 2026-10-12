@@ -1,12 +1,26 @@
 //! Report page sections for `get_report`. One `ReportType` per FlyBase ID prefix.
+pub mod aberration;
 pub mod allele;
+pub mod balancer;
+pub mod construct;
+pub mod cvterm;
+pub mod disease;
+pub mod feature;
 pub mod gene;
+pub mod group;
+pub mod insertion;
+pub mod polypeptide;
+pub mod record;
 pub mod reference;
 pub mod stock;
+pub mod transcript;
 
-use crate::{backends::chado::Chado, error::ToolResult};
+use crate::{
+    backends::chado::Chado,
+    error::{ToolError, ToolResult},
+};
 use deadpool_postgres::Object;
-use serde_json::{Value, json};
+use serde_json::{Map, Value, json};
 use tokio_postgres::{Row, types::ToSql};
 
 /// Everything a section needs. A report call checks out ONE pooled connection and every section runs
@@ -19,6 +33,9 @@ pub struct SectionCtx {
     pub limit: i64,
     /// `limit + 1`: list sections fetch one extra row so `paged` can set `has_more`.
     pub fetch: i64,
+    /// Rows to skip in the one pageable list of a tool that exposes `offset` (`get_term` children,
+    /// `get_gene_groups_and_pathways` members); 0 for `get_report`, whose list sections return the first page.
+    pub offset: i64,
 }
 
 impl SectionCtx {
@@ -33,18 +50,72 @@ pub trait ReportType: Send + Sync {
     fn default_sections(&self) -> &'static [&'static str];
     fn optional_sections(&self) -> &'static [&'static str];
     async fn section(&self, ctx: &SectionCtx, name: &str) -> ToolResult<Value>;
+    /// False for types whose IDs are not resolved through resolve_ids (vocabulary terms).
+    fn resolves_feature_id(&self) -> bool {
+        true
+    }
     /// Chromosome, fmin (0-based), fmax for a JBrowse link, if the entity is located.
     async fn location(&self, _ctx: &SectionCtx) -> ToolResult<Option<(String, i64, i64)>> {
         Ok(None)
     }
 }
 
+/// Every ID prefix in spec 4.5 with the label `get_report`'s description uses for it. The description must name
+/// exactly the labels whose prefix `for_id` dispatches (unit test in tools/report.rs).
+pub const PREFIX_LABELS: &[(&str, &str)] = &[
+    ("FBgn", "genes"),
+    ("FBal", "alleles"),
+    ("FBti", "insertions"),
+    ("FBtp", "constructs"),
+    ("FBtr", "transcripts"),
+    ("FBpp", "polypeptides"),
+    ("FBab", "aberrations"),
+    ("FBba", "balancers"),
+    ("FBst", "stocks"),
+    ("FBrf", "references"),
+    ("FBgg", "gene groups"),
+    ("FBhh", "disease models"),
+    ("FBtc", "cell lines"),
+    ("FBsn", "strains"),
+    ("FBlc", "libraries"),
+    ("GO:0", "vocabulary terms"),
+    ("FBcl", "clones"),
+    ("FBsf", "sequence features"),
+    ("FBte", "natural transposons"),
+    ("FBch", "chemicals"),
+    ("FBog", "ortholog genes"),
+    ("FBco", "split system combinations"),
+    ("FBmc", "plasmids"),
+];
+
 pub fn for_id(id: &str) -> Option<Box<dyn ReportType>> {
+    if cvterm::parse_term_id(id).is_some() {
+        return Some(Box::new(cvterm::CvTerm::default()));
+    }
     match id.get(..4).unwrap_or("") {
         "FBal" => Some(Box::new(allele::Allele)),
         "FBgn" => Some(Box::new(gene::Gene)),
         "FBrf" => Some(Box::new(reference::Reference)),
         "FBst" => Some(Box::new(stock::Stock)),
+        "FBti" => Some(Box::new(insertion::Insertion)),
+        "FBtp" => Some(Box::new(construct::Construct)),
+        "FBtr" => Some(Box::new(transcript::Transcript)),
+        "FBpp" => Some(Box::new(polypeptide::Polypeptide)),
+        "FBab" => Some(Box::new(aberration::Aberration)),
+        "FBba" => Some(Box::new(balancer::Balancer)),
+        "FBgg" => Some(Box::new(group::Group)),
+        "FBhh" => Some(Box::new(disease::Disease)),
+        "FBtc" => Some(Box::new(record::Record { kind: "cell_line" })),
+        "FBsn" => Some(Box::new(record::Record { kind: "strain" })),
+        "FBlc" => Some(Box::new(record::Record { kind: "library" })),
+        "FBcl" | "FBsf" | "FBte" | "FBch" | "FBog" => Some(Box::new(feature::GenericFeature {
+            name: crate::tools::resolve::class_of(id),
+            components: false,
+        })),
+        "FBco" | "FBmc" => Some(Box::new(feature::GenericFeature {
+            name: crate::tools::resolve::class_of(id),
+            components: true,
+        })),
         _ => None,
     }
 }
@@ -99,6 +170,220 @@ pub fn strip_markup(s: &str) -> String {
     out
 }
 
+/// A golden-path location as chado stores it (fmin 0-based, fmax 1-based, strand 1, -1, or 0).
+pub struct Location {
+    pub chromosome: String,
+    pub fmin: i64,
+    pub fmax: i64,
+    pub strand: i16,
+}
+
+impl Location {
+    pub fn jbrowse(&self) -> (String, i64, i64) {
+        (self.chromosome.clone(), self.fmin, self.fmax)
+    }
+}
+
+/// `{"error": code, "message": ...}` in place of a section that failed (see tools/report.rs).
+pub fn section_error(e: &ToolError) -> Value {
+    json!({ "error": e.code(), "message": e.to_string() })
+}
+
+/// True when the test harness has asked for the test-only sections (`__timeout_probe`). Never set in production.
+pub fn test_sections_enabled() -> bool {
+    std::env::var("FLYBASE_MCP_TEST_SECTIONS").is_ok_and(|v| v == "1")
+}
+
+/// `{id, citation, year, pubmed_id}` from any references query with columns uniquename, miniref, pyear, pmid.
+pub fn pub_row(r: &Row) -> Value {
+    json!({
+        "id": r.get::<_, String>("uniquename"),
+        "citation": r.get::<_, Option<String>>("miniref"),
+        "year": r.get::<_, Option<String>>("pyear"),
+        "pubmed_id": r.get::<_, Option<String>>("pmid"),
+    })
+}
+
+/// Identity of any feature: `{id, symbol, name, species, type, length}`; NotFound when the ID is not a current feature.
+pub async fn feature_identity(ctx: &SectionCtx) -> ToolResult<Value> {
+    let r = ctx
+        .query("report/common/feature_identity", &[&ctx.id])
+        .await?;
+    let r = r.first().ok_or_else(|| ToolError::NotFound {
+        tool: ctx.tool,
+        message: format!("{} not found", ctx.id),
+    })?;
+    Ok(json!({
+        "id": ctx.id,
+        "symbol": r.get::<_, Option<String>>("symbol").map(|s| strip_markup(&s)),
+        "name": r.get::<_, Option<String>>("fullname").map(|s| strip_markup(&s)),
+        "species": r.get::<_, Option<String>>("species"),
+        "type": r.get::<_, Option<String>>("type"),
+        "length": r.get::<_, Option<i32>>("seqlen"),
+    }))
+}
+
+pub async fn feature_location(ctx: &SectionCtx) -> ToolResult<Option<Location>> {
+    let rows = ctx.query("report/common/location", &[&ctx.id]).await?;
+    Ok(rows.first().and_then(|r| {
+        Some(Location {
+            chromosome: r.get::<_, Option<String>>("chromosome")?,
+            fmin: i64::from(r.get::<_, Option<i32>>("fmin")?),
+            fmax: i64::from(r.get::<_, Option<i32>>("fmax")?),
+            strand: r.get::<_, Option<i16>>("strand").unwrap_or(0),
+        })
+    }))
+}
+
+/// `{located, chromosome, start, end, strand}` with start 1-based; a zero-length location (an insertion site
+/// between two bases) is the point start = end = fmax, as in `map_features`.
+pub fn location_json(loc: &Option<Location>) -> Value {
+    match loc {
+        None => json!({ "located": false }),
+        Some(l) => json!({
+            "located": true,
+            "chromosome": l.chromosome,
+            "start": if l.fmin >= l.fmax { l.fmax } else { l.fmin + 1 },
+            "end": l.fmax,
+            "strand": l.strand,
+        }),
+    }
+}
+
+/// Selected featureprops as `type -> [values in rank order]`, markup stripped.
+pub async fn props(ctx: &SectionCtx, types: &[&str]) -> ToolResult<Map<String, Value>> {
+    let types: Vec<String> = types.iter().map(|t| t.to_string()).collect();
+    let rows = ctx.query("report/common/props", &[&ctx.id, &types]).await?;
+    Ok(props_map(&rows))
+}
+
+pub async fn references_section(ctx: &SectionCtx) -> ToolResult<Value> {
+    let r = ctx
+        .query("report/common/references", &[&ctx.id, &ctx.fetch])
+        .await?;
+    Ok(paged(rows_to_json(&r, pub_row), ctx.limit))
+}
+
+/// `{name, kind, is_current}` from any synonyms query with columns name, kind, is_current (feature, grp, humanhealth,
+/// cell_line, strain, library).
+pub fn synonym_row(r: &Row) -> Value {
+    json!({
+        "name": strip_markup(&r.get::<_, String>("name")),
+        "kind": r.get::<_, String>("kind"),
+        "is_current": r.get::<_, bool>("is_current"),
+    })
+}
+
+pub async fn synonyms_section(ctx: &SectionCtx) -> ToolResult<Value> {
+    let r = ctx.query("report/common/synonyms", &[&ctx.id]).await?;
+    Ok(json!(rows_to_json(&r, synonym_row)))
+}
+
+/// Property rows (columns type, value, rank, in rank order) as `type -> [values]`, markup stripped. Shared by the
+/// feature props queries and the cell line, strain, and library props queries.
+pub fn props_map(rows: &[Row]) -> Map<String, Value> {
+    let mut out = Map::new();
+    for r in rows {
+        if let Some(v) = r.get::<_, Option<String>>("value") {
+            out.entry(r.get::<_, String>("type"))
+                .or_insert_with(|| json!([]))
+                .as_array_mut()
+                .expect("array")
+                .push(json!(strip_markup(&v)));
+        }
+    }
+    out
+}
+
+/// gene/external_links.sql joins feature by uniquename, so it serves every feature type.
+pub async fn external_links_section(ctx: &SectionCtx) -> ToolResult<Value> {
+    let r = ctx.query("report/gene/external_links", &[&ctx.id]).await?;
+    Ok(json!(rows_to_json(&r, |r| {
+        json!({
+            "database": r.get::<_, String>("db"),
+            "accession": r.get::<_, String>("accession"),
+            "url": r.get::<_, Option<String>>("url"),
+        })
+    })))
+}
+
+pub async fn relationships_section(ctx: &SectionCtx) -> ToolResult<Value> {
+    let r = ctx
+        .query("report/common/relationships", &[&ctx.id, &ctx.fetch])
+        .await?;
+    Ok(paged(
+        rows_to_json(&r, |r| {
+            json!({
+                "relationship": r.get::<_, String>("relationship"),
+                "direction": r.get::<_, String>("direction"),
+                "id": r.get::<_, String>("other_id"),
+                "symbol": r.get::<_, Option<String>>("other_symbol").map(|s| strip_markup(&s)),
+                "type": r.get::<_, String>("other_type"),
+            })
+        }),
+        ctx.limit,
+    ))
+}
+
+/// Stocks from the derived_stock_* featureprops via flybase.get_stocks (insertions, aberrations, balancers, constructs).
+pub async fn stocks_section(ctx: &SectionCtx) -> ToolResult<Value> {
+    let r = ctx
+        .query("report/common/stocks", &[&ctx.id, &ctx.fetch])
+        .await?;
+    Ok(paged(
+        rows_to_json(&r, |r| {
+            json!({
+                "id": r.get::<_, Option<String>>("id"),
+                "provider": r.get::<_, Option<String>>("provider"),
+                "stock_number": r.get::<_, Option<String>>("stock_number"),
+                "genotype": r.get::<_, Option<String>>("genotype").map(|s| strip_markup(&s)),
+            })
+        }),
+        ctx.limit,
+    ))
+}
+
+pub async fn stock_count_section(ctx: &SectionCtx) -> ToolResult<Value> {
+    let r = ctx.query("report/common/stock_count", &[&ctx.id]).await?;
+    Ok(json!(r.first().map(|r| r.get::<_, i64>("n")).unwrap_or(0)))
+}
+
+/// `phenotype_summary` and `phenotypes` for any feature that appears in genotypes (alleles, aberrations, balancers).
+pub async fn phenotype_section(ctx: &SectionCtx, name: &str) -> ToolResult<Value> {
+    Ok(match name {
+        "phenotype_summary" => {
+            let r = ctx
+                .query("report/allele/phenotype_summary", &[&ctx.id, &ctx.fetch])
+                .await?;
+            paged(
+                rows_to_json(
+                    &r,
+                    |r| json!({"phenotype": r.get::<_, String>("term"), "term_id": r.get::<_, Option<String>>("term_id"), "statements": r.get::<_, i64>("statements")}),
+                ),
+                ctx.limit,
+            )
+        }
+        _ => {
+            let r = ctx
+                .query("report/allele/phenotypes", &[&ctx.id, &ctx.fetch])
+                .await?;
+            paged(
+                rows_to_json(&r, |r| {
+                    json!({"genotype": strip_markup(&r.get::<_, String>("genotype")), "phenotype": r.get::<_, Option<String>>("phenotype"),
+                           "qualifiers": r.get::<_, Option<String>>("qualifiers"), "reference": r.get::<_, String>("reference"), "citation": r.get::<_, Option<String>>("miniref")})
+                }),
+                ctx.limit,
+            )
+        }
+    })
+}
+
+/// Test-only section that exceeds the light statement timeout, so tests can see a per-section error.
+pub async fn timeout_probe(ctx: &SectionCtx) -> ToolResult<Value> {
+    let r = ctx.query("report/common/timeout_probe", &[]).await?;
+    Ok(json!(r.len()))
+}
+
 pub fn jbrowse_link(chromosome: &str, fmin: i64, fmax: i64) -> String {
     let pad = ((fmax - fmin) / 10).max(500);
     format!(
@@ -135,7 +420,44 @@ mod tests {
         assert_eq!(for_id("FBal0012701").unwrap().name(), "allele");
         assert_eq!(for_id("FBrf0227604").unwrap().name(), "reference");
         assert_eq!(for_id("FBst0028813").unwrap().name(), "stock");
-        assert!(for_id("FBti0014164").is_none());
+        assert_eq!(for_id("FBti0000488").unwrap().name(), "insertion");
+        assert_eq!(for_id("FBtp0000743").unwrap().name(), "construct");
+        assert_eq!(for_id("FBtr0070507").unwrap().name(), "transcript");
+        assert_eq!(for_id("FBpp0070483").unwrap().name(), "polypeptide");
+        assert_eq!(for_id("FBab0000001").unwrap().name(), "aberration");
+        assert_eq!(for_id("FBba0000003").unwrap().name(), "balancer");
+        assert_eq!(for_id("FBgg0000040").unwrap().name(), "gene_group");
+        assert_eq!(for_id("FBhh0000679").unwrap().name(), "disease_model");
+        assert_eq!(for_id("FBtc0000150").unwrap().name(), "cell_line");
+        assert_eq!(for_id("FBsn0000001").unwrap().name(), "strain");
+        assert_eq!(for_id("FBlc0000001").unwrap().name(), "library");
+        for (id, ty) in [
+            ("FBcl0000001", "clone"),
+            ("FBsf0000096789", "sequence_feature"),
+            ("FBte0000001", "transposable_element"),
+            ("FBch0000003", "chemical"),
+            ("FBog0000245780", "ortholog"),
+        ] {
+            let r = for_id(id).unwrap();
+            assert_eq!(r.name(), ty);
+            assert!(r.default_sections().contains(&"relationships"));
+        }
+        for (id, ty) in [
+            ("FBco0000001", "split_system_combination"),
+            ("FBmc0000001", "engineered_plasmid"),
+        ] {
+            let r = for_id(id).unwrap();
+            assert_eq!(r.name(), ty);
+            assert!(
+                r.default_sections().contains(&"components")
+                    && !r.default_sections().contains(&"relationships")
+            );
+        }
+        assert!(for_id("FBsn0000001").unwrap().optional_sections() == ["synonyms"]);
+        let cv = for_id("GO:0007219").unwrap();
+        assert_eq!(cv.name(), "cv_term");
+        assert!(!cv.resolves_feature_id());
+        assert!(for_id("FBgn0004647").unwrap().resolves_feature_id());
         assert!(for_id("x").is_none());
     }
 }

@@ -10,6 +10,8 @@ static BASE: OnceLock<String> = OnceLock::new();
 /// One server for the whole test binary, on its own thread and runtime so it outlives individual #[tokio::test] runtimes.
 pub fn base() -> &'static str {
     BASE.get_or_init(|| {
+        // SAFETY: Rust's env lock serialises set_var/var; other test threads may run but only read via Config::from_lookup.
+        unsafe { std::env::set_var("FLYBASE_MCP_TEST_SECTIONS", "1") };
         let (tx, rx) = std::sync::mpsc::channel::<String>();
         std::thread::spawn(move || {
             let rt = tokio::runtime::Runtime::new().unwrap();

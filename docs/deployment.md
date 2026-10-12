@@ -51,8 +51,11 @@ unprivileged `flybase` user (uid 10001). The image exposes 7200 and its `HEALTHC
    The migrations create schema `mcp` (name index, cvterm closure, band coordinates), add `pg_trgm` and
    trigram indexes, and finish with `007_grants`, which gives `flybase_mcp` `SELECT` and `EXECUTE` on what
    the server reads. Each one is recorded in `mcp.migration_log` with the crate version and release.
-   Rebuilding the derived tables takes a few minutes on a full load. `--diopt <file>` is accepted and
-   reserved for the DIOPT ortholog migration; it does nothing yet.
+   Rebuilding the derived tables takes a few minutes on a full load.
+
+   Download `precomputed_files/orthologs/dmel_human_orthologs_disease_fb_<release>.tsv.gz` from the release
+   FTP and run `flybase-mcp migrate --diopt <path>`; without it `get_orthologs` still works (scores from
+   chado) but has no OMIM phenotypes.
 
 4. Start `serve` with the runtime role. At startup the server checks that the role can read every relation
    its queries use and that every migration in the binary is logged. It refuses to start otherwise, so a
@@ -115,6 +118,12 @@ location /mcp {
 Per-client rate limits belong at the edge (WAF or CDN). Inside the server, global semaphores bound
 concurrent database work regardless of how many clients connect; a call that cannot get a permit within 5 s
 fails with a "busy" error the client may retry.
+
+Known tuning step: a cold `map_features` or `cytosearch` query over a full 2 Mb window walks the whole range
+on the featureloc index before filtering by type, and can take about 20 s (2 to 3 s warm) while it holds a
+heavy permit. A few such calls at once can occupy every heavy permit. If load tests show heavy-permit
+starvation, the lever is a derived located-feature table (arm, type, fmin, fmax, ...) indexed on
+(arm, type, fmin), added in a later migration.
 
 ## Logs
 

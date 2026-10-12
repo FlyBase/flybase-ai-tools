@@ -8,6 +8,16 @@ where (n.nspname, r.relname) in (
   ('public','stock'),('public','stock_genotype'),('public','genotype'),('public','feature_genotype'),('public','stockcollection'),('public','stockcollection_stock'),
   ('public','phenstatement'),('public','phenotype'),('public','phenotype_cvterm'),
   ('public','grp'),('public','humanhealth'),('public','cell_line'),('public','library'),('public','strain'),('mcp','name_index'),
-  ('gene','allele'),('gene','allele_class'),('gene','allele_mutagen'),('gene','allele_stock'),('gene','allele_transgenic_product_class'),('gene','insertion'),('gene','construct')
+  ('gene','allele'),('gene','allele_class'),('gene','allele_mutagen'),('gene','allele_stock'),('gene','allele_transgenic_product_class'),('gene','insertion'),('gene','construct'),
+  ('public','grp_synonym'),('public','grpmember'),('public','feature_grpmember'),('public','grp_relationship'),('public','grpprop'),('public','grp_pub'),('public','grp_cvterm'),
+  ('public','humanhealth_synonym'),('public','humanhealthprop'),('public','humanhealth_dbxref'),('public','humanhealth_feature'),('public','humanhealth_featureprop'),('public','humanhealth_pub'),('public','humanhealth_relationship'),('public','humanhealth_cvterm'),
+  ('public','cell_line_synonym'),('public','cell_lineprop'),('public','cell_line_pub'),('public','cell_line_cvterm'),('public','cell_line_feature'),
+  ('public','strain_synonym'),('public','strainprop'),('public','strain_pub'),
+  ('public','library_synonym'),('public','libraryprop'),('public','library_pub'),('public','library_cvterm'),('public','library_feature'),
+  ('public','interaction'),('public','feature_interaction'),('public','interaction_pub'),('public','interactionprop'),('public','interaction_cvterm'),
+  ('public','feature_relationship_pub'),('public','feature_relationshipprop'),('public','phenotype_comparison'),('public','phenotype_comparison_cvterm'),('public','cvtermprop'),
+  ('mcp','cvterm_closure'),('mcp','band_coordinates'),('mcp','aberration_cyto'),('mcp','diopt_orthologs'),
+  ('dataclass','diseasev2'),('dataclass_relationship','gene_diseasev2'),('dataclass_relationship','gene_human_orthologv2'),('humanhealth','allele_disease_variant'),
+  ('gene','split_system_combination'),('gene','split_system_combination_component_allele'),('gene_group','pathway_member')
 )
 order by 1

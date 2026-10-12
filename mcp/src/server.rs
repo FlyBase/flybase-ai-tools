@@ -25,9 +25,11 @@ fn prometheus() -> Option<metrics_exporter_prometheus::PrometheusHandle> {
     .clone()
 }
 
-pub const INSTRUCTIONS: &str = "FlyBase MCP server. Start with `resolve` to turn a gene, allele, or other symbol into a FlyBase ID (FBgn..., FBal...). \
-Use `get_report` with that ID and request only the sections you need. Use `search` for free text. IDs in results link to https://flybase.org/reports/<id>; cite them. \
-Species are FlyBase abbreviations such as Dmel. When a tool has a `list_options` argument, call it with list_options=true before guessing field, section, or dataset names.";
+pub const INSTRUCTIONS: &str = "FlyBase MCP server. Start with `resolve` to turn a gene, allele, or other symbol into a FlyBase ID (FBgn..., FBal...); use `validate_ids` for a batch of exact IDs or symbols and `search` for free text. \
+Use `get_report` with an ID and request only the sections you need; `list_options=true` lists them. `batch_download` returns a table for many IDs. \
+Genome: `get_sequence` (FASTA), `map_features` (what lies in a range), `cytosearch` (cytological bands). Vocabularies: `search_vocabulary`, `get_term`, `entities_for_term` with term IDs such as GO:0007219, FBbt:00004729, DOID:162. \
+Homepage data: `get_orthologs`, `get_gene_groups_and_pathways`, `get_disease_models`, `get_stocks`, `get_interactions`. \
+IDs in results link to https://flybase.org/reports/<id>; cite them. Species are FlyBase abbreviations such as Dmel; call `list_species` for the list. Paged results carry `has_more`; pass `offset` to continue.";
 
 #[derive(Clone)]
 pub struct FlyBaseServer {
@@ -44,6 +46,17 @@ impl FlyBaseServer {
             + Self::tool_router_search()
             + Self::tool_router_sequence()
             + Self::tool_router_report()
+            + Self::tool_router_vocabulary()
+            + Self::tool_router_validate()
+            + Self::tool_router_batch()
+            + Self::tool_router_map()
+            + Self::tool_router_cyto()
+            + Self::tool_router_entities()
+            + Self::tool_router_interactions()
+            + Self::tool_router_orthologs()
+            + Self::tool_router_groups()
+            + Self::tool_router_disease()
+            + Self::tool_router_stocks()
     }
 
     pub fn new(chado: Chado, limits: Limits, release: String) -> Self {
