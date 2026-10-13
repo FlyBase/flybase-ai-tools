@@ -74,7 +74,8 @@ Each pooled connection sets `default_transaction_read_only = on`, a 10 s `statem
 `search_path` starting with `mcp`. The server has no write path.
 
 For each release: restore the dump, run `migrate`, bump `FLYBASE_RELEASE`, redeploy, and run the live and
-conformance test suites against the new database.
+conformance test suites against the new database. The calls in [examples.md](examples.md) make a quick manual
+spot check after a redeploy; their quoted IDs and counts are from FB2026_03, so expect counts to move.
 
 The integration tests apply migrations only when the startup check fails, or when `FLYBASE_TEST_MIGRATE=1`
 asks for a rebuild. Rebuilding takes exclusive locks, so do not point a test run with that flag at a
