@@ -2,6 +2,8 @@ use anyhow::Context;
 use std::net::SocketAddr;
 use url::Url;
 
+pub const DEFAULT_WIKI_HOST: &str = "wiki.flybase.org";
+
 #[derive(Clone)]
 pub struct Config {
     pub bind: SocketAddr,
@@ -11,6 +13,10 @@ pub struct Config {
     pub pool_size: usize,
     pub blast_base_url: Option<Url>,
     pub blast_token: Option<String>,
+    /// Private wiki origin (`WIKI_BASE_URL`, `http://` only). Unset: the wiki tools answer `backend_unavailable`.
+    pub wiki_base_url: Option<Url>,
+    /// `Host` sent to the wiki origin (`WIKI_HOST_HEADER`, default `wiki.flybase.org`).
+    pub wiki_host_header: String,
     /// Response cache bound in bytes (`FLYBASE_MCP_RESPONSE_CACHE_MB`, default 256 MiB; 0 disables it).
     pub response_cache_bytes: u64,
 }
@@ -41,6 +47,16 @@ impl Config {
                 .transpose()
                 .context("BLAST_BASE_URL")?,
             blast_token: get("BLAST_SERVICE_TOKEN"),
+            // An empty value (a compose file passing `${WIKI_BASE_URL:-}`) means unset.
+            wiki_base_url: get("WIKI_BASE_URL")
+                .filter(|v| !v.trim().is_empty())
+                .map(|v| v.trim().parse())
+                .transpose()
+                .context("WIKI_BASE_URL")?,
+            wiki_host_header: get("WIKI_HOST_HEADER")
+                .map(|v| v.trim().to_string())
+                .filter(|v| !v.is_empty())
+                .unwrap_or_else(|| DEFAULT_WIKI_HOST.into()),
             response_cache_bytes: get("FLYBASE_MCP_RESPONSE_CACHE_MB")
                 .map(|v| v.parse::<u64>())
                 .transpose()
@@ -89,6 +105,8 @@ impl std::fmt::Debug for Config {
             .field("pool_size", &self.pool_size)
             .field("blast_base_url", &self.blast_base_url)
             .field("blast_token", &self.blast_token.as_ref().map(|_| "***"))
+            .field("wiki_base_url", &self.wiki_base_url)
+            .field("wiki_host_header", &self.wiki_host_header)
             .field("response_cache_bytes", &self.response_cache_bytes)
             .finish()
     }
@@ -113,6 +131,42 @@ mod tests {
         assert_eq!(c.response_cache_bytes, 256 * 1024 * 1024);
         assert!(c.allowed_hosts().contains(&"mcp.flybase.org".to_string()));
         assert_eq!(c.allowed_origins(), vec!["https://mcp.flybase.org"]);
+        assert_eq!(c.wiki_base_url, None);
+        assert_eq!(c.wiki_host_header, "wiki.flybase.org");
+    }
+    #[test]
+    fn wiki_env_vars() {
+        let c = Config::from_lookup(|k| match k {
+            "WIKI_BASE_URL" => Some("http://192.0.2.10/".into()),
+            "WIKI_HOST_HEADER" => Some("wiki.example.org".into()),
+            _ => env(k),
+        })
+        .unwrap();
+        assert_eq!(
+            c.wiki_base_url.as_ref().map(|u| u.as_str()),
+            Some("http://192.0.2.10/")
+        );
+        assert_eq!(c.wiki_host_header, "wiki.example.org");
+        let d = format!("{c:?}");
+        assert!(
+            d.contains("wiki_base_url") && d.contains("192.0.2.10"),
+            "{d}"
+        );
+        assert!(d.contains("wiki.example.org"), "{d}");
+        let c = Config::from_lookup(|k| match k {
+            "WIKI_BASE_URL" => Some(" ".into()),
+            "WIKI_HOST_HEADER" => Some("".into()),
+            _ => env(k),
+        })
+        .unwrap();
+        assert_eq!(c.wiki_base_url, None, "an empty WIKI_BASE_URL is unset");
+        assert_eq!(c.wiki_host_header, "wiki.flybase.org");
+        let e = Config::from_lookup(|k| match k {
+            "WIKI_BASE_URL" => Some("not a url".into()),
+            _ => env(k),
+        })
+        .unwrap_err();
+        assert!(e.to_string().contains("WIKI_BASE_URL"), "{e}");
     }
     #[test]
     fn debug_redacts_secrets() {

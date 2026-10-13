@@ -8,6 +8,8 @@ pub const HEAVY_PERMITS: usize = 6;
 pub const BLAST_PERMITS: usize = 2;
 /// Permits for blast_status and blast_results, which wait on HTTP and must never hold a chado permit.
 pub const BLAST_POLL_PERMITS: usize = 8;
+/// Permits for the wiki tools, which wait on HTTP and must never hold a chado permit.
+pub const WIKI_PERMITS: usize = 4;
 pub const MAX_JSON_BYTES: usize = 256 * 1024;
 pub const MAX_FASTA_BYTES: usize = 512 * 1024;
 pub const MAX_ROWS: i64 = 1000;
@@ -22,6 +24,7 @@ pub struct Limits {
     heavy: Arc<Semaphore>,
     blast: Arc<Semaphore>,
     blast_poll: Arc<Semaphore>,
+    wiki: Arc<Semaphore>,
 }
 
 impl Limits {
@@ -31,6 +34,7 @@ impl Limits {
             heavy: Arc::new(Semaphore::new(HEAVY_PERMITS)),
             blast: Arc::new(Semaphore::new(BLAST_PERMITS)),
             blast_poll: Arc::new(Semaphore::new(BLAST_POLL_PERMITS)),
+            wiki: Arc::new(Semaphore::new(WIKI_PERMITS)),
         }
     }
     pub async fn light(&self, tool: &'static str) -> ToolResult<OwnedSemaphorePermit> {
@@ -45,13 +49,17 @@ impl Limits {
     pub async fn blast_poll(&self, tool: &'static str) -> ToolResult<OwnedSemaphorePermit> {
         acquire(&self.blast_poll, tool).await
     }
-    /// (light, heavy, blast, blast_poll) permits currently free.
-    pub fn available(&self) -> (usize, usize, usize, usize) {
+    pub async fn wiki(&self, tool: &'static str) -> ToolResult<OwnedSemaphorePermit> {
+        acquire(&self.wiki, tool).await
+    }
+    /// (light, heavy, blast, blast_poll, wiki) permits currently free.
+    pub fn available(&self) -> (usize, usize, usize, usize, usize) {
         (
             self.light.available_permits(),
             self.heavy.available_permits(),
             self.blast.available_permits(),
             self.blast_poll.available_permits(),
+            self.wiki.available_permits(),
         )
     }
 }
@@ -93,7 +101,13 @@ mod tests {
         }
         assert_eq!(
             l.available(),
-            (LIGHT_PERMITS, 0, BLAST_PERMITS, BLAST_POLL_PERMITS)
+            (
+                LIGHT_PERMITS,
+                0,
+                BLAST_PERMITS,
+                BLAST_POLL_PERMITS,
+                WIKI_PERMITS
+            )
         );
         let got = tokio::time::timeout(Duration::from_millis(50), l.light("t")).await;
         assert!(
@@ -104,8 +118,26 @@ mod tests {
         let _submit = l.blast("blast_submit").await.unwrap();
         assert_eq!(
             l.available(),
-            (LIGHT_PERMITS, 0, BLAST_PERMITS - 1, BLAST_POLL_PERMITS - 1),
+            (
+                LIGHT_PERMITS,
+                0,
+                BLAST_PERMITS - 1,
+                BLAST_POLL_PERMITS - 1,
+                WIKI_PERMITS
+            ),
             "blast and blast_poll are separate pools"
+        );
+        let _wiki = l.wiki("get_wiki_page").await.unwrap();
+        assert_eq!(
+            l.available(),
+            (
+                LIGHT_PERMITS,
+                0,
+                BLAST_PERMITS - 1,
+                BLAST_POLL_PERMITS - 1,
+                WIKI_PERMITS - 1
+            ),
+            "the wiki pool is separate from the chado and BLAST pools"
         );
     }
     #[tokio::test(start_paused = true)]
@@ -126,6 +158,31 @@ mod tests {
         );
         drop(held);
         assert!(l.blast("blast_submit").await.is_ok());
+    }
+    #[tokio::test(start_paused = true)]
+    async fn wiki_permit_times_out_after_pool_wait() {
+        let l = Limits::new();
+        let mut held = Vec::new();
+        for _ in 0..WIKI_PERMITS {
+            held.push(l.wiki("search_wiki").await.unwrap());
+        }
+        let started = tokio::time::Instant::now();
+        let e = l.wiki("search_wiki").await.unwrap_err();
+        assert_eq!(e.code(), "backend_unavailable");
+        assert!(e.to_string().starts_with("search_wiki: server busy"), "{e}");
+        let waited = started.elapsed();
+        assert!(
+            waited >= POOL_WAIT && waited < POOL_WAIT + Duration::from_secs(1),
+            "waited {waited:?}"
+        );
+        assert!(
+            tokio::time::timeout(Duration::from_millis(10), l.light("search"))
+                .await
+                .is_ok_and(|p| p.is_ok()),
+            "an exhausted wiki pool leaves chado permits free"
+        );
+        drop(held);
+        assert!(l.wiki("search_wiki").await.is_ok());
     }
     #[test]
     fn clamp() {
