@@ -77,11 +77,10 @@ url = "https://mcp.flybase.org/mcp"
 
 `codex exec` with an approval policy of `never` refuses MCP tool calls that need approval. The tools only
 read FlyBase data (`blast_submit` starts a search job and nothing else), so for scripted runs you can
-approve them up front:
+approve them up front. Add this line under the existing `[mcp_servers.flybase]` table, below its `url`
+line (do not repeat the table header):
 
 ```toml
-[mcp_servers.flybase]
-url = "https://mcp.flybase.org/mcp"
 default_tools_approval_mode = "approve"
 ```
 

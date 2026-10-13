@@ -225,8 +225,9 @@ regulation), and annotation counts: 27 genes and 4 gene groups.
 {"name": "entities_for_term", "arguments": {"term_id": "GO:0007219", "data_class": "gene", "limit": 5}}
 ```
 
-Returns genes with evidence summaries, including the term's 5 descendants: Delta (FBgn0000463), N, Su(H),
-Ser, and kuz, with more by offset.
+Returns genes with evidence summaries. The search covers the term and its 5 descendant terms, so a gene
+annotated only to a narrower term is included. The first page is Delta (FBgn0000463), N, Su(H), Ser, and
+kuz, with more by offset.
 
 ### "Which alleles are used to model Parkinson's disease?"
 
@@ -450,6 +451,7 @@ at 7307159..7307300, 100% identity, e-value 9.01e-70. Genome hits carry no FlyBa
 After `blast_status` and `blast_results`, returns 13 hits across the three genomes: Dmel at 100% identity
 (e-value 4e-49), Dpse at 88.8% and Dvir at 91.8%.
 
-The sequences in the last two calls are shortened here; the calls that were run used the full 142 bp and
-120-residue queries shown earlier. Treat a `job_token` as a secret: with the job ID it reads that job's
+The sequences in the last two calls are shortened here. The blastn call used the full 142 bp returned by
+the `get_sequence` region example above, of which only the first 20 bases are quoted. The tblastn call used
+the full 120-residue fragment given in the blastp call above. Treat a `job_token` as a secret: with the job ID it reads that job's
 results, so do not paste it anywhere public.
