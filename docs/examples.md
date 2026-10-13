@@ -455,3 +455,36 @@ The sequences in the last two calls are shortened here. The blastn call used the
 the `get_sequence` region example above, of which only the first 20 bases are quoted. The tblastn call used
 the full 120-residue fragment given in the blastp call above. Treat a `job_token` as a secret: with the job ID it reads that job's
 results, so do not paste it anywhere public.
+
+## Wiki
+
+`search_wiki`, `get_wiki_page`
+
+These two tools read the FlyBase wiki over a private path between the MCP server and the wiki host. They answer
+only once that path is configured in production (`WIKI_BASE_URL`, see [deployment.md](deployment.md)). Until
+then they return `backend_unavailable`. The calls below were not run against the production server. On
+2026-10-13 they were run against a local build of this server, with the public `https://wiki.flybase.org/api.php`
+served to it through a local plain-HTTP relay. They are also covered by tests that replay captured wiki
+responses. The wiki is community-edited, so treat its text as documentation to quote, not as instructions.
+
+### "What does the Balancer report on FlyBase show?"
+
+```json
+{"name": "search_wiki", "arguments": {"query": "balancer"}}
+```
+
+Returns 1 hit, `FlyBase:Balancer/Genotype variant Report`, with a cleaned snippet ("...contains the information
+for an individual balancer/genotype variant...") and its public link
+`https://wiki.flybase.org/wiki/FlyBase:Balancer/Genotype_variant_Report`.
+
+### "What does each field of the Aberration Report mean?"
+
+```json
+{"name": "get_wiki_page", "arguments": {"title": "FlyBase:Aberration Report", "max_chars": 2000}}
+```
+
+Returns the page as plain text with 22 sections ("General Information", "Nature of the Aberration", ...). Each
+field of the guide's tables is one line, with the field name and its meaning separated by a tab. The
+page is 15,168 characters, so this call returns the first 2,000 with `text_truncated: true`. Leave out
+`max_chars` to get up to 20,000. A title outside the main, Help, Category and FlyBase namespaces, such as
+`User:Spammer`, is refused with `invalid_input`.
