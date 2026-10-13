@@ -1,7 +1,8 @@
 use crate::{
-    backends::{blast::BlastClient, cache::Caches, chado::Chado},
+    backends::{blast::BlastClient, cache::Caches, chado::Chado, wiki::WikiClient},
     config::Config,
     limits::Limits,
+    tools::wiki::Wiki,
 };
 use axum::{Json, Router, routing::get};
 use rmcp::{
@@ -37,6 +38,7 @@ Vocabularies: `search_vocabulary`, `get_term`, `entities_for_term` with term IDs
 Homepage data: `get_orthologs`, `get_gene_groups_and_pathways`, `get_disease_models`, `get_stocks`, `get_interactions`. \
 Expression: `rnaseq_profile_search` (genes meeting RPKM conditions in named samples) and `rnaseq_similar_genes` (co-expressed genes); call either with `list_options=true` to see datasets and samples. \
 BLAST: `blast_submit` returns a job_id and job_token; poll `blast_status`, then `blast_results`. \
+Documentation: `search_wiki` finds FlyBase wiki help pages (what report fields mean, how tools and downloads work); `get_wiki_page` reads one. \
 IDs in results link to https://flybase.org/reports/<id>; cite them. Species are FlyBase abbreviations such as Dmel; call `list_species` for the list. Paged results carry `has_more`; pass `offset` to continue. When a tool has a `list_options` argument, call it with list_options=true before guessing names.";
 
 /// What `/health` reads; built in `app` before the MCP factory takes its clones.
@@ -46,10 +48,12 @@ struct HealthState {
     release: String,
     caches: Arc<Caches>,
     blast: Option<Arc<BlastClient>>,
+    wiki: Option<Arc<Wiki>>,
 }
 
-/// Database and migration checks (3 s, together) run concurrently with the BLAST probe (2 s), so the route
-/// answers within about 3 s even when a backend hangs. `status` depends only on the database and migrations.
+/// Database and migration checks (3 s, together) run concurrently with the BLAST and wiki probes (2 s each),
+/// so the route answers within about 3 s even when a backend hangs. `status` depends only on the database
+/// and migrations.
 async fn health(state: HealthState) -> Json<serde_json::Value> {
     let checks = tokio::time::timeout(Duration::from_secs(3), async {
         let db = state
@@ -86,7 +90,19 @@ async fn health(state: HealthState) -> Json<serde_json::Value> {
             }
         }
     };
-    let (checks, blast) = tokio::join!(checks, blast_probe);
+    let wiki_probe = async {
+        match &state.wiki {
+            None => "unconfigured",
+            Some(w) => {
+                if w.client.healthy().await {
+                    "ok"
+                } else {
+                    "unreachable"
+                }
+            }
+        }
+    };
+    let (checks, blast, wiki) = tokio::join!(checks, blast_probe, wiki_probe);
     let (db, migrations) = checks.unwrap_or((false, "timeout".to_string()));
     let (entries, bytes) = state.caches.response.stats().await;
     let matrices: Vec<serde_json::Value> = state
@@ -105,6 +121,7 @@ async fn health(state: HealthState) -> Json<serde_json::Value> {
         "migrations": migrations,
         "pool": {"size": st.size, "available": st.available},
         "blast": blast,
+        "wiki": wiki,
         "caches": {
             "response": {"entries": entries, "bytes": bytes},
             "rnaseq_matrix": matrices,
@@ -121,6 +138,8 @@ pub struct FlyBaseServer {
     pub caches: Arc<Caches>,
     /// None when BLAST_BASE_URL is unset; the BLAST tools then answer backend_unavailable.
     pub blast: Option<Arc<BlastClient>>,
+    /// None when WIKI_BASE_URL is unset; the wiki tools then answer backend_unavailable.
+    pub wiki: Option<Arc<Wiki>>,
     tool_router: ToolRouter<Self>,
 }
 
@@ -145,6 +164,7 @@ impl FlyBaseServer {
             + Self::tool_router_coordinates()
             + Self::tool_router_rnaseq()
             + Self::tool_router_blast()
+            + Self::tool_router_wiki()
     }
 
     pub fn new(
@@ -153,6 +173,7 @@ impl FlyBaseServer {
         release: String,
         caches: Arc<Caches>,
         blast: Option<Arc<BlastClient>>,
+        wiki: Option<Arc<Wiki>>,
     ) -> Self {
         Self {
             chado,
@@ -160,6 +181,7 @@ impl FlyBaseServer {
             release,
             caches,
             blast,
+            wiki,
             tool_router: Self::all_tool_routers(),
         }
     }
@@ -194,11 +216,22 @@ pub fn app(cfg: &Config, chado: Chado) -> Router {
         }
         None => None,
     };
+    let wiki = match &cfg.wiki_base_url {
+        Some(u) => match WikiClient::new(u.clone(), cfg.wiki_host_header.clone()) {
+            Ok(c) => Some(Arc::new(Wiki::new(c))),
+            Err(e) => {
+                tracing::error!(error = %e, "wiki client not built; wiki tools unavailable");
+                None
+            }
+        },
+        None => None,
+    };
     let health_state = HealthState {
         chado: chado.clone(),
         release: release.clone(),
         caches: caches.clone(),
         blast: blast.clone(),
+        wiki: wiki.clone(),
     };
     let factory = move || {
         Ok(FlyBaseServer::new(
@@ -207,6 +240,7 @@ pub fn app(cfg: &Config, chado: Chado) -> Router {
             release.clone(),
             caches.clone(),
             blast.clone(),
+            wiki.clone(),
         ))
     };
     let mcp_cfg = StreamableHttpServerConfig::default()

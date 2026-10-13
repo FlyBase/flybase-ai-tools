@@ -12,6 +12,8 @@ pub fn test_config() -> Config {
         })),
         "CHADO_POOL_SIZE" => Some("4".into()),
         "FLYBASE_MCP_RESPONSE_CACHE_MB" => std::env::var(k).ok(),
+        // The wiki stays unconfigured (as does BLAST); wiki tests set `wiki_base_url` to their own mock.
+        "WIKI_BASE_URL" | "WIKI_HOST_HEADER" => None,
         _ => None,
     })
     .unwrap()

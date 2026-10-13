@@ -20,6 +20,8 @@ All variables are required unless marked optional.
 | `CHADO_POOL_SIZE` | `32` | Optional, default 32. Keep it below the role's connection limit. |
 | `BLAST_BASE_URL` | `http://blast-jobs:8800` | Optional. Base URL of the private BLAST job API (see `docs/handoff-private-side.md` for the contract, and `docs/blast-jobs.md` for the service in this repository that implements it). Must be `http://`: no TLS is compiled in, and an `https://` value is rejected at startup (logged, BLAST tools then answer as unconfigured). Unset: BLAST tools answer `backend_unavailable` and `/health` reports `blast: unconfigured`. |
 | `BLAST_SERVICE_TOKEN` | `<secret>` | Optional. Bearer token the BLAST API expects. A URL without a token is allowed and logged at warn. Never logged or returned. |
+| `WIKI_BASE_URL` | `http://<wiki-private-ip>/` | Optional. Root of the FlyBase wiki's MediaWiki install on a private path; requests go to `<base>api.php` (GET only). Must be `http://`; an `https://` value is rejected at startup (logged, wiki tools then answer as unconfigured). Unset or empty: `search_wiki` and `get_wiki_page` answer `backend_unavailable` and `/health` reports `wiki: unconfigured`. Public links in results always point at `https://wiki.flybase.org/wiki/`. Wiki results are held in the response cache for up to 6 h, so a wiki edit can take that long to show up. |
+| `WIKI_HOST_HEADER` | `wiki.flybase.org` | Optional, default `wiki.flybase.org`. Sent as `Host` on every wiki request so the origin answers as the public site. |
 | `FLYBASE_MCP_RESPONSE_CACHE_MB` | `256` | Optional. Response cache bound in MiB; 0 disables it. |
 | `RUST_LOG` | `info` | Log filter. The image sets `info`. At `debug`, rmcp logs every tool call's arguments, including BLAST job tokens. |
 
@@ -97,7 +99,7 @@ sticky sessions are needed. Request bodies are capped at 1 MiB.
 
 ```json
 {"status": "ok", "release": "FB2026_03", "database": "ok", "migrations": "ok",
- "pool": {"size": 4, "available": 3}, "blast": "unconfigured",
+ "pool": {"size": 4, "available": 3}, "blast": "unconfigured", "wiki": "unconfigured",
  "caches": {"response": {"entries": 12, "bytes": 48213}, "rnaseq_matrix": [{"dataset": "FlyAtlas2", "genes": 16608, "bytes": 3271000}], "blast_jobs": 0}}
 ```
 
@@ -107,14 +109,16 @@ sticky sessions are needed. Request bodies are capped at 1 MiB.
   when some are not, `error` when the log cannot be read, and `timeout` when the database checks run past 3 s.
 - `blast` is `unconfigured` (no `BLAST_BASE_URL`), `ok`, or `unreachable` (the BLAST API's health route did not
   answer success within 2 s).
-- `status` is `ok` only when `database` and `migrations` are both `ok`, and `degraded` otherwise. BLAST
-  reachability never changes `status`, because every other tool keeps working without it.
+- `wiki` is `unconfigured` (no `WIKI_BASE_URL`), `ok`, or `unreachable` (the wiki's `siteinfo` request did not
+  answer with JSON within 2 s).
+- `status` is `ok` only when `database` and `migrations` are both `ok`, and `degraded` otherwise. BLAST and
+  wiki reachability never change `status`, because every other tool keeps working without them.
 - `pool` reports the open and idle connections.
 - `caches` reports the response cache's entries and weighted bytes (structured JSON is counted four times, so
   `bytes` is the figure the cache bound applies to, not the heap size), each loaded RNA-seq matrix, and the
   number of BLAST jobs whose tokens are held.
 
-The database checks and the BLAST probe run concurrently, so the route answers within about 3 s even when a
+The database checks and the BLAST and wiki probes run concurrently, so the route answers within about 3 s even when a
 backend hangs; the image's `HEALTHCHECK` allows 10 s. The route always answers 200, so check `status`.
 
 `/metrics` carries `flybase_mcp_tool_calls_total` (labels `tool`, `outcome`, where outcome is `ok` or an

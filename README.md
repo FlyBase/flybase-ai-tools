@@ -108,7 +108,7 @@ steps.
 | URL | `https://mcp.flybase.org/mcp` |
 | Transport | Streamable HTTP (JSON-RPC over `POST`) |
 | Authentication | none |
-| Tools | 23; they read FlyBase data and never change it |
+| Tools | 25; they read FlyBase data and never change it |
 
 `initialize` is optional, so a bare `tools/call` works:
 
@@ -129,9 +129,10 @@ Ask in plain language. For example:
 - "BLAST this protein fragment against D. melanogaster polypeptides and tell me what it is."
 
 [docs/examples.md](docs/examples.md) has tested questions for every tool, with the call the assistant makes
-and what comes back. The server's 23 tools cover identifying symbols and IDs, reports, batch downloads, the
+and what comes back. The server's 25 tools cover identifying symbols and IDs, reports, batch downloads, the
 genome (sequence, features in a range, cytology, release 5 to 6 coordinates), controlled vocabularies,
-homepage data (orthologs, gene groups, disease models, stocks, interactions), RNA-seq expression, and BLAST.
+homepage data (orthologs, gene groups, disease models, stocks, interactions), RNA-seq expression, BLAST, and
+the FlyBase wiki's help pages (what report fields mean, how tools and downloads work).
 Each is described in [docs/tools.md](docs/tools.md).
 
 ## Using the public server

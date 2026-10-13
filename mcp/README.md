@@ -48,6 +48,9 @@ and `call_raw` to assert on errors.
 - `src/backends/coordinates.rs`: the bundled release 5 to release 6 coordinate map.
 - `src/backends/cache.rs`: the response cache, the RNA-seq matrix cache, and BLAST job tokens.
 - `src/backends/blast.rs`: the client for the private BLAST job API.
+- `src/backends/wiki.rs`: the read-only MediaWiki client for the FlyBase wiki and its text converters; the
+  `search_wiki` and `get_wiki_page` tools are in `src/tools/wiki.rs`. Configured by `WIKI_BASE_URL`
+  (`http://<wiki-private-ip>/`) and `WIKI_HOST_HEADER` (default `wiki.flybase.org`).
 - `src/limits.rs`, `src/output.rs`, `src/error.rs`: permits, the result envelope, and error classes.
 - `sql/queries/<tool>/*.sql`: one query per file, parameters bound as `$1`, `$2`, ...
 - `sql/migrations/NNN_name.sql`: idempotent migrations run by `flybase-mcp migrate`.
@@ -82,7 +85,8 @@ Every tool handler has the same shape:
    MCP error result. The public method returns `Ok(complete(...))`; the work lives in an `*_impl` method.
 
 BLAST and `convert_coordinates` skip the cache: BLAST results belong to a job token and the coordinate
-converter is a pure in-process map. The cache is bounded by `FLYBASE_MCP_RESPONSE_CACHE_MB` (default 256,
+converter is a pure in-process map. The two wiki tools are cached but take `self.limits.wiki(T)` instead of
+a chado permit, so a slow wiki never holds database capacity. The cache is bounded by `FLYBASE_MCP_RESPONSE_CACHE_MB` (default 256,
 0 disables it) with a 6 h TTL.
 
 `src/tools/species.rs` is the smallest example.
