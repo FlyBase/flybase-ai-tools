@@ -19,7 +19,7 @@ use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 use std::collections::HashSet;
-use std::time::Instant;
+use std::time::{Duration, Instant};
 
 /// Every canonical namespace name and alias on the wiki (MediaWiki 1.43, checked 2026-10-13).
 pub const NAMESPACES: &[(&str, i32)] = &[
@@ -66,6 +66,10 @@ pub const DEFAULT_MAX_CHARS: u32 = 20_000;
 pub const MAX_MAX_CHARS: u32 = 60_000;
 /// How far back from the limit `cut_text` looks for a line break.
 const CUT_WINDOW: usize = 1_000;
+/// Sections listed per page, and characters per heading: a page anyone can edit must not be able to push
+/// the result past the JSON cap through its headings.
+pub const MAX_SECTIONS: usize = 200;
+pub const MAX_HEADING_CHARS: usize = 200;
 
 /// The namespace number of `title`: the part before the first `:` matched against NAMESPACES
 /// (case-insensitive, `_` as space, surrounding whitespace trimmed); anything else is main (0), so
@@ -112,6 +116,9 @@ fn percent_decode(s: &str) -> Option<String> {
     while i < bytes.len() {
         if bytes[i] == b'%' {
             let hex = s.get(i + 1..i + 3)?;
+            if !hex.bytes().all(|b| b.is_ascii_hexdigit()) {
+                return None;
+            }
             out.push(u8::from_str_radix(hex, 16).ok()?);
             i += 3;
         } else {
@@ -157,8 +164,9 @@ pub fn title_from_input(raw: &str) -> Result<String, ToolError> {
                 )));
             }
             let path = rest.split(['?', '#']).next().unwrap_or("");
-            let decoded = percent_decode(path)
-                .ok_or_else(|| bad_title("the link's percent-encoding is not valid UTF-8"))?;
+            let decoded = percent_decode(path).ok_or_else(|| {
+                bad_title("the link has a malformed %-escape or does not decode to UTF-8")
+            })?;
             if decoded.chars().any(char::is_control) {
                 return Err(bad_title("the title contains a control character"));
             }
@@ -239,34 +247,51 @@ fn strip_tags(s: &str) -> String {
     out
 }
 
+/// The licence is optional, so its lookup gets the health probe's short timeout, not the client's 10 s.
+pub const LICENCE_TIMEOUT: Duration = Duration::from_secs(2);
+/// A failed licence lookup is remembered this long, so a hung wiki costs one timeout per minute, not one
+/// per page call.
+pub const LICENCE_RETRY: Duration = Duration::from_secs(60);
+
+/// When a licence lookup was made, how long it stays valid, and what it found.
+type LicenceSlot = Option<(Instant, Duration, Option<Value>)>;
+
 /// The wiki client plus the cached licence lookup. One per server, shared by every request.
 pub struct Wiki {
     pub client: WikiClient,
-    /// (fetched at, licence) from `siteinfo` `rightsinfo`, refreshed after the response cache TTL. A
-    /// failed lookup is not stored.
-    licence: tokio::sync::Mutex<Option<(Instant, Option<Value>)>>,
+    /// From `siteinfo` `rightsinfo`: kept for the response cache TTL after a success and for LICENCE_RETRY
+    /// after a failure. The lock is never held across the request; concurrent callers at expiry may each
+    /// fetch, which is harmless and bounded by LICENCE_TIMEOUT.
+    licence: std::sync::Mutex<LicenceSlot>,
 }
 
 impl Wiki {
     pub fn new(client: WikiClient) -> Self {
         Self {
             client,
-            licence: tokio::sync::Mutex::new(None),
+            licence: std::sync::Mutex::new(None),
         }
     }
 
     /// `{text, url}` when the wiki declares rights; None when both are empty or the lookup failed.
     pub async fn licence(&self) -> Option<Value> {
-        let mut slot = self.licence.lock().await;
-        if let Some((at, l)) = slot.as_ref()
-            && at.elapsed() < RESPONSE_CACHE_TTL
+        let cached = self.licence.lock().ok().and_then(|g| g.clone());
+        if let Some((at, ttl, l)) = cached
+            && at.elapsed() < ttl
         {
-            return l.clone();
+            return l;
         }
-        let r = self.client.rights().await.ok()?;
-        let l = (!r.text.trim().is_empty() || !r.url.trim().is_empty())
-            .then(|| json!({"text": r.text, "url": r.url}));
-        *slot = Some((Instant::now(), l.clone()));
+        let (ttl, l) = match tokio::time::timeout(LICENCE_TIMEOUT, self.client.rights()).await {
+            Ok(Ok(r)) => (
+                RESPONSE_CACHE_TTL,
+                (!r.text.trim().is_empty() || !r.url.trim().is_empty())
+                    .then(|| json!({"text": r.text, "url": r.url})),
+            ),
+            _ => (LICENCE_RETRY, None),
+        };
+        if let Ok(mut g) = self.licence.lock() {
+            *g = Some((Instant::now(), ttl, l.clone()));
+        }
         l
     }
 }
@@ -453,6 +478,7 @@ impl FlyBaseServer {
             .summary(summary)
             .field("hits", json!(hits))
             .field("total", json!(total))
+            .field("offset", json!(offset))
             .field("has_more", json!(has_more))
             .field("matched_with_wildcards", json!(wildcards))
             .finish())
@@ -532,10 +558,16 @@ impl FlyBaseServer {
         let sections: Vec<Value> = page
             .sections
             .iter()
+            .take(MAX_SECTIONS)
             .map(|s| {
+                let heading: String = decode_entities(&strip_tags(&s.line))
+                    .trim()
+                    .chars()
+                    .take(MAX_HEADING_CHARS)
+                    .collect();
                 json!({
                     "level": s.level.trim().parse::<u8>().unwrap_or(1),
-                    "title": decode_entities(&strip_tags(&s.line)).trim(),
+                    "title": heading.trim_end(),
                 })
             })
             .collect();
@@ -552,7 +584,7 @@ impl FlyBaseServer {
                 "{}: {} characters, {} sections. Cite it as {url}.",
                 page.title,
                 thousands(total_chars),
-                sections.len()
+                page.sections.len()
             )
         };
         let mut env = Envelope::new(T, &self.release)
@@ -564,6 +596,7 @@ impl FlyBaseServer {
             .field("text_truncated", json!(text_truncated))
             .field("total_chars", json!(total_chars))
             .field("sections", json!(sections))
+            .field("sections_total", json!(page.sections.len()))
             .field("revision", json!(page.revid));
         if let Some(l) = licence {
             env = env.field("licence", l);
@@ -658,9 +691,15 @@ mod tests {
             "a\nb",
             "https://wiki.flybase.org/wiki/A%0Ab",
             "https://wiki.flybase.org/wiki/%FF",
+            "https://wiki.flybase.org/wiki/A%4",
+            "https://wiki.flybase.org/wiki/A%zzB",
+            "https://wiki.flybase.org/wiki/A%+AB",
         ] {
             let e = title_from_input(bad).unwrap_err();
             assert_eq!(e.code(), "invalid_input", "{bad:?}");
+            if bad.contains("%4") || bad.contains("%zz") || bad.contains("%+") {
+                assert!(e.to_string().contains("malformed %-escape"), "{e}");
+            }
         }
         assert!(title_from_input(&"a".repeat(255)).is_ok());
         assert!(title_from_input(&"a".repeat(256)).is_err());

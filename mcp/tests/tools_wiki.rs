@@ -181,6 +181,7 @@ async fn search_pages_with_offset() {
     let c = client_at(&base).await;
     let s = call(&c, "search_wiki", json!({"query": "report"})).await;
     assert_eq!(s["total"], 29);
+    assert_eq!(s["offset"], 0);
     assert_eq!(s["has_more"], true);
     assert!(titles(&s).contains(&"FlyBase:Report Help"));
     assert!(
@@ -203,6 +204,7 @@ async fn search_pages_with_offset() {
         json!({"query": "report", "offset": 20, "limit": 25}),
     )
     .await;
+    assert_eq!(s["offset"], 20);
     assert_eq!(s["has_more"], false);
 }
 
@@ -745,4 +747,76 @@ async fn health_reports_wiki_state() {
         .unwrap();
     assert_eq!(h["wiki"], "ok");
     assert_eq!(h["status"], "ok");
+}
+
+/// A page with thousands of long headings lists at most 200, each at most 200 characters, and the envelope
+/// never has to cut anything.
+#[tokio::test]
+async fn sections_are_capped() {
+    let (mock, base) = wiki_server().await;
+    let mut body = parse_body("FlyBase:Headings", "<p>Body.</p>");
+    body["parse"]["sections"] = json!(
+        (0..5000)
+            .map(|i| json!({"level": "2", "line": format!("<b>{i}</b> {}", "h".repeat(300)), "anchor": format!("a{i}")}))
+            .collect::<Vec<_>>()
+    );
+    parse_mock("FlyBase:Headings", body).mount(&mock).await;
+    let c = client_at(&base).await;
+    let p = call(&c, "get_wiki_page", json!({"title": "FlyBase:Headings"})).await;
+    let sections = p["sections"].as_array().unwrap();
+    assert_eq!(sections.len(), 200);
+    assert_eq!(p["sections_total"], 5000);
+    assert!(
+        sections
+            .iter()
+            .all(|s| s["title"].as_str().unwrap().chars().count() <= 200)
+    );
+    assert!(sections[0]["title"].as_str().unwrap().starts_with("0 hhh"));
+    assert_eq!(p["truncated"], false);
+    assert!(serde_json::to_vec(&p).unwrap().len() <= MAX_JSON_BYTES);
+}
+
+/// A hung siteinfo costs concurrent page calls one short lookup, not one each in turn, and a failed lookup
+/// is not repeated within the retry interval.
+#[tokio::test]
+async fn hung_licence_lookup_is_paid_once() {
+    let (mock, base) = wiki_server().await;
+    api()
+        .and(query_param("meta", "siteinfo"))
+        .respond_with(
+            ok(fixture("siteinfo_rightsinfo")).set_delay(std::time::Duration::from_secs(8)),
+        )
+        .mount(&mock)
+        .await;
+    for t in ["FlyBase:A", "FlyBase:B", "FlyBase:C"] {
+        parse_mock(t, parse_body(t, "<p>x</p>")).mount(&mock).await;
+    }
+    let c = client_at(&base).await;
+    let started = std::time::Instant::now();
+    let (a, b) = tokio::join!(
+        call(&c, "get_wiki_page", json!({"title": "FlyBase:A"})),
+        call(&c, "get_wiki_page", json!({"title": "FlyBase:B"})),
+    );
+    let both = started.elapsed();
+    assert!(a.get("licence").is_none() && b.get("licence").is_none());
+    assert!(
+        both < std::time::Duration::from_millis(3500),
+        "two concurrent calls took {both:?}; one 2 s lookup expected"
+    );
+    let siteinfo = |reqs: &[wiremock::Request]| {
+        reqs.iter()
+            .filter(|r| r.url.query().unwrap_or("").contains("meta=siteinfo"))
+            .count()
+    };
+    let before = siteinfo(&mock.received_requests().await.unwrap());
+    assert!((1..=2).contains(&before), "{before}");
+    let started = std::time::Instant::now();
+    let p = call(&c, "get_wiki_page", json!({"title": "FlyBase:C"})).await;
+    assert!(p.get("licence").is_none());
+    assert!(
+        started.elapsed() < std::time::Duration::from_millis(1000),
+        "the failed lookup is remembered: {:?}",
+        started.elapsed()
+    );
+    assert_eq!(siteinfo(&mock.received_requests().await.unwrap()), before);
 }
