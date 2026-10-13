@@ -140,9 +140,9 @@ Each is described in [docs/tools.md](docs/tools.md).
 - **Data release.** Every result names the FlyBase release it came from, currently FB2026_03.
 - **BLAST databases.** BLAST searches the archived FB2023_04 database set, so BLAST results can lag the rest of
   the server. Each `blast_submit` response says so.
-- **Rate limit.** Each client IP gets about 2 requests per second, with a short burst allowance. Requests over
-  the limit get HTTP 429. One assistant session stays well under it. Please be polite with scripts: pause
-  between calls and use `batch_download` for long ID lists.
+- **Fair use.** The server is shared and rate limited per client. Requests over the limit get HTTP 429;
+  wait and retry. One assistant session stays well within it. Please be polite with scripts: pause
+  between batches, use `batch_download` and `validate_ids` for bulk work, and cache what you fetch.
 - **Only `/mcp` is public.** `/health` and `/metrics` are intentionally not exposed and return 404.
 
 ## BLAST
