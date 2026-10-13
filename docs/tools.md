@@ -945,6 +945,36 @@ Full report for one vocabulary term ID (GO:..., FBbt:..., FBcv:..., FBdv:..., DO
 }
 ```
 
+## `get_wiki_page`
+
+Read a FlyBase wiki page as plain text (markup removed), with its section list. Use after `search_wiki`, or with a title such as 'FlyBase:Aberration Report' or a https://wiki.flybase.org/wiki/ link. Long pages are cut at max_chars (default 20000, up to 60000) and say so in text_truncated. Reads main, Help, Category and FlyBase pages; Category pages return only their description, not their members.
+
+```json
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "max_chars": {
+      "description": "Characters of text to return (default 20000, max 60000).",
+      "format": "uint32",
+      "minimum": 0,
+      "type": [
+        "integer",
+        "null"
+      ]
+    },
+    "title": {
+      "description": "Page title such as \"FlyBase:Aberration Report\", or a https://wiki.flybase.org/wiki/... link.",
+      "type": "string"
+    }
+  },
+  "required": [
+    "title"
+  ],
+  "type": "object"
+}
+```
+
 ## `list_species`
 
 List the sequenced species in FlyBase with their abbreviations (Dmel, Dsim, ...) and the Muller element synteny table. Use when you need a species code for another tool or want to know which genomes are available.
@@ -1506,6 +1536,45 @@ Search FlyBase controlled vocabularies (GO, anatomy FBbt, development FBdv, dise
         "array",
         "null"
       ]
+    }
+  },
+  "required": [
+    "query"
+  ],
+  "type": "object"
+}
+```
+
+## `search_wiki`
+
+Search the FlyBase wiki: help pages and field-by-field guides to FlyBase reports, tools, and downloads. Searches the wiki's text index and titles; recall is uneven (inflected words can miss), so try other words or fewer of them when nothing matches. Use when you need to know what a report field means or how a FlyBase tool works; use `search` and `get_report` for genes, alleles, and other data. Returns titles to pass to get_wiki_page.
+
+```json
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "limit": {
+      "description": "Hits to return (default 10, max 25).",
+      "format": "uint32",
+      "minimum": 0,
+      "type": [
+        "integer",
+        "null"
+      ]
+    },
+    "offset": {
+      "description": "Hits to skip, for paging (default 0, max 500).",
+      "format": "uint32",
+      "minimum": 0,
+      "type": [
+        "integer",
+        "null"
+      ]
+    },
+    "query": {
+      "description": "Words to search for, up to 300 characters (for example \"balancer\" or \"batch download\").",
+      "type": "string"
     }
   },
   "required": [

@@ -17,3 +17,4 @@ pub mod species;
 pub mod stocks;
 pub mod validate;
 pub mod vocabulary;
+pub mod wiki;

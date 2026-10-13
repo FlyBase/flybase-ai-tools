@@ -3,7 +3,7 @@ use serde_json::json;
 use support::server::{base, call, call_raw, client};
 
 #[tokio::test]
-async fn health_reports_release_migrations_blast_and_caches() {
+async fn health_reports_release_migrations_backends_and_caches() {
     let v: serde_json::Value = reqwest::get(format!("{}/health", base()))
         .await
         .unwrap()
@@ -15,6 +15,7 @@ async fn health_reports_release_migrations_blast_and_caches() {
     assert_eq!(v["database"], "ok");
     assert_eq!(v["migrations"], "ok");
     assert_eq!(v["blast"], "unconfigured");
+    assert_eq!(v["wiki"], "unconfigured");
     assert!(v["pool"]["size"].is_number());
     assert!(v["caches"]["response"]["entries"].is_number());
     assert!(v["caches"]["rnaseq_matrix"].is_array());
@@ -27,7 +28,7 @@ async fn lists_tools_and_calls_list_species() {
     let tools = c.list_all_tools().await.unwrap();
     let mut names: Vec<&str> = tools.iter().map(|t| t.name.as_ref()).collect();
     names.sort_unstable();
-    assert_eq!(names.len(), 23, "Plan 3 tool count: {names:?}");
+    assert_eq!(names.len(), 25, "tool count with the wiki tools: {names:?}");
     for t in [
         "list_species",
         "convert_coordinates",
@@ -36,6 +37,8 @@ async fn lists_tools_and_calls_list_species() {
         "blast_submit",
         "blast_status",
         "blast_results",
+        "search_wiki",
+        "get_wiki_page",
     ] {
         assert!(names.contains(&t), "missing {t}");
     }
