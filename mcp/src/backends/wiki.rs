@@ -411,7 +411,12 @@ fn decode_one(name: &str) -> Option<char> {
                 }
                 None => return None,
             };
-            if n == 160 { ' ' } else { char::from_u32(n)? }
+            match n {
+                160 => ' ',
+                // Control characters other than tab, newline and carriage return stay as written.
+                0..=8 | 11 | 12 | 14..=31 | 127..=159 => return None,
+                _ => char::from_u32(n)?,
+            }
         }
     };
     Some(c)
@@ -567,6 +572,14 @@ const BLOCK: [&str; 16] = [
     "section",
     "hr",
 ];
+/// Deepest list or `<dd>` nesting that adds indentation; deeper levels indent no further, so output
+/// stays linear in the input however deep the nesting.
+const MAX_INDENT_DEPTH: usize = 8;
+/// Longest tag the scanner reads; a `<` with no `>` within this many bytes is text.
+const MAX_TAG_BYTES: usize = 4096;
+/// Nested external links tracked for `text (href)`; deeper ones are plain text.
+const MAX_LINK_DEPTH: usize = 16;
+
 const VOID: [&str; 12] = [
     "br", "hr", "img", "meta", "link", "input", "wbr", "col", "source", "area", "base", "track",
 ];
@@ -643,6 +656,8 @@ struct Out {
     list: usize,
     dd: usize,
     links: Vec<(Option<String>, usize)>,
+    /// `<a>` elements opened beyond MAX_LINK_DEPTH.
+    untracked_links: usize,
 }
 
 impl Out {
@@ -730,7 +745,8 @@ impl Out {
 }
 
 /// Parse a tag starting at `s[0] == '<'`. Returns the tag and its byte length, or None when `<` does not
-/// begin a tag. A `>` inside a quoted attribute value does not end the tag.
+/// begin a tag. A `>` inside a quoted attribute value does not end the tag. The scan is bounded: an
+/// unquoted `<` or MAX_TAG_BYTES without a `>` means this `<` is text, so unclosed tags cost linear time.
 fn parse_tag(s: &str) -> Option<(Tag<'_>, usize)> {
     let b = s.as_bytes();
     let mut i = 1;
@@ -748,16 +764,18 @@ fn parse_tag(s: &str) -> Option<(Tag<'_>, usize)> {
     let name = s[ns..i].to_ascii_lowercase();
     let as_ = i;
     let mut quote: Option<u8> = None;
-    while i < b.len() {
+    let limit = b.len().min(MAX_TAG_BYTES);
+    while i < limit {
         match (quote, b[i]) {
             (None, b'"' | b'\'') => quote = Some(b[i]),
             (Some(q), c) if c == q => quote = None,
             (None, b'>') => break,
+            (None, b'<') => return None,
             _ => {}
         }
         i += 1;
     }
-    if i >= b.len() {
+    if i >= limit {
         return None;
     }
     let attrs = &s[as_..i];
@@ -774,13 +792,20 @@ fn parse_tag(s: &str) -> Option<(Tag<'_>, usize)> {
 }
 
 /// Find the end of a raw-text element (`script`, `style`): the byte just after `</name ... >`.
+/// The search is case-insensitive and allocates nothing.
 fn raw_text_end(s: &str, name: &str) -> usize {
-    let lower = s.to_ascii_lowercase();
-    let needle = format!("</{name}");
-    match lower.find(&needle) {
-        Some(i) => s[i..].find('>').map_or(s.len(), |j| i + j + 1),
-        None => s.len(),
+    let b = s.as_bytes();
+    let n = name.as_bytes();
+    let mut from = 0;
+    while let Some(off) = s[from..].find("</") {
+        let i = from + off;
+        let tail = &b[i + 2..];
+        if tail.len() >= n.len() && tail[..n.len()].eq_ignore_ascii_case(n) {
+            return s[i..].find('>').map_or(s.len(), |j| i + j + 1);
+        }
+        from = i + 2;
     }
+    s.len()
 }
 
 fn heading_level(name: &str) -> Option<usize> {
@@ -797,7 +822,9 @@ fn heading_level(name: &str) -> Option<usize> {
 /// Entities are decoded once.
 pub fn html_to_text(html: &str) -> String {
     let mut out = Out::default();
-    // (tag name, depth) of an element being skipped with everything inside it.
+    // (tag name, depth) of an element being skipped with everything inside it. Depth counts only that tag
+    // name, so an unclosed same-name element inside drops the rest of the page; acceptable because the API
+    // flags already remove the TOC and edit links, and references always close.
     let mut skip: Option<(String, usize)> = None;
     let mut i = 0;
     while i < html.len() {
@@ -932,7 +959,7 @@ fn handle_tag(out: &mut Out, tag: &Tag<'_>) {
         ("li", false) => {
             out.newline();
             if out.cell == 0 {
-                let indent = "  ".repeat(out.list.saturating_sub(1));
+                let indent = "  ".repeat(out.list.clamp(1, MAX_INDENT_DEPTH) - 1);
                 out.buf.push_str(&indent);
                 out.buf.push_str("- ");
             }
@@ -941,7 +968,7 @@ fn handle_tag(out: &mut Out, tag: &Tag<'_>) {
             out.newline();
             out.dd += 1;
             if out.cell == 0 {
-                out.buf.push_str(&"  ".repeat(out.dd));
+                out.buf.push_str(&"  ".repeat(out.dd.min(MAX_INDENT_DEPTH)));
             }
         }
         ("dd", true) => {
@@ -949,6 +976,10 @@ fn handle_tag(out: &mut Out, tag: &Tag<'_>) {
             out.newline();
         }
         ("a", false) => {
+            if out.links.len() >= MAX_LINK_DEPTH {
+                out.untracked_links += 1;
+                return;
+            }
             let href = if has_class(tag.attrs, "external") {
                 attr(tag.attrs, "href").map(|h| decode_entities(&h))
             } else {
@@ -957,12 +988,24 @@ fn handle_tag(out: &mut Out, tag: &Tag<'_>) {
             out.links.push((href, out.buf.len()));
         }
         ("a", true) => {
+            if out.untracked_links > 0 {
+                out.untracked_links -= 1;
+                return;
+            }
             if let Some((Some(href), start)) = out.links.pop() {
-                let text = out.buf.get(start..).unwrap_or("").trim().to_string();
-                if !text.is_empty() && text != href {
-                    out.push_raw(&format!(" ({href})"));
-                } else if text.is_empty() {
+                let text = out.buf.get(start..).unwrap_or("").trim();
+                let (empty, same) = (text.is_empty(), text == href);
+                if empty {
                     out.push_raw(&href);
+                } else if !same {
+                    // Whitespace at the end of the link text stays pending for whatever follows.
+                    let pending = out.space;
+                    out.space = false;
+                    out.trim_end_spaces();
+                    out.buf.push_str(" (");
+                    out.buf.push_str(&href);
+                    out.buf.push(')');
+                    out.space = pending;
                 }
             }
         }
@@ -1129,6 +1172,67 @@ mod tests {
             "a\n- b\nc\td"
         );
         assert_eq!(html_to_text("1 < 2 and 3 > 2"), "1 < 2 and 3 > 2");
+    }
+
+    #[test]
+    fn link_text_ending_in_space_and_control_references() {
+        assert_eq!(
+            html_to_text("<a class=\"external\" href=\"h\">x </a>y"),
+            "x (h) y"
+        );
+        assert_eq!(
+            decode_entities("a&#0;b&#7;c&#x9F;&#9;d"),
+            "a&#0;b&#7;c&#x9F;\td"
+        );
+    }
+
+    /// Output size and time stay linear on hostile nesting and unclosed markup (each case is about 1 MB,
+    /// or 50,000 levels deep). Uncapped list indentation gave 400 MB for 160 KB of input. The time bound is generous for debug builds.
+    #[test]
+    fn hostile_html_is_linear() {
+        let cases: Vec<(&str, String)> = vec![
+            ("nested ul", "<ul><li>x".repeat(50_000)),
+            ("nested dl", "<dl><dd>x".repeat(50_000)),
+            ("unclosed tags", "<a x".repeat(250_000)),
+            (
+                "unterminated quote",
+                format!("<a x=\"{}", "<a y".repeat(250_000)),
+            ),
+            ("quoted lt", "<a x=\"<\" ".repeat(100_000)),
+            ("empty scripts", "<script></script>".repeat(60_000)),
+            (
+                "script near misses",
+                format!("<SCRIPT>{}", "</scrip".repeat(150_000)),
+            ),
+            ("scripts and text", "<Script>x</sCRIPT>y".repeat(55_000)),
+            (
+                "nested external links",
+                "<a class=\"external\" href=\"http://h\">t".repeat(25_000) + &"</a>".repeat(25_000),
+            ),
+        ];
+        for (label, html) in cases {
+            let started = std::time::Instant::now();
+            let t = html_to_text(&html);
+            let took = started.elapsed();
+            assert!(
+                took < std::time::Duration::from_secs(2),
+                "{label}: {took:?}"
+            );
+            assert!(
+                t.len() <= 3 * html.len(),
+                "{label}: {} bytes out of {}",
+                t.len(),
+                html.len()
+            );
+        }
+        let deep = html_to_text(&"<ul><li>x".repeat(50_000));
+        let last = deep.lines().last().unwrap();
+        assert_eq!(last, format!("{}- x", "  ".repeat(MAX_INDENT_DEPTH - 1)));
+        assert_eq!(html_to_text("<a x"), "<a x");
+        assert_eq!(
+            html_to_text(&format!("<b{}>z", " ".repeat(MAX_TAG_BYTES))),
+            "<b >z"
+        );
     }
 
     #[test]
