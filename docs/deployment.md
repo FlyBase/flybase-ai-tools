@@ -192,3 +192,19 @@ connection URL is never logged with its password.
 
 `rmcp` logs one `ERROR` line, "failed to send pending response during drain", each time a client disconnects
 before its response is written. It is not a server fault; do not alert on it.
+
+### Runtime security refresh (October 2026)
+
+The MCP and BLAST job Dockerfiles use Debian 13 (`trixie-slim`) runtimes and
+apply available package upgrades during each build. The Rust builder, locked
+application dependencies, BLAST+ 2.17.0 checksum, service UIDs, and health checks
+remain unchanged. Build with `--pull`, scan the resulting images, and test the
+actual runtime against the database and BLAST fixtures before replacing services.
+No database migrations are needed for this runtime-only change.
+
+Retain previous images for rollback. Before replacing BLAST, check its internal
+health response for zero queued/running jobs; restarting loses in-memory job
+metadata even though the state directory remains mounted. Keep the same state,
+configuration, credentials, limits, and read-only database mounts. Validate MCP
+initialization/tool discovery, a real read-only tool call, wiki access, and an
+end-to-end BLAST search after deployment. Do not restart the main website.

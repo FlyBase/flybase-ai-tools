@@ -9,10 +9,10 @@ RUN cargo build --release --locked --bin blast-jobs
 
 # Versioned path (never LATEST), pinned by SHA-256. NCBI publishes only an MD5 next to the tarball
 # (bdec166721de3b55f90a3badc83538e8); the SHA-256 below was computed from a download that matched it.
-FROM debian:bookworm-slim AS blast
+FROM debian:trixie-slim AS blast
 ARG BLAST_URL=https://ftp.ncbi.nlm.nih.gov/blast/executables/blast+/2.17.0/ncbi-blast-2.17.0+-x64-linux.tar.gz
 ARG BLAST_SHA256=3888112d8207831aa47371d93583c601f058f88b5db22dc782438b039a3a411b
-RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates curl && rm -rf /var/lib/apt/lists/*
+RUN apt-get update && apt-get upgrade -y && apt-get install -y --no-install-recommends ca-certificates curl && rm -rf /var/lib/apt/lists/*
 RUN curl -fsSL --retry 3 -o /tmp/blast.tar.gz "$BLAST_URL" \
  && echo "$BLAST_SHA256  /tmp/blast.tar.gz" | sha256sum -c - \
  && mkdir -p /opt/ncbi-blast/bin \
@@ -22,9 +22,9 @@ RUN curl -fsSL --retry 3 -o /tmp/blast.tar.gz "$BLAST_URL" \
  && cp /tmp/ncbi-blast-2.17.0+/LICENSE /opt/ncbi-blast/LICENSE \
  && rm -rf /tmp/blast.tar.gz /tmp/ncbi-blast-2.17.0+
 
-FROM debian:bookworm-slim
+FROM debian:trixie-slim
 # curl for the HEALTHCHECK; libgomp1 is the one shared library BLAST+ needs beyond the base image.
-RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates curl libgomp1 && rm -rf /var/lib/apt/lists/*
+RUN apt-get update && apt-get upgrade -y && apt-get install -y --no-install-recommends ca-certificates curl libgomp1 && rm -rf /var/lib/apt/lists/*
 COPY --from=blast /opt/ncbi-blast /opt/ncbi-blast
 ENV PATH=/opt/ncbi-blast/bin:$PATH NCBI_DONT_USE_NCBIRC=1 NCBI_DONT_USE_LOCAL_CONFIG=1 BLAST_USAGE_REPORT=false
 # A missing shared library or a wrong build fails here, not at the first job.
