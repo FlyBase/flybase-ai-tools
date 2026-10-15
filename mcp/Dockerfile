@@ -7,8 +7,8 @@ COPY sql ./sql
 COPY data ./data
 RUN cargo build --release --locked --bin flybase-mcp
 
-FROM debian:bookworm-slim
-RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates curl && rm -rf /var/lib/apt/lists/*
+FROM debian:trixie-slim
+RUN apt-get update && apt-get upgrade -y && apt-get install -y --no-install-recommends ca-certificates curl && rm -rf /var/lib/apt/lists/*
 RUN useradd --system --uid 10001 flybase
 COPY --from=build /src/target/release/flybase-mcp /usr/local/bin/flybase-mcp
 USER flybase
