@@ -6,7 +6,17 @@ A small Postgres 16 with the public chado schema and rows for the IDs in `ids.tx
     fixture/load.sh     # docker compose up + \copy; prints each table loaded
     psql postgres://flybase_mcp:flybase_mcp@127.0.0.1:5499/flybase -f fixture/smoke.sql
 
-Tests connect to `CHADO_URL`, defaulting to the URL above. Re-run both scripts after changing `ids.txt` or `export.sh`.
+From the repository root, run the complete MCP suite against the loaded fixture:
+
+```bash
+CHADO_URL=postgres://flybase_mcp:flybase_mcp@127.0.0.1:5499/flybase \
+  cargo test --locked --manifest-path mcp/Cargo.toml --tests
+```
+
+Set `CHADO_URL` explicitly for fixture runs. With it unset, the tests select the full development restore
+on port 5498. The suite runs migrations that rebuild derived tables, so use a disposable test database.
+For a repeat run, start the existing fixture with `docker compose -f fixture/docker-compose.yml start`.
+After changing `ids.txt` or `export.sh`, export fresh data and load it into an empty fixture database.
 
 Feature rows cover the IDs in `ids.txt`, every feature one relationship away from them, the seeds' source features,
 the children (exons, polypeptides) of seed genes' transcripts, and all Dmel chromosome bands. Neighbours of neighbours

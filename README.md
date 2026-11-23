@@ -195,7 +195,12 @@ shape are in [docs/blast-jobs.md](docs/blast-jobs.md).
 
 ## Develop
 
-See `docs/deployment.md` for running the server and `mcp/README.md` for the crate.
+The MCP integration suite starts a local HTTP server and exercises the tools against a PostgreSQL fixture
+built from public Chado records. For example, it checks that the *white* gene’s minus-strand coding
+sequence translates to its reported protein and that a 50,000-ID download preserves row order.
+[Build the fixture and run the suite](fixture/README.md).
+
+See the [deployment guide](docs/deployment.md) for running the server and the [crate README](mcp/README.md) for development.
 
 Private-side handoff: [docs/handoff-private-side.md](docs/handoff-private-side.md) lists what a host must provide
 (database, runtime role, release runbook step, proxy and CDN requirements, and the BLAST job API contract).
