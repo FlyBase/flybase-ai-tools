@@ -1,0 +1,7 @@
+{
+  "mcpServers": {
+    "flybase": {
+      "serverUrl": "https://mcp.flybase.org/mcp"
+    }
+  }
+}

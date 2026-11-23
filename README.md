@@ -3,7 +3,7 @@
 Tools for using FlyBase data from AI assistants.
 
 - `mcp/`: the hosted FlyBase MCP server (Rust). Endpoint: `https://mcp.flybase.org/mcp`.
-- `plugins/flybase/`: a Claude Code plugin that registers the MCP server. Skills will live here later.
+- `plugins/flybase/`: the FlyBase plugin for Claude Code, Codex, and Google Antigravity.
 - `blast-jobs/`: the BLAST job service behind the MCP's BLAST tools (Rust, NCBI BLAST+ 2.17.0).
 
 The server's tools and their arguments are listed in [docs/tools.md](docs/tools.md).
@@ -29,9 +29,21 @@ claude plugin marketplace add FlyBase/flybase-ai-tools
 claude plugin install flybase@flybase
 ```
 
-The plugin installs at user scope and registers the server. `claude mcp list` then shows
-`plugin:flybase:flybase: https://mcp.flybase.org/mcp (HTTP) - ✔ Connected`. Plugin tools are named
-`mcp__plugin_flybase_flybase__<tool>`. Skills will ship in the same plugin later.
+In a new session, ask “What is the FlyBase ID for wingless?” You can also run `claude mcp list`
+to check the connection. The plugin installs at user scope.
+
+**Enable automatic plugin updates.** In Claude Code, open `/plugin`, select **Marketplaces**, choose
+**flybase**, and turn on auto-update. Third-party marketplaces start with this setting off.
+Run `/reload-plugins` when Claude Code reports an update, or start a new session. For a manual
+refresh, run these commands in your shell. [Claude Code plugin updates](https://code.claude.com/docs/en/discover-plugins#keep-plugins-updated)
+
+```bash
+claude plugin marketplace update flybase
+claude plugin update flybase@flybase
+```
+
+The plugin registers a hosted endpoint. FlyBase data releases and new server tools become available
+when your client reconnects. Plugin updates deliver changes to the client package.
 
 ### Claude Code, without the plugin
 
@@ -64,6 +76,18 @@ claude -p "What is the FlyBase ID for wingless?" --mcp-config flybase.json --all
 
 ### Codex
 
+Codex can install the same plugin from FlyBase’s marketplace. Its CLI recognizes the Claude-compatible
+catalog in this repository. [Codex marketplace guide](https://developers.openai.com/plugins/build/plugins)
+
+```bash
+codex plugin marketplace add https://github.com/FlyBase/flybase-ai-tools.git
+codex plugin add flybase@flybase
+codex mcp list
+```
+
+To update, run `codex plugin marketplace upgrade flybase`, then `codex plugin add flybase@flybase`
+and start a new session. For a direct MCP connection instead, use the command below.
+
 ```bash
 codex mcp add flybase --url https://mcp.flybase.org/mcp
 ```
@@ -83,6 +107,19 @@ line (do not repeat the table header):
 ```toml
 default_tools_approval_mode = "approve"
 ```
+
+### Google Antigravity
+
+Install the plugin directly from its directory in the public FlyBase repository:
+
+```bash
+agy plugin install https://github.com/FlyBase/flybase-ai-tools/tree/master/plugins/flybase
+agy plugin list
+```
+
+Repeat the install command to replace the installed copy with the current version.
+For a direct connection instead, run `agy mcp add --type http flybase https://mcp.flybase.org/mcp`.
+[Google Antigravity plugin guide](https://antigravity.google/docs/ide/plugins/)
 
 ### Claude.ai and Claude Desktop
 
