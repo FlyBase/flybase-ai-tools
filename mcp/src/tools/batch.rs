@@ -16,6 +16,9 @@ use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value, json};
 use std::collections::{BTreeMap, HashMap};
 
+const MAX_DOWNLOAD_IDS: usize = 50_000;
+const MAX_PAGE_ROWS: usize = 1_000;
+
 /// Multi-valued cells stop at this many values and append "(+N more)".
 pub const CELL_CAP: i64 = 50;
 
@@ -30,12 +33,18 @@ pub enum Format {
 #[derive(Deserialize, Serialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct BatchParams {
-    /// Up to 500 FlyBase IDs (secondary IDs are updated first).
+    /// Up to 50,000 FlyBase IDs, in output order. Resend the same list for each page.
+    #[schemars(length(max = 50000))]
     pub ids: Vec<String>,
     /// Field names from the catalog; pass list_options=true to see them by class.
     pub fields: Vec<String>,
     /// json (default) returns rows as objects; tsv returns a tab-separated text block and row_count instead.
     pub format: Option<Format>,
+    /// Zero-based index of the first input to return. Use next_offset from the previous response.
+    pub offset: Option<usize>,
+    /// Maximum rows per page (1 to 1,000). Wide rows can reduce the number that fit.
+    #[schemars(range(min = 1, max = 1000))]
+    pub limit: Option<usize>,
     /// If true, return only the field catalog.
     pub list_options: Option<bool>,
 }
@@ -195,7 +204,7 @@ fn tsv_line(cells: impl Iterator<Item = String>) -> String {
 impl FlyBaseServer {
     #[tool(
         name = "batch_download",
-        description = "Download chosen fields for up to 500 FlyBase IDs at once as rows (JSON or TSV): symbols, names, locations, synonyms, references, GO terms, alleles, transcripts, human orthologs, allele classes, stocks, and more. Use list_options=true to see the field catalog. Use when you have a list of IDs and want a table; use get_report for one entity in depth."
+        description = "Download chosen fields for up to 50,000 FlyBase IDs as JSON or TSV. Lists over 500 IDs are paged. Repeat with the same arguments and offset=next_offset until next_offset is null. Available fields include symbols, names, locations, synonyms, references, GO terms, alleles, transcripts, human orthologs, allele classes, stocks, and more. Use list_options=true to see the field catalog. Use when you have a list of IDs and want a table; use get_report for one entity in depth."
     )]
     pub async fn batch_download(
         &self,
@@ -232,11 +241,11 @@ impl FlyBaseServer {
                 message: "provide at least one ID".into(),
             });
         }
-        if p.ids.len() > MAX_BATCH {
+        if p.ids.len() > MAX_DOWNLOAD_IDS {
             return Err(ToolError::LimitExceeded {
                 tool: T,
                 message: format!(
-                    "{MAX_BATCH} IDs max per call ({} given); split the list",
+                    "{MAX_DOWNLOAD_IDS} IDs max per call ({} given); split the list",
                     p.ids.len()
                 ),
             });
@@ -264,19 +273,40 @@ impl FlyBaseServer {
                 }
             }
         }
-        let inputs: Vec<String> = p
-            .ids
-            .iter()
-            .map(|s| normalize_fb_prefix(s.trim()).into_owned())
-            .collect();
-        if let Some(bad) = inputs.iter().find(|s| !looks_like_fb_id(s)) {
+        let total = p.ids.len();
+        let paged = total > MAX_BATCH || p.offset.is_some() || p.limit.is_some();
+        let offset = p.offset.unwrap_or(0);
+        let limit = p.limit.unwrap_or(MAX_PAGE_ROWS);
+        if offset >= total {
             return Err(ToolError::InvalidInput {
                 tool: T,
-                arg: "ids",
-                message: format!(
-                    "'{bad}' is not a FlyBase ID; use validate_ids for symbols and external IDs"
-                ),
+                arg: "offset",
+                message: "must identify a row in the input list".into(),
             });
+        }
+        if !(1..=MAX_PAGE_ROWS).contains(&limit) {
+            return Err(ToolError::InvalidInput {
+                tool: T,
+                arg: "limit",
+                message: format!("must be between 1 and {MAX_PAGE_ROWS}"),
+            });
+        }
+        let end = (offset + limit).min(total);
+        let mut inputs = Vec::with_capacity(end - offset);
+        for (index, raw) in p.ids.iter().enumerate() {
+            let id = normalize_fb_prefix(raw.trim());
+            if !looks_like_fb_id(&id) {
+                return Err(ToolError::InvalidInput {
+                    tool: T,
+                    arg: "ids",
+                    message: format!(
+                        "'{id}' is not a FlyBase ID; use validate_ids for symbols and external IDs"
+                    ),
+                });
+            }
+            if (offset..end).contains(&index) {
+                inputs.push(id.into_owned());
+            }
         }
         // Secondary IDs are updated first so every row reports both the input and the current ID.
         let statuses = resolve_ids(&self.chado, T, &inputs).await?;
@@ -307,6 +337,19 @@ impl FlyBaseServer {
                 Ok(cells)
             })
             .await?;
+        let names: Vec<&str> = fields.iter().map(|f| f.0).collect();
+        let columns = ["input", "id"].into_iter().chain(names.iter().copied());
+        let tsv = p.format.unwrap_or_default() == Format::Tsv;
+        let mut table = String::new();
+        if tsv {
+            table = tsv_line(columns.clone().map(String::from));
+            table.push('\n');
+        }
+        // Reserve space for envelope keys, field names, the release, and page metadata.
+        let overhead =
+            1024 + json!(names).to_string().len() + json!(self.release).to_string().len();
+        let mut bytes = overhead + json!(table).to_string().len();
+        let mut unknown = 0;
         let mut rows: Vec<Value> = Vec::with_capacity(inputs.len());
         for st in &statuses {
             let mut row = Map::new();
@@ -339,45 +382,41 @@ impl FlyBaseServer {
                     });
                 row.insert(name.to_string(), json!(v));
             }
-            rows.push(Value::Object(row));
+            let row = Value::Object(row);
+            let mut line = String::new();
+            if tsv {
+                line = tsv_line(
+                    columns
+                        .clone()
+                        .map(|k| row[k].as_str().unwrap_or("").to_owned()),
+                );
+                line.push('\n');
+                // The TSV is embedded in a JSON string. Exclude the two enclosing quotes.
+                bytes += json!(line).to_string().len() - 2;
+            } else {
+                bytes += row.to_string().len() + 1;
+            }
+            if paged && bytes > MAX_JSON_BYTES {
+                if rows.is_empty() {
+                    return Err(ToolError::LimitExceeded {
+                        tool: T,
+                        message: format!(
+                            "row at offset {offset} exceeds the response size limit; request fewer fields"
+                        ),
+                    });
+                }
+                break;
+            }
+            table.push_str(&line);
+            unknown += usize::from(!matches!(st.status, "current" | "updated"));
+            rows.push(row);
         }
-        let unknown = statuses
-            .iter()
-            .filter(|s| !matches!(s.status, "current" | "updated"))
-            .count();
+        let count = rows.len();
         let summary = format!(
-            "{} row(s) with {} field(s); {unknown} input(s) without a current ID.",
-            rows.len(),
+            "{count} row(s) with {} field(s); {unknown} input(s) without a current ID.",
             fields.len()
         );
-        let names: Vec<&str> = fields.iter().map(|f| f.0).collect();
-        // A table that would be cut by the envelope's array halving is useless, so refuse it whole instead.
-        let payload = if p.format.unwrap_or_default() == Format::Tsv {
-            let header = tsv_line(
-                ["input", "id"]
-                    .into_iter()
-                    .map(String::from)
-                    .chain(names.iter().map(|f| f.to_string())),
-            );
-            let body: Vec<String> = rows
-                .iter()
-                .map(|r| {
-                    tsv_line(
-                        ["input", "id"]
-                            .into_iter()
-                            .chain(names.iter().copied())
-                            .map(|k| r[k].as_str().unwrap_or("").to_string()),
-                    )
-                })
-                .collect();
-            json!({"tsv": format!("{header}\n{}\n", body.join("\n")), "row_count": rows.len()})
-        } else {
-            json!({"rows": rows})
-        };
-        let bytes = serde_json::to_vec(&payload)
-            .map(|b| b.len())
-            .unwrap_or(usize::MAX);
-        if bytes + 1024 > MAX_JSON_BYTES {
+        if !paged && bytes > MAX_JSON_BYTES {
             // Name the heaviest fields so the caller knows what to drop; TSV has no per-row keys or null cells.
             let mut sizes: Vec<(&str, usize)> = names
                 .iter()
@@ -395,7 +434,7 @@ impl FlyBaseServer {
             return Err(ToolError::LimitExceeded {
                 tool: T,
                 message: format!(
-                    "{} KB of results for {} IDs and {} fields exceeds the {} KB limit; largest fields: {}; request fewer fields or fewer IDs per call (format: tsv is smaller, it has no per-row keys or null cells)",
+                    "{} KB of results for {} IDs and {} fields exceeds the {} KB limit; largest fields: {}; request fewer fields or set limit to retrieve the table in pages",
                     bytes / 1024,
                     rows.len(),
                     names.len(),
@@ -407,10 +446,19 @@ impl FlyBaseServer {
         let mut env = Envelope::new(T, &self.release)
             .summary(summary)
             .field("field_names", json!(names));
-        if let Value::Object(m) = payload {
-            for (k, v) in m {
-                env = env.field(&k, v);
-            }
+        if paged {
+            let next = offset + count;
+            env = env
+                .field("total", json!(total))
+                .field("offset", json!(offset))
+                .field("next_offset", json!((next < total).then_some(next)));
+        }
+        if tsv {
+            env = env
+                .field("tsv", Value::String(table))
+                .field("row_count", json!(count));
+        } else {
+            env = env.field("rows", Value::Array(rows));
         }
         Ok(env.finish())
     }

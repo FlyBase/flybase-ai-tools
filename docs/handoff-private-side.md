@@ -113,7 +113,7 @@ a certificate.
 
 - [ ] Distribution, DNS record, certificate: decide in the private repo.
 - [ ] Attach the site's web ACL and an MCP-specific rule group (per-IP rate limit, body-size handling for
-      100 kB BLAST sequences and 500-ID batches, method restriction): thresholds and rule tuning decided in
+      100 kB BLAST sequences and compact JSON requests with 50,000 FlyBase IDs, method restriction): thresholds and rule tuning decided in
       the private repo.
 - [ ] Any bot-protection or challenge tooling that could affect non-browser clients: decide in the private repo.
 

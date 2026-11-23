@@ -188,3 +188,65 @@ async fn split_id_has_null_id_and_lists_targets() {
     assert!(r["symbol"].is_null());
     assert!(r["note"].as_str().unwrap().contains(first_target));
 }
+
+#[tokio::test]
+async fn fifty_thousand_ids_can_be_downloaded_in_order() {
+    let c = client().await;
+    let mut ids: Vec<String> = (0..50_000).map(|i| format!("FBgn{i:07}")).collect();
+    // Include a duplicate across a page boundary.
+    ids[999] = "FBgn0004647".into();
+    ids[1000] = ids[999].clone();
+    let mut args = json!({"ids": ids, "fields": ["symbol"], "format": "tsv"});
+    let mut seen = 0;
+    loop {
+        let page = call(&c, "batch_download", args.clone()).await;
+        assert_eq!(page["offset"], seen);
+        assert_eq!(page["total"], ids.len());
+        assert_eq!(page["truncated"], false);
+        let mut lines = page["tsv"].as_str().unwrap().lines();
+        assert_eq!(lines.next(), Some("input\tid\tsymbol"));
+        let start = seen;
+        for line in lines {
+            assert_eq!(line.split('\t').next(), Some(ids[seen].as_str()));
+            seen += 1;
+        }
+        assert_eq!(seen - start, 1000);
+        assert_eq!(page["row_count"], seen - start);
+        if page["next_offset"].is_null() {
+            break;
+        }
+        assert_eq!(page["next_offset"], seen);
+        args["offset"] = page["next_offset"].clone();
+    }
+    assert_eq!(seen, ids.len());
+    ids.push("FBgn0000000".into());
+    let r = call_raw(
+        &c,
+        "batch_download",
+        json!({"ids": ids, "fields": ["symbol"]}),
+    )
+    .await
+    .unwrap();
+    assert_eq!(r.structured_content.unwrap()["error"], "limit_exceeded");
+}
+
+#[tokio::test]
+async fn wide_json_pages_resume_at_first_unreturned_input() {
+    let c = client().await;
+    let ids: Vec<String> = (0..501).map(|i| format!("FBgn{i:07}")).collect();
+    let fields: Vec<_> = flybase_mcp::tools::batch::FIELDS
+        .iter()
+        .map(|f| f.0)
+        .collect();
+    let mut args = json!({"ids": ids, "fields": fields});
+    let page = call(&c, "batch_download", args.clone()).await;
+    let count = page["rows"].as_array().unwrap().len();
+    assert!(count > 0 && count < ids.len());
+    assert_eq!(page["next_offset"], count);
+    assert_eq!(page["truncated"], false);
+    args["offset"] = json!(count);
+    args["limit"] = json!(1);
+    let next = call(&c, "batch_download", args).await;
+    assert_eq!(next["rows"].as_array().unwrap().len(), 1);
+    assert_eq!(next["rows"][0]["input"], ids[count]);
+}
