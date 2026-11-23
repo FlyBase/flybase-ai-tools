@@ -85,8 +85,8 @@ codex plugin add flybase@flybase
 codex mcp list
 ```
 
-To refresh the Git-backed marketplace, run `codex plugin marketplace upgrade flybase` and start a
-new session. For a direct MCP connection instead, use the command below.
+To update, run `codex plugin marketplace upgrade flybase`, then `codex plugin add flybase@flybase`
+and start a new session. For a direct MCP connection instead, use the command below.
 
 ```bash
 codex mcp add flybase --url https://mcp.flybase.org/mcp
@@ -110,15 +110,14 @@ default_tools_approval_mode = "approve"
 
 ### Google Antigravity
 
-Install the FlyBase plugin from a local checkout using the Antigravity CLI:
+Install the plugin directly from its directory in the public FlyBase repository:
 
 ```bash
-git clone https://github.com/FlyBase/flybase-ai-tools.git
-agy plugin install ./flybase-ai-tools/plugins/flybase
+agy plugin install https://github.com/FlyBase/flybase-ai-tools/tree/master/plugins/flybase
 agy plugin list
 ```
 
-To update, run `git -C flybase-ai-tools pull --ff-only` and repeat the install command.
+Repeat the install command to replace the installed copy with the current version.
 For a direct connection instead, run `agy mcp add --type http flybase https://mcp.flybase.org/mcp`.
 [Google Antigravity plugin guide](https://antigravity.google/docs/ide/plugins/)
 
