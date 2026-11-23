@@ -2,10 +2,10 @@
 
 Tools for using FlyBase data from AI assistants.
 
+**[Browse all FlyBase MCP tools](docs/tools.md)** · [Example questions for every tool](docs/examples.md) · [Install](#install)
+
 - `mcp/`: the hosted FlyBase MCP server (Rust). Endpoint: `https://mcp.flybase.org/mcp`.
 - `plugins/flybase/`: the FlyBase plugin for Claude Code, Codex, and Google Antigravity.
-
-The server's tools and their arguments are listed in [docs/tools.md](docs/tools.md).
 
 ## Install
 
