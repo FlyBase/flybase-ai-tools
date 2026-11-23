@@ -1,5 +1,13 @@
 name: ci
-on: [push, pull_request]
+on:
+  pull_request:
+  push:
+    branches: [master]
+  workflow_dispatch:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 permissions:
   contents: read
 jobs:
@@ -32,10 +40,22 @@ jobs:
         with:
           path: fixture/data
           key: fixture-${{ hashFiles('fixture/ids.txt', 'fixture/export.sh') }}
-      - run: sudo apt-get update && sudo apt-get install -y postgresql-client-16
+      - name: Select PostgreSQL 16 client tools
+        run: |
+          pg_bin=/usr/lib/postgresql/16/bin
+          if [[ ! -x "$pg_bin/pg_dump" || ! -x "$pg_bin/psql" ]]; then
+            sudo apt-get update
+            sudo apt-get install -y postgresql-client-16
+          fi
+          echo "$pg_bin" >> "$GITHUB_PATH"
       - if: steps.fixture-cache.outputs.cache-hit != 'true'
         run: fixture/export.sh
       - run: fixture/load.sh
+      - name: Verify the loaded Chado fixture
+        shell: bash
+        run: |
+          psql postgres://flybase_mcp:flybase_mcp@127.0.0.1:5499/flybase -XAt -v ON_ERROR_STOP=1 -f fixture/smoke.sql |
+            awk -F '|' '{ print } $2 != "t" { failed = 1 } END { exit (!NR || failed) }'
       - run: cd mcp && cargo test --tests
         env:
           CHADO_URL: postgres://flybase_mcp:flybase_mcp@127.0.0.1:5499/flybase

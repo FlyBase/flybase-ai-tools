@@ -194,8 +194,10 @@ async fn fifty_thousand_ids_can_be_downloaded_in_order() {
     let c = client().await;
     let mut ids: Vec<String> = (0..50_000).map(|i| format!("FBgn{i:07}")).collect();
     // Include a duplicate across a page boundary.
+    ids[998] = "FBgn0000311".into(); // Secondary ID for Notch.
     ids[999] = "FBgn0004647".into();
     ids[1000] = ids[999].clone();
+    ids[1001] = "FBgn9999999".into(); // Unknown ID still gets a row.
     let mut args = json!({"ids": ids, "fields": ["symbol"], "format": "tsv"});
     let mut seen = 0;
     loop {
@@ -207,7 +209,12 @@ async fn fifty_thousand_ids_can_be_downloaded_in_order() {
         assert_eq!(lines.next(), Some("input\tid\tsymbol"));
         let start = seen;
         for line in lines {
-            assert_eq!(line.split('\t').next(), Some(ids[seen].as_str()));
+            match seen {
+                998 => assert_eq!(line, "FBgn0000311\tFBgn0004647\tN"),
+                999 | 1000 => assert_eq!(line, "FBgn0004647\tFBgn0004647\tN"),
+                1001 => assert_eq!(line, "FBgn9999999\t\t"),
+                _ => assert_eq!(line.split('\t').next(), Some(ids[seen].as_str())),
+            }
             seen += 1;
         }
         assert_eq!(seen - start, 1000);

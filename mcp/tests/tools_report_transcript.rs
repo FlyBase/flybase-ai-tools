@@ -26,22 +26,20 @@ async fn transcript_default_sections() {
     assert!(s["links"]["jbrowse"].as_str().unwrap().contains("loc=X:"));
 }
 
-/// A non-coding transcript has no CDS segments and a null coding length (FBtr0344909 is not in the fixture).
+/// A non-coding transcript has no CDS segments and a null coding length.
 #[tokio::test]
 async fn noncoding_transcript_cds_length_is_null() {
-    if !support::full_db() {
-        return;
-    }
     let c = client().await;
     let s = call(
         &c,
         "get_report",
-        json!({"id": "FBtr0344909", "sections": ["cds"]}),
+        json!({"id": "FBtr0344909", "sections": ["identity", "cds"]}),
     )
     .await;
+    assert_eq!(s["sections"]["identity"]["type"], "ncRNA");
     let cds = &s["sections"]["cds"];
     assert!(cds["segments"].as_array().unwrap().is_empty(), "{cds}");
-    assert!(cds["length"].is_null(), "{cds}");
+    assert_eq!(cds.get("length"), Some(&serde_json::Value::Null), "{cds}");
 }
 
 #[tokio::test]
