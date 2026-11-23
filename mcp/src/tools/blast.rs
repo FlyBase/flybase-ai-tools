@@ -471,12 +471,8 @@ impl FlyBaseServer {
         };
         let token = self.caches.blast_tokens.issue(&resp.job_id);
         let poll = resp.poll_after_seconds.unwrap_or(DEFAULT_POLL_SECONDS);
-        let release_note = resp
-            .database_release
-            .clone()
-            .unwrap_or_else(|| "the BLAST service's current database build".into());
         let note = format!(
-            "Results come from {release_note}, which may lag the current FlyBase release. Keep job_token: blast_status and blast_results require it. Poll no sooner than {poll} s."
+            "Keep job_token for blast_status and blast_results. Check blast_status after {poll} seconds."
         );
         Ok(Envelope::new(T, &self.release)
             .summary(format!(

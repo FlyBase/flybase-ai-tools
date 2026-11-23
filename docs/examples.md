@@ -407,8 +407,7 @@ and the list is empty.
 
 `blast_submit`, `blast_status`, `blast_results`
 
-BLAST runs as a job. The assistant submits, waits, polls, and fetches results. The databases are the archived
-FB2023_04 set, so results can lag the current FlyBase release, and every submit response says so.
+BLAST runs as a job. The assistant submits, waits, polls, and fetches results.
 
 ### "What can I BLAST against?"
 

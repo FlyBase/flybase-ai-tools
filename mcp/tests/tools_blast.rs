@@ -75,7 +75,11 @@ async fn submit_status_results_round_trip() {
     assert!(token.bytes().all(|b| b.is_ascii_hexdigit()));
     assert_eq!(s["state"], "queued");
     assert_eq!(s["poll_after_seconds"], 5);
-    assert!(s["note"].as_str().unwrap().contains("FB2023_04"));
+    assert_eq!(s["database_release"], "FB2023_04 (Dmel r6.53)");
+    assert_eq!(
+        s["note"],
+        "Keep job_token for blast_status and blast_results. Check blast_status after 5 seconds."
+    );
     let st = call(
         &c,
         "blast_status",
