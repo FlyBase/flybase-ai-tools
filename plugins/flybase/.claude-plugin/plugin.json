@@ -1,6 +1,11 @@
 {
   "name": "flybase",
-  "version": "0.1.0",
-  "description": "FlyBase MCP server and skills",
-  "author": { "name": "FlyBase" }
+  "version": "0.1.1",
+  "description": "Connect to FlyBase to look up genes and alleles, download tables, and search sequences with BLAST.",
+  "author": {
+    "name": "FlyBase"
+  },
+  "homepage": "https://flybase.org",
+  "repository": "https://github.com/FlyBase/flybase-ai-tools",
+  "license": "MIT"
 }

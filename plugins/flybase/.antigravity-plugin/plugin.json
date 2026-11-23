@@ -1,0 +1,16 @@
+{
+  "$schema": "https://antigravity.google/schemas/v1/plugin.json",
+  "displayName": "FlyBase",
+  "name": "flybase",
+  "version": "0.1.1",
+  "description": "Connect to FlyBase to look up genes and alleles, download tables, and search sequences with BLAST.",
+  "author": {
+    "name": "FlyBase"
+  },
+  "homepage": "https://flybase.org",
+  "repository": "https://github.com/FlyBase/flybase-ai-tools",
+  "license": "MIT",
+  "suggestedPrompts": [
+    "What is the FlyBase ID for wingless?"
+  ]
+}
