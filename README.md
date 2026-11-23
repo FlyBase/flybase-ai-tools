@@ -4,7 +4,6 @@ Tools for using FlyBase data from AI assistants.
 
 - `mcp/`: the hosted FlyBase MCP server (Rust). Endpoint: `https://mcp.flybase.org/mcp`.
 - `plugins/flybase/`: the FlyBase plugin for Claude Code, Codex, and Google Antigravity.
-- `blast-jobs/`: the BLAST job service behind the MCP's BLAST tools (Rust, NCBI BLAST+ 2.17.0).
 
 The server's tools and their arguments are listed in [docs/tools.md](docs/tools.md).
 
