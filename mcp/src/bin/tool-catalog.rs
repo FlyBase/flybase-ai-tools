@@ -8,6 +8,10 @@ fn main() {
     );
     let mut tools = router.list_all();
     tools.sort_by(|a, b| a.name.cmp(&b.name));
+    for tool in &tools {
+        println!("- [`{0}`](#{0})", tool.name);
+    }
+    println!();
     for t in tools {
         let schema = serde_json::to_string_pretty(t.input_schema.as_ref()).unwrap_or_default();
         println!(
