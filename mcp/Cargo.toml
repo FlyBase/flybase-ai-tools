@@ -16,7 +16,7 @@ name = "flybase-mcp"
 path = "src/main.rs"
 
 [dependencies]
-rmcp = { version = "3.5", features = ["server", "macros", "transport-streamable-http-server"] }
+rmcp = { version = "3.9", features = ["server", "macros", "transport-streamable-http-server"] }
 axum = "0.8"
 tokio = { version = "1.53", features = ["full"] }
 deadpool-postgres = "0.14"
@@ -42,6 +42,6 @@ sha2 = "0.10"
 rand = "0.9"
 
 [dev-dependencies]
-rmcp = { version = "3.5", features = ["client", "transport-streamable-http-client-reqwest"] }
+rmcp = { version = "3.9", features = ["client", "transport-streamable-http-client-reqwest"] }
 wiremock = "0.6"
 tokio = { version = "1.53", features = ["full", "test-util"] }

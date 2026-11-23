@@ -116,6 +116,13 @@ Stock Center, with component allele FBal0018186.
 Returns a 4-row TSV block, for example `hh  hedgehog  3R:23128169..23141906(-)  94E1-94E1  CG4637`. Call it
 with `"list_options": true` (and empty `ids` and `fields`) to see the field catalogue by class.
 
+For lists of 501 to 50,000 IDs, the response includes `total`, `offset`, and `next_offset`.
+Send the same IDs, fields, and format on each call, setting `offset` to the previous
+`next_offset`. Stop when it is null. Pages contain up to 1,000 input rows and can be
+shorter when the selected fields fill the response. To assemble a single TSV file,
+keep the header from the first page and append the data lines from every page.
+Pass `limit` (1 to 1,000) to request smaller pages or enable paging for a short list.
+
 ### "Get me the Wingless protein sequence."
 
 ```json

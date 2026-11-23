@@ -140,10 +140,13 @@ Each is described in [docs/tools.md](docs/tools.md).
 - **Data release.** Every result names the FlyBase release it came from, currently FB2026_03.
 - **BLAST databases.** BLAST searches the archived FB2023_04 database set, so BLAST results can lag the rest of
   the server. Each `blast_submit` response says so.
+- **Batch downloads.** Submit up to 50,000 FlyBase IDs as one ordered list. For lists over 500 IDs,
+  retrieve the JSON or TSV in pages of up to 1,000 rows. Repeat the call with the same IDs and fields,
+  setting `offset` to the returned `next_offset` until it is null. See [the batch example](docs/examples.md#reports-batch-downloads-and-sequences).
 - **Fair use.** The server is shared and rate limited per client. Requests over the limit get HTTP 429;
   wait and retry. One assistant session stays well within it. Please be polite with scripts: pause
   between batches, use `batch_download` and `validate_ids` for bulk work, and cache what you fetch.
-- **Only `/mcp` is public.** `/health` and `/metrics` are intentionally not exposed and return 404.
+- **Only `/mcp` is public.** `/health` and `/metrics` are intentionally not exposed by the public endpoint.
 
 ## BLAST
 

@@ -13,7 +13,7 @@ use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 use std::borrow::Cow;
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 
 #[derive(Deserialize, Serialize, JsonSchema, Clone, Copy, PartialEq, Eq, Debug)]
 #[serde(rename_all = "snake_case")]
@@ -219,19 +219,28 @@ pub async fn resolve_ids(
     ids: &[String],
 ) -> ToolResult<Vec<IdStatus>> {
     let rows = chado.query(tool, "resolve/id_status", &[&ids]).await?;
+    let mut by_input = HashMap::<&str, Vec<_>>::new();
+    for row in &rows {
+        by_input.entry(row.get("input")).or_default().push(row);
+    }
     let mut out = Vec::with_capacity(ids.len());
     for id in ids {
+        let matches = by_input
+            .get(id.as_str())
+            .map(Vec::as_slice)
+            .unwrap_or_default();
         let pick = |status: &str| -> Vec<(String, Option<String>)> {
-            rows.iter()
-                .filter(|r| r.get::<_, &str>("input") == id && r.get::<_, &str>("status") == status)
+            matches
+                .iter()
+                .filter(|r| r.get::<_, &str>("status") == status)
                 .map(|r| (r.get("uniquename"), r.get("name")))
                 .collect()
         };
         let current = pick("current");
         let secondary = pick("secondary");
-        let obsolete = rows
+        let obsolete = matches
             .iter()
-            .any(|r| r.get::<_, &str>("input") == id && r.get::<_, &str>("status") == "obsolete");
+            .any(|r| r.get::<_, &str>("status") == "obsolete");
         let (status, list) = if !current.is_empty() {
             ("current", current)
         } else if secondary.len() == 1 {

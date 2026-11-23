@@ -21,7 +21,7 @@ jobs:
       - run: cargo test --lib
       - run: cargo run --bin tool-catalog > /tmp/tools.md && diff -u ../docs/tools.md /tmp/tools.md
   fixture-tests:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
