@@ -64,8 +64,18 @@ Returns one status per input: 3 current (`dpp`, `hh`, `snRNA:4.5S`) and 1 unknow
 {"name": "list_species", "arguments": {}}
 ```
 
-Returns 12 sequenced species with their abbreviations (Dmel, Dsim, Dpse, ...) and the Muller element
-synteny table.
+Returns organisms with assemblies in the FlyBase release, their abbreviations (Dmel, Dsim, Dpse, ...),
+and the Muller element synteny table.
+
+### "List FlyBase organism abbreviations, including organisms without genome assemblies."
+
+```json
+{"name": "list_species", "arguments": {"include_unsequenced": true, "limit": 100}}
+```
+
+`organisms_total` counts all organisms with abbreviations and `assemblies_total` counts those with
+assemblies. Use `count_shown` for the number on the current page. When `has_more` is true, repeat the
+call with the same filter and limit and pass `next_offset` as `offset`.
 
 ## Reports, batch downloads, and sequences
 

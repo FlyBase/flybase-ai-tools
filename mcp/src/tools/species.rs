@@ -1,6 +1,7 @@
 use crate::backends::cache::ResponseCache;
 use crate::{
     error::ToolResult,
+    limits::{MAX_JSON_BYTES, MAX_ROWS},
     output::{Envelope, complete},
     server::FlyBaseServer,
 };
@@ -16,6 +17,10 @@ use serde_json::json;
 pub struct ListSpeciesParams {
     /// Include organisms without a genome assembly (default false).
     pub include_unsequenced: Option<bool>,
+    /// Organisms per page (default 100 when paging, max 1000). With no limit or offset, the assembly-only list is unpaged. Wide rows can shorten pages.
+    pub limit: Option<u32>,
+    /// Organisms to skip in the filtered list (default 0). Use next_offset from the previous page.
+    pub offset: Option<u32>,
 }
 
 // Source: https://flybase.org/maps/synteny (fetched 2026-10-11).
@@ -42,7 +47,7 @@ pub fn synteny_rows() -> Vec<serde_json::Value> {
 impl FlyBaseServer {
     #[tool(
         name = "list_species",
-        description = "List the sequenced species in FlyBase with their abbreviations (Dmel, Dsim, ...) and the Muller element synteny table. Use when you need a species code for another tool or want to know which genomes are available."
+        description = "List organisms in FlyBase with their abbreviations (Dmel, Dsim, ...) and the Muller element synteny table. By default, return all organisms with genome assemblies. Set include_unsequenced=true to page through all organisms with abbreviations. If has_more is true, repeat with the same filter and limit and pass next_offset as offset. organisms_total and assemblies_total count all organisms with abbreviations and those with assemblies, respectively, regardless of the current page. Use when you need a species code for another tool or want to know which genomes are available."
     )]
     pub async fn list_species(
         &self,
@@ -66,42 +71,69 @@ impl FlyBaseServer {
 
     async fn list_species_impl(&self, p: ListSpeciesParams) -> ToolResult<CallToolResult> {
         const T: &str = "list_species";
-        let rows = self.chado.query(T, "species/list", &[]).await?;
         let include_all = p.include_unsequenced.unwrap_or(false);
+        let offset = i64::from(p.offset.unwrap_or(0));
+        let limit = (include_all || p.limit.is_some() || p.offset.is_some())
+            .then(|| i64::from(p.limit.unwrap_or(100)).clamp(1, MAX_ROWS));
+        let rows = self
+            .chado
+            .query(T, "species/list", &[&include_all, &limit, &offset])
+            .await?;
+        // The totals are present even when the requested page is empty.
+        let total: i64 = rows[0].get("organisms_total");
+        let with_assembly: i64 = rows[0].get("assemblies_total");
+        let synteny = json!(synteny_rows());
+        // Reserve room for the envelope and synteny before calculating the continuation offset.
+        let mut remaining_bytes = MAX_JSON_BYTES.saturating_sub(
+            1024 + json!(self.release).to_string().len() + synteny.to_string().len(),
+        );
         let species: Vec<_> = rows
             .iter()
-            .filter(|r| include_all || r.get::<_, bool>("has_assembly"))
-            .map(|r| {
-                json!({
-                    "abbreviation": r.get::<_, String>("abbreviation"),
+            .filter_map(|r| {
+                let abbreviation = r.get::<_, Option<String>>("abbreviation")?;
+                Some(json!({
+                    "abbreviation": abbreviation,
                     "genus": r.get::<_, String>("genus"),
                     "species": r.get::<_, String>("species"),
                     "common_name": r.get::<_, Option<String>>("common_name"),
                     "has_assembly": r.get::<_, bool>("has_assembly"),
-                })
+                }))
+            })
+            .take_while(|row| {
+                let bytes = row.to_string().len() + 1;
+                if bytes > remaining_bytes {
+                    return false;
+                }
+                remaining_bytes -= bytes;
+                true
             })
             .collect();
-        let total = rows.len();
-        let with_assembly = rows
-            .iter()
-            .filter(|r| r.get::<_, bool>("has_assembly"))
-            .count();
+        let count_shown = species.len();
+        let matched_total = if include_all { total } else { with_assembly };
+        let next = offset + count_shown as i64;
+        let has_more = next < matched_total;
+        let continuation = if has_more {
+            " Pass next_offset as offset for more."
+        } else {
+            ""
+        };
         Ok(Envelope::new(T, &self.release)
             .summary(if include_all {
                 format!(
-                    "{} organisms in FlyBase, {} with genome assemblies. Use the abbreviation (for example Dmel) as the species argument in other tools.",
-                    total, with_assembly
+                    "Showing {count_shown} of {total} organisms in FlyBase with abbreviations, {with_assembly} with genome assemblies.{continuation} Use the abbreviation (for example Dmel) as the species argument in other tools."
                 )
             } else {
                 format!(
-                    "{} species with genome assemblies ({} organisms in total). Use the abbreviation (for example Dmel) as the species argument in other tools.",
-                    species.len(),
-                    total
+                    "Showing {count_shown} of {with_assembly} species with genome assemblies ({total} organisms with abbreviations in total).{continuation} Use the abbreviation (for example Dmel) as the species argument in other tools."
                 )
             })
             .field("species", json!(species))
             .field("organisms_total", json!(total))
-            .field("muller_synteny", json!(synteny_rows()))
+            .field("assemblies_total", json!(with_assembly))
+            .field("count_shown", json!(count_shown))
+            .field("has_more", json!(has_more))
+            .field("next_offset", json!(has_more.then_some(next)))
+            .field("muller_synteny", synteny)
             .finish())
     }
 }
