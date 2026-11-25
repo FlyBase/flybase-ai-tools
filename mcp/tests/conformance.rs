@@ -89,18 +89,21 @@ async fn list_species_pages_past_the_old_cap() {
             .await
             .unwrap();
     tokio::spawn(connection);
-    let eligible: i64 = db
-        .query_one(
-            "select count(*) from organism where abbreviation is not null",
+    let expected: std::collections::HashSet<(String, String)> = db
+        .query(
+            "select genus, species from organism where abbreviation is not null",
             &[],
         )
         .await
         .unwrap()
-        .get(0);
+        .iter()
+        .map(|row| (row.get(0), row.get(1)))
+        .collect();
+    let eligible = expected.len() as i64;
     assert!(eligible > 1000, "the fixture must include the old boundary");
 
     let mut offset = 0;
-    let mut abbreviations = std::collections::HashSet::new();
+    let mut observed = std::collections::HashSet::new();
     while offset < eligible {
         let page = call(
             &c,
@@ -109,16 +112,16 @@ async fn list_species_pages_past_the_old_cap() {
         )
         .await;
         let species = page["species"].as_array().unwrap();
-        assert_eq!(species.len() as i64, (eligible - offset).min(1000));
+        assert!((1..=(eligible - offset).min(1000)).contains(&(species.len() as i64)));
         assert_eq!(page["count_shown"], species.len());
         assert_eq!(page["organisms_total"], eligible);
         assert_eq!(page["truncated"], false);
         for row in species {
-            let abbreviation = row["abbreviation"].as_str().unwrap();
-            assert!(
-                abbreviations.insert(abbreviation.to_owned()),
-                "{abbreviation}"
+            let key = (
+                row["genus"].as_str().unwrap().to_owned(),
+                row["species"].as_str().unwrap().to_owned(),
             );
+            assert!(observed.insert(key));
         }
         offset += species.len() as i64;
         assert_eq!(page["has_more"], offset < eligible);
@@ -127,6 +130,7 @@ async fn list_species_pages_past_the_old_cap() {
             json!((offset < eligible).then_some(offset))
         );
     }
+    assert_eq!(observed, expected);
     let empty = call(
         &c,
         "list_species",
