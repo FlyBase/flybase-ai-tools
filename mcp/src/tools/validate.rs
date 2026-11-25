@@ -49,6 +49,19 @@ struct ValidatePage<'a> {
     paged: bool,
 }
 
+impl ValidatePage<'_> {
+    fn input_limit(&self, tool: &'static str, reason: &str) -> ToolError {
+        let mut message = format!("input at offset {} {reason}", self.offset);
+        let next = self.offset + 1;
+        if next < self.total {
+            message.push_str(&format!(
+                ". Use offset={next} to continue with later inputs"
+            ));
+        }
+        ToolError::LimitExceeded { tool, message }
+    }
+}
+
 impl ValidateParams {
     fn page(&self, tool: &'static str) -> ToolResult<ValidatePage<'_>> {
         let total = self.ids.len();
@@ -118,15 +131,22 @@ async fn lookup_candidates(
     tool: &'static str,
     query: &str,
     params: &[&(dyn ToSql + Sync)],
+    page: &ValidatePage<'_>,
 ) -> ToolResult<Vec<Row>> {
     let fetch = MAX_CANDIDATE_ROWS + 1;
     let mut params = params.to_vec();
     params.push(&fetch);
     let rows = Chado::query_on(conn, tool, query, &params).await?;
     if rows.len() as i64 > MAX_CANDIDATE_ROWS {
+        if page.inputs.len() == 1 {
+            return Err(page.input_limit(tool, "has too many candidate matches to return"));
+        }
         return Err(ToolError::LimitExceeded {
             tool,
-            message: "too many candidate matches for this page; retry at the same offset with a smaller limit".into(),
+            message: format!(
+                "too many candidate matches for this page. Retry at offset={} with a smaller limit",
+                page.offset
+            ),
         });
     }
     Ok(rows)
@@ -215,7 +235,7 @@ impl FlyBaseServer {
         }
         if !other.is_empty() {
             let conn = self.chado.get(T).await?;
-            self.lookup_names(&conn, T, &other, species.as_deref(), &mut hits)
+            self.lookup_names(&conn, T, &other, species.as_deref(), &mut hits, &page)
                 .await?;
         }
         let rows = inputs
@@ -253,20 +273,27 @@ impl FlyBaseServer {
                 (status, row)
             });
         // Leave room for envelope and page metadata. A result always stays together with all its candidates.
-        let mut bytes = 1_024 + json!(self.release).to_string().len();
+        let byte_budget =
+            MAX_JSON_BYTES.saturating_sub(1_024 + json!(self.release).to_string().len());
+        let mut bytes = 0;
         let mut results = Vec::with_capacity(inputs.len());
         let mut counts: BTreeMap<&str, usize> = BTreeMap::new();
-        for (status, row) in rows {
-            bytes += row.to_string().len() + 1;
-            if bytes > MAX_JSON_BYTES {
+        for (index, (status, mut row)) in rows.enumerate() {
+            let mut row_bytes = row.to_string().len() + 1;
+            if row_bytes > byte_budget && status == "invalid" {
+                // Keep an oversized invalid input in the result stream without echoing its entire text.
+                let prefix: String = inputs[index].chars().take(200).collect();
+                row["input"] = json!(prefix);
+                row["input_truncated"] = json!(true);
+                row["input_bytes"] = json!(page.inputs[index].len());
+                row_bytes = row.to_string().len() + 1;
+            }
+            bytes += row_bytes;
+            if bytes > byte_budget {
                 if results.is_empty() {
-                    return Err(ToolError::LimitExceeded {
-                        tool: T,
-                        message: format!(
-                            "the result at offset {} exceeds the response size limit",
-                            page.offset
-                        ),
-                    });
+                    return Err(
+                        page.input_limit(T, "has a result exceeding the response size limit")
+                    );
                 }
                 break;
             }
@@ -304,8 +331,10 @@ impl FlyBaseServer {
         inputs: &[String],
         species: Option<&str>,
         hits: &mut BTreeMap<String, Hit>,
+        page: &ValidatePage<'_>,
     ) -> ToolResult<()> {
-        let rows = lookup_candidates(conn, t, "validate/symbols", &[&inputs, &species]).await?;
+        let rows =
+            lookup_candidates(conn, t, "validate/symbols", &[&inputs, &species], page).await?;
         // Tiers per input: exact-case symbol or stock number, any-case symbol, exact-case full name, any-case full name.
         // Only the best tier counts, so "N" is Notch alone even though an allele's full name is "n".
         let tier = |input: &str, matched: &str, kind: &str| -> u8 {
@@ -360,7 +389,8 @@ impl FlyBaseServer {
             .map(String::as_str)
             .collect();
         if !accessions.is_empty() {
-            let rows = lookup_candidates(conn, t, "validate/external", &[&accessions]).await?;
+            let rows =
+                lookup_candidates(conn, t, "validate/external", &[&accessions], page).await?;
             for r in &rows {
                 let h = hits.entry(r.get("input")).or_insert_with(|| Hit {
                     status: "matched",
@@ -378,7 +408,7 @@ impl FlyBaseServer {
             .map(String::as_str)
             .collect();
         if !numbers.is_empty() {
-            let rows = lookup_candidates(conn, t, "validate/pubmed", &[&numbers]).await?;
+            let rows = lookup_candidates(conn, t, "validate/pubmed", &[&numbers], page).await?;
             for r in &rows {
                 let input: String = r.get("input");
                 let h = hits.entry(input).or_insert_with(|| Hit {

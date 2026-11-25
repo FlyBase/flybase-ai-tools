@@ -273,6 +273,28 @@ async fn wide_results_resume_at_the_first_unreturned_input() {
     assert_eq!(next["truncated"], false);
 }
 
+#[tokio::test]
+async fn oversized_invalid_input_gets_a_bounded_display_and_keeps_its_row() {
+    let c = client().await;
+    let input = format!(" {} ", "é".repeat(140_000));
+    let result = call(
+        &c,
+        "validate_ids",
+        json!({"ids": ["FBgn0004647", input, "FBgn0000311"]}),
+    )
+    .await;
+    let rows = result["results"].as_array().unwrap();
+    assert_eq!(rows.len(), 3);
+    assert_eq!(rows[0]["status"], "current");
+    assert_eq!(rows[1]["status"], "invalid");
+    assert_eq!(rows[1]["input"], "é".repeat(200));
+    assert_eq!(rows[1]["input_truncated"], true);
+    assert_eq!(rows[1]["input_bytes"], input.len());
+    assert_eq!(rows[2]["status"], "updated");
+    assert_eq!(result["truncated"], false);
+    assert!(result.get("next_offset").is_none());
+}
+
 /// The HGNC prefix is case-insensitive, as in get_orthologs; each input is answered as written, and a non-ASCII
 /// accession after the prefix is simply unknown.
 #[tokio::test]

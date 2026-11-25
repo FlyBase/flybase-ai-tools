@@ -63,7 +63,10 @@ same inputs and filters and pass the returned `next_offset` as `offset` until it
 page size is 1,000. Set `limit` to request smaller pages, including for lists of 500 or fewer inputs.
 The response keeps input order and duplicates, and `counts` summarizes the rows in the current page.
 If a page reaches the response size limit, `next_offset` points to the first input still to return.
-If a page has too many candidate matches, retry the same `offset` with a smaller `limit`.
+If a page has too many candidate matches, retry the same `offset` with a smaller `limit`. If one input
+exceeds the match or response limit by itself, the error gives its offset and the offset for resuming
+with any later inputs. An invalid input too long to echo in one response still gets a row with a short
+display prefix, `input_truncated: true`, and its original `input_bytes`.
 
 ### "Which Drosophila genomes does FlyBase have?"
 
