@@ -2,7 +2,7 @@ use crate::backends::cache::ResponseCache;
 use crate::{
     backends::{chado::Chado, species::normalize_species},
     error::{ToolError, ToolResult},
-    limits::MAX_BATCH,
+    limits::{MAX_BATCH, MAX_JSON_BYTES},
     output::{Envelope, complete},
     server::FlyBaseServer,
     tools::resolve::{DataClass, class_of, looks_like_fb_id, normalize_fb_prefix, resolve_ids},
@@ -14,18 +14,97 @@ use rmcp::{
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, btree_map::Entry};
+use tokio_postgres::{Row, types::ToSql};
+
+const MAX_VALIDATE_IDS: usize = 50_000;
+const MAX_PAGE_ROWS: usize = 1_000;
+const MAX_CANDIDATE_ROWS: i64 = 25_000;
 
 #[derive(Deserialize, Serialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct ValidateParams {
-    /// Up to 500 inputs: FlyBase IDs (current, secondary, or obsolete), exact symbols or full names, or external IDs
-    /// (UniProt, GenBank, RefSeq, Entrez Gene numbers, HGNC:1234, PubMed numbers).
+    /// Up to 50,000 inputs in output order. Resend the same list for each page (the HTTP request limit is 1 MiB).
+    /// Supports FlyBase IDs, exact symbols or full names, and external IDs.
+    #[schemars(length(min = 1, max = 50000))]
     pub ids: Vec<String>,
     /// Keep only matches of this data class (for example gene when a UniProt accession also maps to polypeptides).
     pub target_class: Option<DataClass>,
     /// Species for symbol matching (default any).
     pub species: Option<String>,
+    /// Zero-based index of the first input to return. Use next_offset from the previous response.
+    pub offset: Option<usize>,
+    /// Maximum results per page (1 to 1,000). Large results can reduce the number that fit.
+    #[schemars(range(min = 1, max = 1000))]
+    pub limit: Option<usize>,
+}
+
+#[derive(Serialize)]
+struct ValidatePage<'a> {
+    inputs: &'a [String],
+    target_class: Option<DataClass>,
+    species: Option<&'a str>,
+    offset: usize,
+    total: usize,
+    paged: bool,
+}
+
+impl ValidatePage<'_> {
+    fn input_limit(&self, tool: &'static str, reason: &str) -> ToolError {
+        let mut message = format!("input at offset {} {reason}", self.offset);
+        let next = self.offset + 1;
+        if next < self.total {
+            message.push_str(&format!(
+                ". Use offset={next} to continue with later inputs"
+            ));
+        }
+        ToolError::LimitExceeded { tool, message }
+    }
+}
+
+impl ValidateParams {
+    fn page(&self, tool: &'static str) -> ToolResult<ValidatePage<'_>> {
+        let total = self.ids.len();
+        if total == 0 {
+            return Err(ToolError::InvalidInput {
+                tool,
+                arg: "ids",
+                message: "provide at least one identifier".into(),
+            });
+        }
+        if total > MAX_VALIDATE_IDS {
+            return Err(ToolError::LimitExceeded {
+                tool,
+                message: format!(
+                    "{MAX_VALIDATE_IDS} IDs max per call ({total} given); split the list"
+                ),
+            });
+        }
+        let offset = self.offset.unwrap_or(0);
+        let limit = self.limit.unwrap_or(MAX_PAGE_ROWS);
+        if offset >= total {
+            return Err(ToolError::InvalidInput {
+                tool,
+                arg: "offset",
+                message: "must identify a row in the input list".into(),
+            });
+        }
+        if !(1..=MAX_PAGE_ROWS).contains(&limit) {
+            return Err(ToolError::InvalidInput {
+                tool,
+                arg: "limit",
+                message: format!("must be between 1 and {MAX_PAGE_ROWS}"),
+            });
+        }
+        Ok(ValidatePage {
+            inputs: &self.ids[offset..(offset + limit).min(total)],
+            target_class: self.target_class,
+            species: self.species.as_deref(),
+            offset,
+            total,
+            paged: total > MAX_BATCH || self.offset.is_some() || self.limit.is_some(),
+        })
+    }
 }
 
 #[derive(Default)]
@@ -38,17 +117,46 @@ struct Hit {
     note: Option<String>,
 }
 
-fn push_unique(v: &mut Vec<String>, id: String) {
-    if !v.contains(&id) {
-        v.push(id);
+impl Hit {
+    fn push(&mut self, id: String, symbol: impl FnOnce() -> Option<String>) {
+        if let Entry::Vacant(entry) = self.symbols.entry(id.clone()) {
+            entry.insert(symbol());
+            self.ids.push(id);
+        }
     }
+}
+
+async fn lookup_candidates(
+    conn: &Object,
+    tool: &'static str,
+    query: &str,
+    params: &[&(dyn ToSql + Sync)],
+    page: &ValidatePage<'_>,
+) -> ToolResult<Vec<Row>> {
+    let fetch = MAX_CANDIDATE_ROWS + 1;
+    let mut params = params.to_vec();
+    params.push(&fetch);
+    let rows = Chado::query_on(conn, tool, query, &params).await?;
+    if rows.len() as i64 > MAX_CANDIDATE_ROWS {
+        if page.inputs.len() == 1 {
+            return Err(page.input_limit(tool, "has too many candidate matches to return"));
+        }
+        return Err(ToolError::LimitExceeded {
+            tool,
+            message: format!(
+                "too many candidate matches for this page. Retry at offset={} with a smaller limit",
+                page.offset
+            ),
+        });
+    }
+    Ok(rows)
 }
 
 #[tool_router(router = tool_router_validate, vis = "pub")]
 impl FlyBaseServer {
     #[tool(
         name = "validate_ids",
-        description = "Validate and update a batch of up to 500 identifiers at once: FlyBase IDs (reports secondary, split, and obsolete IDs with their current replacements; secondary IDs are known for feature classes such as FBgn and FBal only, not FBgg or FBhh), exact symbols or names, and external IDs (UniProt, GenBank, RefSeq, Entrez Gene, HGNC:n, PubMed). Use for lists of exact inputs; use resolve for one fuzzy name."
+        description = "Validate and update up to 50,000 identifiers: FlyBase IDs (including secondary, split, and obsolete IDs), exact symbols or names, and external IDs (UniProt, GenBank, RefSeq, Entrez Gene, HGNC:n, PubMed). Secondary IDs are known for feature classes such as FBgn and FBal only, not FBgg or FBhh. Returns one result per input in order, including duplicates. Lists over 500 inputs are paged. Repeat with the same arguments and offset=next_offset until next_offset is null. Counts cover the returned page. Use resolve for one fuzzy name."
     )]
     pub async fn validate_ids(
         &self,
@@ -57,12 +165,13 @@ impl FlyBaseServer {
         const T: &str = "validate_ids";
         let started = std::time::Instant::now();
         let res = async {
-            let key = ResponseCache::key(T, &p);
+            let page = p.page(T)?;
+            let key = ResponseCache::key(T, &page);
             self.caches
                 .response
                 .get_or_else(key, async {
                     let _permit = self.limits.light(T).await?;
-                    self.validate_impl(p).await
+                    self.validate_impl(page).await
                 })
                 .await
         }
@@ -70,30 +179,14 @@ impl FlyBaseServer {
         Ok(complete(T, started, res))
     }
 
-    async fn validate_impl(&self, p: ValidateParams) -> ToolResult<CallToolResult> {
+    async fn validate_impl(&self, page: ValidatePage<'_>) -> ToolResult<CallToolResult> {
         const T: &str = "validate_ids";
-        if p.ids.is_empty() {
-            return Err(ToolError::InvalidInput {
-                tool: T,
-                arg: "ids",
-                message: "provide at least one identifier".into(),
-            });
-        }
-        if p.ids.len() > MAX_BATCH {
-            return Err(ToolError::LimitExceeded {
-                tool: T,
-                message: format!(
-                    "{MAX_BATCH} IDs max per call ({} given); split the list",
-                    p.ids.len()
-                ),
-            });
-        }
-        let species = match &p.species {
+        let species = match page.species {
             Some(s) => Some(normalize_species(&self.chado, T, s).await?),
             None => None,
         };
         // One result per input, in input order; empty or over-long inputs are kept with status "invalid".
-        let inputs: Vec<String> = p.ids.iter().map(|s| s.trim().to_string()).collect();
+        let inputs: Vec<String> = page.inputs.iter().map(|s| s.trim().to_string()).collect();
         let usable = |s: &String| !s.is_empty() && s.len() <= 200;
         // Partition: FlyBase-ID-shaped inputs go to resolve_ids; everything else is tried as a symbol, stock number, and external ID.
         let mut fb: Vec<String> = inputs
@@ -142,14 +235,14 @@ impl FlyBaseServer {
         }
         if !other.is_empty() {
             let conn = self.chado.get(T).await?;
-            self.lookup_names(&conn, T, &other, species.as_deref(), &mut hits)
+            self.lookup_names(&conn, T, &other, species.as_deref(), &mut hits, &page)
                 .await?;
         }
-        let results: Vec<Value> = inputs
+        let rows = inputs
             .iter()
             .map(|input| {
                 if !usable(input) {
-                    return json!({"input": input, "current_ids": [], "symbol": Value::Null, "data_class": Value::Null, "status": "invalid", "matched_by": "none", "note": "empty or longer than 200 characters"});
+                    return ("invalid", json!({"input": input, "current_ids": [], "symbol": Value::Null, "data_class": Value::Null, "status": "invalid", "matched_by": "none", "note": "empty or longer than 200 characters"}));
                 }
                 let key = normalize_fb_prefix(input).into_owned();
                 // Hits are looked up, not removed, so a duplicated input gets the same answer twice.
@@ -158,12 +251,12 @@ impl FlyBaseServer {
                 let ids: Vec<&String> = h
                     .ids
                     .iter()
-                    .filter(|id| p.target_class.is_none_or(|c| class_of(id) == c.as_str()))
+                    .filter(|id| page.target_class.is_none_or(|c| class_of(id) == c.as_str()))
                     .collect();
                 // The class filter can empty a hit or narrow an ambiguous one to a single match; status and note follow.
                 let narrowed = ids.len() < h.ids.len();
                 let (status, note) = if ids.is_empty() && !h.ids.is_empty() {
-                    ("unknown", Some(format!("matches exist but none of class {}", p.target_class.map(|c| c.as_str()).unwrap_or(""))))
+                    ("unknown", Some(format!("matches exist but none of class {}", page.target_class.map(|c| c.as_str()).unwrap_or(""))))
                 } else if h.status == "ambiguous" && ids.len() == 1 {
                     ("matched", Some(format!("{} entities matched; target_class kept one", h.ids.len())))
                 } else if narrowed && h.status == "ambiguous" {
@@ -172,18 +265,40 @@ impl FlyBaseServer {
                     (h.status, h.note.clone())
                 };
                 let symbol = ids.first().and_then(|id| h.symbols.get(*id).cloned().flatten());
-                json!({
+                let row = json!({
                     "input": input, "current_ids": ids, "symbol": symbol,
                     "data_class": ids.first().map(|id| class_of(id)), "status": status, "matched_by": if ids.is_empty() { "none" } else { h.matched_by },
                     "note": note,
-                })
-            })
-            .collect();
+                });
+                (status, row)
+            });
+        // Leave room for envelope and page metadata. A result always stays together with all its candidates.
+        let byte_budget =
+            MAX_JSON_BYTES.saturating_sub(1_024 + json!(self.release).to_string().len());
+        let mut bytes = 0;
+        let mut results = Vec::with_capacity(inputs.len());
         let mut counts: BTreeMap<&str, usize> = BTreeMap::new();
-        for r in &results {
-            *counts
-                .entry(r["status"].as_str().unwrap_or("unknown"))
-                .or_default() += 1;
+        for (index, (status, mut row)) in rows.enumerate() {
+            let mut row_bytes = row.to_string().len() + 1;
+            if row_bytes > byte_budget && status == "invalid" {
+                // Keep an oversized invalid input in the result stream without echoing its entire text.
+                let prefix: String = inputs[index].chars().take(200).collect();
+                row["input"] = json!(prefix);
+                row["input_truncated"] = json!(true);
+                row["input_bytes"] = json!(page.inputs[index].len());
+                row_bytes = row.to_string().len() + 1;
+            }
+            bytes += row_bytes;
+            if bytes > byte_budget {
+                if results.is_empty() {
+                    return Err(
+                        page.input_limit(T, "has a result exceeding the response size limit")
+                    );
+                }
+                break;
+            }
+            results.push(row);
+            *counts.entry(status).or_default() += 1;
         }
         let summary = format!(
             "{} input(s): {}.",
@@ -194,11 +309,18 @@ impl FlyBaseServer {
                 .collect::<Vec<_>>()
                 .join(", ")
         );
-        Ok(Envelope::new(T, &self.release)
+        let next = page.offset + results.len();
+        let mut env = Envelope::new(T, &self.release)
             .summary(summary)
-            .field("results", json!(results))
-            .field("counts", json!(counts))
-            .finish())
+            .field("results", Value::Array(results))
+            .field("counts", json!(counts));
+        if page.paged || next < page.total {
+            env = env
+                .field("total", json!(page.total))
+                .field("offset", json!(page.offset))
+                .field("next_offset", json!((next < page.total).then_some(next)));
+        }
+        Ok(env.finish())
     }
 
     /// Symbols and names through the name index, external accessions through feature_dbxref, PubMed IDs through pub_dbxref.
@@ -209,8 +331,10 @@ impl FlyBaseServer {
         inputs: &[String],
         species: Option<&str>,
         hits: &mut BTreeMap<String, Hit>,
+        page: &ValidatePage<'_>,
     ) -> ToolResult<()> {
-        let rows = Chado::query_on(conn, t, "validate/symbols", &[&inputs, &species]).await?;
+        let rows =
+            lookup_candidates(conn, t, "validate/symbols", &[&inputs, &species], page).await?;
         // Tiers per input: exact-case symbol or stock number, any-case symbol, exact-case full name, any-case full name.
         // Only the best tier counts, so "N" is Notch alone even though an allele's full name is "n".
         let tier = |input: &str, matched: &str, kind: &str| -> u8 {
@@ -233,7 +357,7 @@ impl FlyBaseServer {
                 .and_modify(|b| *b = (*b).min(tr))
                 .or_insert(tr);
         }
-        for r in &rows {
+        for r in rows {
             let input: String = r.get("input");
             if tier(
                 &input,
@@ -253,60 +377,38 @@ impl FlyBaseServer {
                 matched_by,
                 ..Hit::default()
             });
-            let id: String = r.get("entity_id");
-            h.symbols.entry(id.clone()).or_insert_with(|| {
+            h.push(r.get("entity_id"), || {
                 r.get::<_, Option<String>>("current_symbol")
                     .or_else(|| r.get("matched"))
             });
-            push_unique(&mut h.ids, id);
         }
-        // HGNC:7881 (prefix in any case) is looked up as accession 7881 in the HGNC db only; a bare number is an Entrez
-        // Gene ID (and, below, a PubMed ID). The prefix is sliced with `get` so non-ASCII input cannot panic.
-        let hgnc_acc = |s: &str| -> Option<String> {
-            s.get(..5)
-                .filter(|p| p.eq_ignore_ascii_case("HGNC:"))
-                .map(|_| s[5..].to_string())
-        };
-        let accessions: Vec<String> = inputs
+        // Symbols and stock numbers win over accessions, which win over PubMed IDs.
+        let accessions: Vec<&str> = inputs
             .iter()
-            .map(|s| hgnc_acc(s).unwrap_or_else(|| s.clone()))
+            .filter(|s| !hits.contains_key(*s))
+            .map(String::as_str)
             .collect();
-        let rows = Chado::query_on(conn, t, "validate/external", &[&accessions]).await?;
-        for r in &rows {
-            let acc: String = r.get("input");
-            let db: String = r.get("db");
-            // Map the row back to every input as the user wrote it (hgnc:7881 and HGNC:7881 are both answered).
-            let originals = inputs.iter().filter(|s| {
-                if db == "HGNC" {
-                    hgnc_acc(s).as_deref() == Some(acc.as_str())
-                } else {
-                    **s == acc
-                }
-            });
-            for original in originals {
-                let h = hits.entry(original.clone()).or_insert_with(|| Hit {
+        if !accessions.is_empty() {
+            let rows =
+                lookup_candidates(conn, t, "validate/external", &[&accessions], page).await?;
+            for r in &rows {
+                let h = hits.entry(r.get("input")).or_insert_with(|| Hit {
                     status: "matched",
                     matched_by: "external_id",
                     ..Hit::default()
                 });
-                if h.matched_by == "symbol" || h.matched_by == "stock_number" {
-                    continue; // an exact symbol or stock number wins over an accidental accession match
-                }
-                let id: String = r.get("uniquename");
-                h.symbols
-                    .entry(id.clone())
-                    .or_insert_with(|| r.get("symbol"));
-                push_unique(&mut h.ids, id);
+                h.push(r.get("uniquename"), || r.get("symbol"));
+                let db: &str = r.get("db");
                 h.note = Some(format!("via {db}"));
             }
         }
-        let numbers: Vec<String> = inputs
+        let numbers: Vec<&str> = inputs
             .iter()
-            .filter(|s| s.bytes().all(|b| b.is_ascii_digit()))
-            .cloned()
+            .filter(|s| !hits.contains_key(*s) && s.bytes().all(|b| b.is_ascii_digit()))
+            .map(String::as_str)
             .collect();
         if !numbers.is_empty() {
-            let rows = Chado::query_on(conn, t, "validate/pubmed", &[&numbers]).await?;
+            let rows = lookup_candidates(conn, t, "validate/pubmed", &[&numbers], page).await?;
             for r in &rows {
                 let input: String = r.get("input");
                 let h = hits.entry(input).or_insert_with(|| Hit {
@@ -314,12 +416,8 @@ impl FlyBaseServer {
                     matched_by: "pubmed_id",
                     ..Hit::default()
                 });
-                if h.matched_by == "pubmed_id" {
-                    let id: String = r.get("uniquename");
-                    h.symbols.entry(id.clone()).or_insert(None);
-                    push_unique(&mut h.ids, id);
-                    h.note = r.get::<_, Option<String>>("miniref");
-                }
+                h.push(r.get("uniquename"), || None);
+                h.note = r.get("miniref");
             }
         }
         for h in hits.values_mut() {

@@ -1650,7 +1650,7 @@ Search the FlyBase wiki: help pages and field-by-field guides to FlyBase reports
 
 ## `validate_ids`
 
-Validate and update a batch of up to 500 identifiers at once: FlyBase IDs (reports secondary, split, and obsolete IDs with their current replacements; secondary IDs are known for feature classes such as FBgn and FBal only, not FBgg or FBhh), exact symbols or names, and external IDs (UniProt, GenBank, RefSeq, Entrez Gene, HGNC:n, PubMed). Use for lists of exact inputs; use resolve for one fuzzy name.
+Validate and update up to 50,000 identifiers: FlyBase IDs (including secondary, split, and obsolete IDs), exact symbols or names, and external IDs (UniProt, GenBank, RefSeq, Entrez Gene, HGNC:n, PubMed). Secondary IDs are known for feature classes such as FBgn and FBal only, not FBgg or FBhh. Returns one result per input in order, including duplicates. Lists over 500 inputs are paged. Repeat with the same arguments and offset=next_offset until next_offset is null. Counts cover the returned page. Use resolve for one fuzzy name.
 
 ```json
 {
@@ -1679,11 +1679,32 @@ Validate and update a batch of up to 500 identifiers at once: FlyBase IDs (repor
   "additionalProperties": false,
   "properties": {
     "ids": {
-      "description": "Up to 500 inputs: FlyBase IDs (current, secondary, or obsolete), exact symbols or full names, or external IDs\n(UniProt, GenBank, RefSeq, Entrez Gene numbers, HGNC:1234, PubMed numbers).",
+      "description": "Up to 50,000 inputs in output order. Resend the same list for each page (the HTTP request limit is 1 MiB).\nSupports FlyBase IDs, exact symbols or full names, and external IDs.",
       "items": {
         "type": "string"
       },
+      "maxItems": 50000,
+      "minItems": 1,
       "type": "array"
+    },
+    "limit": {
+      "description": "Maximum results per page (1 to 1,000). Large results can reduce the number that fit.",
+      "format": "uint",
+      "maximum": 1000,
+      "minimum": 1,
+      "type": [
+        "integer",
+        "null"
+      ]
+    },
+    "offset": {
+      "description": "Zero-based index of the first input to return. Use next_offset from the previous response.",
+      "format": "uint",
+      "minimum": 0,
+      "type": [
+        "integer",
+        "null"
+      ]
     },
     "species": {
       "description": "Species for symbol matching (default any).",
