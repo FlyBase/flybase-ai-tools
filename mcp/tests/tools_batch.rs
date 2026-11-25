@@ -87,6 +87,40 @@ async fn tsv_format_and_list_options() {
 }
 
 #[tokio::test]
+async fn website_batch_fields_across_tsv_pages() {
+    let c = client().await;
+    // FB2026_03 Batch Download report fields FBID_KEY, SYMBOL, NAME and ANNOTATION_SYMBOL.
+    let mut args = json!({
+        "ids": ["FBgn0004647", "FBgn0000490", "FBgn0004647"],
+        "fields": ["symbol", "name", "annotation_id"],
+        "format": "tsv",
+        "limit": 2
+    });
+    let first = call(&c, "batch_download", args.clone()).await;
+    assert_eq!(
+        first["tsv"].as_str().unwrap().lines().collect::<Vec<_>>(),
+        [
+            "input\tid\tsymbol\tname\tannotation_id",
+            "FBgn0004647\tFBgn0004647\tN\tNotch\tCG3936",
+            "FBgn0000490\tFBgn0000490\tdpp\tdecapentaplegic\tCG9885",
+        ]
+    );
+    assert_eq!(first["next_offset"], 2);
+    assert_eq!(first["total"], 3);
+    args["offset"] = first["next_offset"].clone();
+    let last = call(&c, "batch_download", args).await;
+    assert_eq!(
+        last["tsv"].as_str().unwrap().lines().collect::<Vec<_>>(),
+        [
+            "input\tid\tsymbol\tname\tannotation_id",
+            "FBgn0004647\tFBgn0004647\tN\tNotch\tCG3936",
+        ]
+    );
+    assert!(last["next_offset"].is_null());
+    assert_eq!(last["total"], 3);
+}
+
+#[tokio::test]
 async fn unknown_field_and_unknown_id() {
     let c = client().await;
     let r = call_raw(

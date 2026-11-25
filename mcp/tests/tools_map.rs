@@ -14,6 +14,8 @@ async fn map_region_finds_notch_and_insertions() {
         .expect("Notch overlaps its own span");
     assert_eq!(notch["overlap"], "within");
     assert_eq!(notch["start"], 3134870);
+    assert_eq!(notch["end"], 3172221);
+    assert_eq!(notch["strand"], 1);
     if support::full_db() {
         assert!(
             f.iter()

@@ -62,7 +62,7 @@ async fn testis_high_ovary_low() {
 
 #[tokio::test]
 async fn notch_is_found_by_its_own_values() {
-    // Notch is in the fixture: FlyAtlas2 Adult_Female_Ovary = 64, L3_CNS = 57.
+    // FB2026_03 website expression data, /expression/ht_data/FBgn0004647/FlyAtlas2.
     let c = client().await;
     let s = call(
         &c,
@@ -73,13 +73,14 @@ async fn notch_is_found_by_its_own_values() {
     ], "limit": 100}),
     )
     .await;
-    assert!(
-        s["genes"]
-            .as_array()
-            .unwrap()
-            .iter()
-            .any(|g| g["id"] == "FBgn0004647")
-    );
+    let notch = s["genes"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|g| g["id"] == "FBgn0004647")
+        .expect("Notch meets both expression thresholds");
+    assert_eq!(notch["values"]["Adult_Female_Ovary"].as_f64(), Some(64.0));
+    assert_eq!(notch["values"]["L3_CNS"].as_f64(), Some(57.0));
 }
 
 #[tokio::test]
@@ -210,7 +211,8 @@ async fn similar_genes_to_notch() {
         );
         assert_eq!(sim[0]["id"], "FBgn0010768");
         assert_eq!(sim[0]["symbol"], "sqz");
-        assert!((rs[0] - 0.9308).abs() < 0.002, "sqz r = {}", rs[0]);
+        // Pearson on log2(RPKM + 1) of the public FlyAtlas2 profiles for N and sqz.
+        assert!((rs[0] - 0.9308).abs() < 0.0001, "sqz r = {}", rs[0]);
         let m = call(&c, "rnaseq_similar_genes", json!({"id": "FBgn0004647", "dataset": "FlyAtlas2", "limit": 100, "min_correlation": 0.88})).await;
         assert!(
             m["similar"]
@@ -221,8 +223,14 @@ async fn similar_genes_to_notch() {
         );
         assert!(m["similar"].as_array().unwrap().len() >= 3);
     } else {
-        // The fixture carries 589 FlyAtlas2 genes; Notch is compared against the rest of them.
-        assert!(!sim.is_empty());
+        // CG4612 is in the Chado fixture. Its public profile gives r = 0.8724 across
+        // the 43 shared FlyAtlas2 samples, after the MCP log2(RPKM + 1) transform.
+        let cg4612 = sim
+            .iter()
+            .find(|g| g["id"] == "FBgn0035016")
+            .expect("CG4612 among fixture hits");
+        assert_eq!(cg4612["symbol"], "CG4612");
+        assert_eq!(cg4612["correlation"], 0.8724);
         assert!(s["query"]["genes_compared"].as_u64().unwrap() > 0);
     }
     // A second call is served from the cached matrix; /health reports it (Task 8 asserts the health field).
