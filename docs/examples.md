@@ -58,6 +58,13 @@ Returns FBst0005905 as the exact match, followed by prefix matches such as 59050
 
 Returns one status per input: 3 current (`dpp`, `hh`, `snRNA:4.5S`) and 1 unknown (FBgn9999999).
 
+`validate_ids` accepts up to 50,000 inputs within the 1 MiB request limit. For lists over 500, keep the
+same inputs and filters and pass the returned `next_offset` as `offset` until it is `null`. The default
+page size is 1,000. Set `limit` to request smaller pages, including for lists of 500 or fewer inputs.
+The response keeps input order and duplicates, and `counts` summarizes the rows in the current page.
+If a page reaches the response size limit, `next_offset` points to the first input still to return.
+If a page has too many candidate matches, retry the same `offset` with a smaller `limit`.
+
 ### "Which Drosophila genomes does FlyBase have?"
 
 ```json
