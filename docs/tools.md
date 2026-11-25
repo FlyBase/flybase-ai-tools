@@ -1023,7 +1023,7 @@ Read a FlyBase wiki page as plain text (markup removed), with its section list. 
 
 ## `list_species`
 
-List the sequenced species in FlyBase with their abbreviations (Dmel, Dsim, ...) and the Muller element synteny table. Use when you need a species code for another tool or want to know which genomes are available.
+List organisms in FlyBase with their abbreviations (Dmel, Dsim, ...) and the Muller element synteny table. By default, return all organisms with genome assemblies. Set include_unsequenced=true to page through all organisms with abbreviations. If has_more is true, repeat with the same filter and limit and pass next_offset as offset. organisms_total and assemblies_total count all organisms with abbreviations and those with assemblies, respectively, regardless of the current page. Use when you need a species code for another tool or want to know which genomes are available.
 
 ```json
 {
@@ -1034,6 +1034,24 @@ List the sequenced species in FlyBase with their abbreviations (Dmel, Dsim, ...)
       "description": "Include organisms without a genome assembly (default false).",
       "type": [
         "boolean",
+        "null"
+      ]
+    },
+    "limit": {
+      "description": "Organisms per page (default 100 when paging, max 1000). With no limit or offset, the assembly-only list is unpaged. Wide rows can shorten pages.",
+      "format": "uint32",
+      "minimum": 0,
+      "type": [
+        "integer",
+        "null"
+      ]
+    },
+    "offset": {
+      "description": "Organisms to skip in the filtered list (default 0). Use next_offset from the previous page.",
+      "format": "uint32",
+      "minimum": 0,
+      "type": [
+        "integer",
         "null"
       ]
     }
