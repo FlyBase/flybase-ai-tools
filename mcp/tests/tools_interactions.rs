@@ -16,6 +16,7 @@ async fn notch_physical_and_genetic() {
     assert_eq!(ph["items"].as_array().unwrap().len(), 5);
     assert_eq!(ph["has_more"], true);
     assert_eq!(ph["items"][0]["partner_symbol"], "Abl");
+    assert_eq!(ph["items"][0]["partner_id"], "FBgn0000017");
     assert_eq!(ph["items"][0]["type"], "physical association");
     assert!(
         ph["items"][0]["detection"]
@@ -32,6 +33,7 @@ async fn notch_physical_and_genetic() {
     let ge = &s["genetic"];
     assert_eq!(ge["items"].as_array().unwrap().len(), 5);
     assert_eq!(ge["items"][0]["partner_symbol"], "A122");
+    assert_eq!(ge["items"][0]["partner_id"], "FBgn0025723");
     assert!(
         ge["items"][0]["references"]
             .as_str()

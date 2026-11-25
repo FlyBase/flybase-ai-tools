@@ -14,6 +14,7 @@ async fn gene_default_sections() {
     assert_eq!(sec["location"]["chromosome"], "X");
     assert_eq!(sec["location"]["strand"], 1);
     assert_eq!(sec["location"]["start"], 3134870);
+    assert_eq!(sec["location"]["end"], 3172221);
     assert!(
         sec["go_summary"]["biological_process"]
             .as_array()

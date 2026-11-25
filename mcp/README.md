@@ -39,6 +39,8 @@ Each file in `tests/` is its own binary and starts one in-process server on a ra
 tests (`tests/support/server.rs`). Use `support::server::call` for a successful call's structured content
 and `call_raw` to assert on errors.
 
+See [website parity checks](../docs/website-parity.md) for the reference results covered by each tool's tests.
+
 ## Layout
 
 - `src/server.rs`: `FlyBaseServer`, `all_tool_routers`, the axum app (`/mcp`, `/health`, `/metrics`).

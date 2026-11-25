@@ -11,13 +11,15 @@ async fn substring_finds_notch_gene() {
         json!({"query": "otch", "data_class": "gene", "species": "Dmel"}),
     )
     .await;
-    assert!(
-        s["hits"]
-            .as_array()
-            .unwrap()
-            .iter()
-            .any(|h| h["id"] == "FBgn0004647")
-    );
+    let hit = s["hits"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|h| h["id"] == "FBgn0004647")
+        .expect("Notch");
+    assert_eq!(hit["symbol"], "N");
+    assert_eq!(hit["species"], "Dmel");
+    assert_eq!(hit["link"], "https://flybase.org/reports/FBgn0004647");
     assert!(s["has_more"].is_boolean());
 }
 

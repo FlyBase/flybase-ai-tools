@@ -36,6 +36,14 @@ async fn get_term_returns_all_sections_with_counts() {
     let c = client().await;
     let s = call(&c, "get_term", json!({"term_id": "GO:0007219"})).await;
     assert_eq!(s["id"], "GO:0007219");
+    assert_eq!(
+        s["sections"]["definition"]["name"],
+        "Notch signaling pathway"
+    );
+    assert_eq!(
+        s["sections"]["definition"]["vocabulary"],
+        "biological_process"
+    );
     let ac = &s["sections"]["annotation_counts"];
     assert_eq!(ac["descendants"], 5);
     assert_eq!(ac["descendants_included"], true);

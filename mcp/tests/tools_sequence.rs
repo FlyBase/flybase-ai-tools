@@ -1,5 +1,6 @@
 mod support;
 use serde_json::json;
+use sha2::{Digest, Sha256};
 use support::server::{call, call_raw, client};
 
 #[tokio::test]
@@ -19,7 +20,14 @@ async fn region_plus_strand_length_and_coords() {
             .unwrap()
             .starts_with(">X:3134870..3134969")
     );
-    assert_eq!(s["sequence"].as_str().unwrap().len(), 100);
+    // FlyBase Sequence Downloader, FB2026_03 (Dmel r6.57).
+    assert_eq!(
+        s["sequence"],
+        concat!(
+            "ACAGATCGCTTTTTTCCAGTGGACGAAACGGTTGTGAAAGCGGACGAGCGTTAGGCAGAC",
+            "GAACCTGGAAAGCGCAGAGCACAGTTCTCAACATTTATTT"
+        )
+    );
 }
 
 #[tokio::test]
@@ -72,12 +80,30 @@ async fn large_region_omits_inline_sequence() {
 }
 
 #[tokio::test]
-async fn transcript_and_protein_by_id() {
+async fn transcript_and_protein_match_website_fasta() {
     let c = client().await;
-    let t = call(&c, "get_sequence", json!({"id": "FBtr0070507"})).await;
-    assert_eq!(t["length"], 10150);
-    let p = call(&c, "get_sequence", json!({"id": "FBpp0071769"})).await;
-    assert!(p["sequence"].as_str().unwrap().starts_with('M'));
+    // SHA-256 of the unwrapped residues from the FB2026_03 website FASTA.
+    for (id, length, sha256) in [
+        (
+            "FBtr0070507",
+            10_150,
+            "db39432d63956c72c8a5b134885303e0d6dc78bbc1b0e1e659fe650ccd7bd226",
+        ),
+        (
+            "FBpp0071769",
+            502,
+            "c5195a9849f4ab137afb6f24892d96c8afcaa7e6795f3eda75398f98b5e7aea6",
+        ),
+    ] {
+        let s = call(&c, "get_sequence", json!({"id": id})).await;
+        assert_eq!(s["id"], id);
+        assert_eq!(s["length"], length, "{id}");
+        let sequence = s["sequence"].as_str().unwrap();
+        let mut fasta = s["fasta"].as_str().unwrap().lines();
+        assert!(fasta.next().unwrap().starts_with(&format!(">{id}")));
+        assert_eq!(fasta.collect::<String>(), sequence, "{id}");
+        assert_eq!(format!("{:x}", Sha256::digest(sequence)), sha256, "{id}");
+    }
 }
 
 #[tokio::test]
