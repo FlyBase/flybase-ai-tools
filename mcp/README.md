@@ -154,8 +154,9 @@ See [`docs/deployment.md`](../docs/deployment.md) for the environment, migration
 
 `get_term` and `get_report` support exact FBbi and ChEBI term IDs when the server has
 the matching FlyBase release projection. Reports include definitions, synonyms, and direct parents and
-children. ChEBI alternate IDs from the release resolve to their canonical IDs. Annotation counts,
-`entities_for_term`, and `search_vocabulary` are available for Chado vocabularies.
+children. ChEBI alternate IDs from the release resolve to their canonical IDs. Use
+`search_vocabulary` for terms stored in Chado. Stock vocabulary reports give stock counts and link
+to the FlyBase stock lists. For the other Chado vocabularies, `entities_for_term` lists annotated entities.
 
 Export the projection from a completed FlyBase website release tree. The exporter reads the
 site's GOBO indexes and release ontology downloads using Perl's `DB_File` and

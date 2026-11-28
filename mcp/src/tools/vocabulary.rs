@@ -217,7 +217,7 @@ impl FlyBaseServer {
 
     #[tool(
         name = "get_term",
-        description = "Full report for one vocabulary term ID (GO:..., FBbt:..., FBcv:..., FBdv:..., FBsv:..., DOID:..., SO:..., MI:..., FBbi:..., CHEBI:...): definition, synonyms, parents, children (100 per page; page with offset), and annotation counts by data class for Chado vocabularies. For Chado vocabularies, use search_vocabulary to find IDs and entities_for_term to list annotated genes or alleles. For FBsv, follow the FlyBase report link for stock lists."
+        description = "Full report for one vocabulary term ID (GO:..., FBbt:..., FBcv:..., FBdv:..., FBsv:..., DOID:..., SO:..., MI:..., FBbi:..., CHEBI:...): definition, synonyms, parents, children (100 per page; page with offset), and annotation counts by data class for Chado vocabularies. Use search_vocabulary to find Chado term IDs. For FBsv, follow the FlyBase report link for stock lists. For other Chado vocabularies, use entities_for_term to list annotated genes or alleles."
     )]
     pub async fn get_term(
         &self,
