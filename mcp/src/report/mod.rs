@@ -3,6 +3,7 @@ pub mod aberration;
 pub mod allele;
 pub mod balancer;
 pub mod construct;
+mod curated_text;
 pub mod cvterm;
 pub mod disease;
 pub mod feature;

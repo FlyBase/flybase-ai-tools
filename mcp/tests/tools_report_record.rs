@@ -192,6 +192,15 @@ async fn molecular_segment_report() {
             .unwrap()
             .contains(&json!({"kind":"kb_length","value":"0.727","references":["FBrf0038720"]}))
     );
+    assert!(
+        sections["molecular_details"]["items"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|detail| detail["value"]
+                .as_str()
+                .is_some_and(|text| text.contains("π25.1")))
+    );
     assert_eq!(
         sections["sequence_extents"]["items"],
         json!([{"accession":"X06779","url":"https://www.ncbi.nlm.nih.gov/entrez/viewer.fcgi?db=nucleotide&tool=FlyBase&val=X06779","start":996,"end":1722,"strand":1}])

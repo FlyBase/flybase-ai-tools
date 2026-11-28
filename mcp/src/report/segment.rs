@@ -37,7 +37,7 @@ impl ReportType for MolecularSegment {
             "molecular_details" => {
                 rows_to_json(&ctx.query("report/segment/details", args).await?, |r| {
                     let kind: String = r.get("kind");
-                    let value: String = r.get("value");
+                    let value = super::curated_text::curated_text(r.get("value"));
                     let mut detail = json!({
                         "kind": kind,
                         "value": value,
