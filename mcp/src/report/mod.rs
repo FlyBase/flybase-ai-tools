@@ -6,10 +6,13 @@ pub mod construct;
 mod curated_text;
 pub mod cvterm;
 pub mod disease;
+pub mod experimental_tool;
 pub mod feature;
 pub mod gene;
 pub mod group;
+pub mod image;
 pub mod insertion;
+pub mod physical_interaction;
 pub mod polypeptide;
 pub mod record;
 pub mod reference;
@@ -20,6 +23,7 @@ pub mod transcript;
 use crate::{
     backends::{
         chado::Chado,
+        release_images::{ImageRecord, is_image_id},
         release_terms::{ReleaseTerm, vocabulary},
     },
     error::{ToolError, ToolResult},
@@ -30,7 +34,7 @@ use std::sync::Arc;
 use tokio_postgres::{Row, types::ToSql};
 
 /// Chado-backed reports share one pooled connection across sections. Concurrent queries pipeline on that
-/// connection. Release term sections read directly from the in-memory catalog.
+/// connection. Release term and image sections read directly from in-memory catalogs.
 pub struct SectionCtx {
     pub source: SectionSource,
     pub tool: &'static str,
@@ -38,8 +42,7 @@ pub struct SectionCtx {
     pub limit: i64,
     /// `limit + 1`: list sections fetch one extra row so `paged` can set `has_more`.
     pub fetch: i64,
-    /// Rows to skip in the one pageable list of a tool that exposes `offset` (`get_term` children,
-    /// `get_gene_groups_and_pathways` members, or `get_report` references).
+    /// Rows to skip in a pageable list when the request includes `offset`.
     pub offset: i64,
 }
 
@@ -48,6 +51,7 @@ pub struct SectionCtx {
 pub enum SectionSource {
     Chado(Object),
     ReleaseTerm(Arc<ReleaseTerm>),
+    ReleaseImage(Arc<ImageRecord>),
 }
 
 impl crate::server::FlyBaseServer {
@@ -77,6 +81,19 @@ impl crate::server::FlyBaseServer {
                 id = canonical_id.into();
             }
             SectionSource::ReleaseTerm(term)
+        } else if is_image_id(&id) {
+            let catalog =
+                self.release_images
+                    .as_ref()
+                    .ok_or_else(|| ToolError::BackendUnavailable {
+                        tool,
+                        message: format!("image report data is unavailable for {}", self.release),
+                    })?;
+            let image = catalog.get(&id).ok_or_else(|| ToolError::NotFound {
+                tool,
+                message: format!("{id} is not a released FlyBase image"),
+            })?;
+            SectionSource::ReleaseImage(image)
         } else {
             SectionSource::Chado(self.chado.get(tool).await?)
         };
@@ -95,10 +112,12 @@ impl SectionCtx {
     pub async fn query(&self, name: &str, params: &[&(dyn ToSql + Sync)]) -> ToolResult<Vec<Row>> {
         match &self.source {
             SectionSource::Chado(conn) => Chado::query_on(conn, self.tool, name, params).await,
-            SectionSource::ReleaseTerm(_) => Err(ToolError::BackendUnavailable {
-                tool: self.tool,
-                message: "this vocabulary has no Chado data".into(),
-            }),
+            SectionSource::ReleaseTerm(_) | SectionSource::ReleaseImage(_) => {
+                Err(ToolError::BackendUnavailable {
+                    tool: self.tool,
+                    message: "this record has no Chado report data".into(),
+                })
+            }
         }
     }
 }
@@ -109,9 +128,13 @@ pub trait ReportType: Send + Sync {
     fn default_sections(&self) -> &'static [&'static str];
     fn optional_sections(&self) -> &'static [&'static str];
     async fn section(&self, ctx: &SectionCtx, name: &str) -> ToolResult<Value>;
-    /// False for types whose IDs are not resolved through resolve_ids (vocabulary terms).
+    /// False for types whose IDs are not resolved through resolve_ids (vocabulary terms and images).
     fn resolves_feature_id(&self) -> bool {
         true
+    }
+    /// List sections that allow offsets when requested individually.
+    fn offset_sections(&self) -> &'static [&'static str] {
+        &["references"]
     }
     /// Chromosome, fmin (0-based), fmax for a JBrowse link, if the entity is located.
     async fn location(&self, _ctx: &SectionCtx) -> ToolResult<Option<(String, i64, i64)>> {
@@ -126,6 +149,7 @@ pub const PREFIX_LABELS: &[(&str, &str)] = &[
     ("FBal", "alleles"),
     ("FBti", "insertions"),
     ("FBtp", "constructs"),
+    ("FBto", "experimental tools"),
     ("FBtr", "transcripts"),
     ("FBpp", "polypeptides"),
     ("FBab", "aberrations"),
@@ -146,6 +170,8 @@ pub const PREFIX_LABELS: &[(&str, &str)] = &[
     ("FBco", "split system combinations"),
     ("FBmc", "plasmids"),
     ("FBms", "molecular segments"),
+    ("FBim", "images"),
+    ("FBig", "physical interactions"),
 ];
 
 pub fn for_id(id: &str) -> Option<Box<dyn ReportType>> {
@@ -155,15 +181,18 @@ pub fn for_id(id: &str) -> Option<Box<dyn ReportType>> {
     match id.get(..4).unwrap_or("") {
         "FBal" => Some(Box::new(allele::Allele)),
         "FBgn" => Some(Box::new(gene::Gene)),
+        "FBig" => Some(Box::new(physical_interaction::PhysicalInteraction)),
         "FBrf" => Some(Box::new(reference::Reference)),
         "FBst" => Some(Box::new(stock::Stock)),
         "FBti" => Some(Box::new(insertion::Insertion)),
         "FBtp" => Some(Box::new(construct::Construct)),
         "FBms" => Some(Box::new(segment::MolecularSegment)),
+        "FBto" => Some(Box::new(experimental_tool::ExperimentalTool)),
         "FBtr" => Some(Box::new(transcript::Transcript)),
         "FBpp" => Some(Box::new(polypeptide::Polypeptide)),
         "FBab" => Some(Box::new(aberration::Aberration)),
         "FBba" => Some(Box::new(balancer::Balancer)),
+        "FBim" if is_image_id(id) => Some(Box::new(image::Image)),
         "FBgg" => Some(Box::new(group::Group)),
         "FBhh" => Some(Box::new(disease::Disease)),
         "FBtc" => Some(Box::new(record::Record { kind: "cell_line" })),
@@ -330,10 +359,19 @@ pub async fn reference_page(ctx: &SectionCtx, query: &str) -> ToolResult<Value> 
     let rows = ctx
         .query(query, &[&ctx.id, &ctx.fetch, &ctx.offset])
         .await?;
-    let next_offset = (rows.len() > ctx.limit as usize).then_some(ctx.offset + ctx.limit);
-    let mut page = paged(rows_to_json(&rows, pub_row), ctx.limit);
+    Ok(offset_page(
+        rows_to_json(&rows, pub_row),
+        ctx.limit,
+        ctx.offset,
+    ))
+}
+
+/// Add a continuation offset to a list that supports it.
+pub fn offset_page(rows: Vec<Value>, limit: i64, offset: i64) -> Value {
+    let next_offset = (rows.len() > limit as usize).then_some(offset + limit);
+    let mut page = paged(rows, limit);
     page["next_offset"] = json!(next_offset);
-    Ok(page)
+    page
 }
 
 /// `{name, kind, is_current}` from any synonyms query with columns name, kind, is_current (feature, grp, humanhealth,

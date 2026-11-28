@@ -64,15 +64,31 @@ pub(super) fn curated_text(mut text: String) -> String {
             break;
         };
         result.push_str(prefix);
-        result.push_str(symbol);
+        let label = symbol
+            .split_once(':')
+            .and_then(|(prefix, label)| {
+                let id = prefix.strip_prefix("FB")?;
+                let digits = id.get(2..)?;
+                (id.as_bytes().get(..2)?.iter().all(u8::is_ascii_lowercase)
+                    && !digits.is_empty()
+                    && digits.bytes().all(|b| b.is_ascii_digit()))
+                .then_some(label)
+            })
+            .unwrap_or(symbol);
+        result.push_str(label);
         rest = suffix;
     }
     result.push_str(rest);
-    result
+    let formatted = result
         .replace("<up>", "[")
         .replace("</up>", "]")
         .replace("<down>", "[")
         .replace("</down>", "]")
+        .replace("<i>", "")
+        .replace("</i>", "")
+        .replace("<b>", "")
+        .replace("</b>", "");
+    crate::backends::wiki::decode_entities(&formatted)
 }
 
 #[cfg(test)]

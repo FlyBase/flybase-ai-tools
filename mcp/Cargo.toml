@@ -20,7 +20,7 @@ rmcp = { version = "3.9", features = ["server", "macros", "transport-streamable-
 axum = "0.8"
 tokio = { version = "1.53", features = ["full"] }
 deadpool-postgres = "0.14"
-tokio-postgres = "0.7"
+tokio-postgres = { version = "0.7", features = ["with-serde_json-1"] }
 serde = { version = "1", features = ["derive"] }
 # float_roundtrip: parse floats exactly, so an evalue such as 1e-30 is forwarded as sent, not 9.999999999999999e-31.
 serde_json = { version = "1", features = ["float_roundtrip"] }

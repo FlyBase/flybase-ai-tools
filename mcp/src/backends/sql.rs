@@ -66,6 +66,15 @@ pub fn get(name: &str) -> &'static str {
         "report/group/members" => include_str!("../../sql/queries/report/group/members.sql"),
         "report/group/references" => include_str!("../../sql/queries/report/group/references.sql"),
         "report/group/synonyms" => include_str!("../../sql/queries/report/group/synonyms.sql"),
+        "report/physical_interaction/identity" => {
+            include_str!("../../sql/queries/report/physical_interaction/identity.sql")
+        }
+        "report/physical_interaction/references" => {
+            include_str!("../../sql/queries/report/physical_interaction/references.sql")
+        }
+        "report/physical_interaction/reported_interactions" => {
+            include_str!("../../sql/queries/report/physical_interaction/reported_interactions.sql")
+        }
         "report/aberration/genes" => include_str!("../../sql/queries/report/aberration/genes.sql"),
         "report/allele/classes" => include_str!("../../sql/queries/report/allele/classes.sql"),
         "report/allele/constructs" => {
@@ -152,6 +161,27 @@ pub fn get(name: &str) -> &'static str {
         }
         "report/cvterm/synonyms" => include_str!("../../sql/queries/report/cvterm/synonyms.sql"),
         "report/cvterm/term" => include_str!("../../sql/queries/report/cvterm/term.sql"),
+        "report/experimental_tool/constructs" => {
+            include_str!("../../sql/queries/report/experimental_tool/constructs.sql")
+        }
+        "report/experimental_tool/description" => {
+            include_str!("../../sql/queries/report/experimental_tool/description.sql")
+        }
+        "report/experimental_tool/insertions" => {
+            include_str!("../../sql/queries/report/experimental_tool/insertions.sql")
+        }
+        "report/experimental_tool/related_tools" => {
+            include_str!("../../sql/queries/report/experimental_tool/related_tools.sql")
+        }
+        "report/experimental_tool/secondary_ids" => {
+            include_str!("../../sql/queries/report/experimental_tool/secondary_ids.sql")
+        }
+        "report/experimental_tool/synonyms" => {
+            include_str!("../../sql/queries/report/experimental_tool/synonyms.sql")
+        }
+        "report/experimental_tool/uses" => {
+            include_str!("../../sql/queries/report/experimental_tool/uses.sql")
+        }
         "report/gene/alleles" => include_str!("../../sql/queries/report/gene/alleles.sql"),
         "report/gene/external_links" => {
             include_str!("../../sql/queries/report/gene/external_links.sql")

@@ -17,6 +17,7 @@ All variables are required unless marked optional.
 | `FLYBASE_MCP_PUBLIC_URL` | `https://mcp.flybase.org` | Sets the allowed `Host` and `Origin` values for `/mcp`. |
 | `FLYBASE_RELEASE` | `FB2026_03` | Reported in every result and in `/health`. Chado has no release marker, so set it per load. |
 | `FLYBASE_MCP_RELEASE_TERMS_PATH` | `/data/release-terms.json` | Optional. Read-only FBbi and ChEBI term projection matching `FLYBASE_RELEASE`. See [Imaging Methods and ChEBI term reports](../mcp/README.md#imaging-methods-and-chebi-term-reports) for export and installation. |
+| `FLYBASE_MCP_RELEASE_IMAGES_PATH` | `/data/release-images.json` | Optional. Read-only FBim report projection matching `FLYBASE_RELEASE`. See [Image reports](../mcp/README.md#image-reports) for export and installation. |
 | `CHADO_URL` | `postgres://flybase_mcp:<secret>@chado-mcp:5432/flybase` | Runtime role for `serve`; the owner role for `migrate`. |
 | `CHADO_POOL_SIZE` | `32` | Optional, default 32. Keep it below the role's connection limit. |
 | `BLAST_BASE_URL` | `http://blast-jobs:8800` | Optional. Base URL of the private BLAST job API (see `docs/handoff-private-side.md` for the contract, and `docs/blast-jobs.md` for the service in this repository that implements it). Must be `http://`: no TLS is compiled in, and an `https://` value is rejected at startup (logged, BLAST tools then answer as unconfigured). Unset: BLAST tools answer `backend_unavailable` and `/health` reports `blast: unconfigured`. |

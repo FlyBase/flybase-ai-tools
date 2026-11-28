@@ -89,10 +89,10 @@ pub struct IdStatus {
     pub status: &'static str,
 }
 
-/// FBxx + 7 digits (most classes) or FBog + 10 digits (ortholog features). ASCII only.
+/// FBxx + 7 digits (most classes) or 10 digits (ortholog features and physical interactions). ASCII only.
 pub fn looks_like_fb_id(q: &str) -> bool {
     let b = q.as_bytes();
-    (b.len() == 11 || (b.len() == 14 && q.starts_with("FBog")))
+    (b.len() == 11 || (b.len() == 14 && (q.starts_with("FBog") || q.starts_with("FBig"))))
         && q.starts_with("FB")
         && b[2..4].iter().all(u8::is_ascii_lowercase)
         && b[4..].iter().all(u8::is_ascii_digit)
@@ -132,9 +132,11 @@ pub(crate) fn like_escape(q: &str) -> String {
 pub fn class_of(id: &str) -> &'static str {
     match id.get(..4).unwrap_or("") {
         "FBgn" => "gene",
+        "FBig" => "physical_interaction",
         "FBal" => "allele",
         "FBti" => "insertion",
         "FBtp" => "construct",
+        "FBto" => "experimental_tool",
         "FBab" => "aberration",
         "FBba" => "balancer",
         "FBst" => "stock",

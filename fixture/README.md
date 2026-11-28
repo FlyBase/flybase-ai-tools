@@ -42,6 +42,8 @@ Plan 2 tables: `feature_grpmember`, `grp_relationship`, `grp_pub`, `grp_cvterm`,
 `humanhealth.allele_disease_variant`, `gene.split_system_combination(_component_allele)` and `gene_group.pathway_member`
 are copied whole. `feature_relationship_pub`, `feature_relationshipprop`, `feature_interaction`, `interaction`,
 `interaction_pub`, `interactionprop`, `interaction_cvterm` and `phenotype_comparison` are restricted to the feature-id set.
+The seeded physical interaction reports also include their complete experiment features, group membership,
+participant properties, comment citations, and linked expression, collection, and cell line records.
 
 `fixture/data/diopt.tsv.gz` (git-ignored, downloaded by hand) is optional; no test depends on it. When it is
 absent, `tests/migrations.rs::diopt_loader_parses_the_release_file_format` leaves `mcp.diopt_orthologs` empty
