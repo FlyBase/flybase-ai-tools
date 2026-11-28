@@ -6,6 +6,7 @@ pub mod construct;
 mod curated_text;
 pub mod cvterm;
 pub mod disease;
+pub mod experimental_tool;
 pub mod feature;
 pub mod gene;
 pub mod group;
@@ -148,6 +149,7 @@ pub const PREFIX_LABELS: &[(&str, &str)] = &[
     ("FBal", "alleles"),
     ("FBti", "insertions"),
     ("FBtp", "constructs"),
+    ("FBto", "experimental tools"),
     ("FBtr", "transcripts"),
     ("FBpp", "polypeptides"),
     ("FBab", "aberrations"),
@@ -185,6 +187,7 @@ pub fn for_id(id: &str) -> Option<Box<dyn ReportType>> {
         "FBti" => Some(Box::new(insertion::Insertion)),
         "FBtp" => Some(Box::new(construct::Construct)),
         "FBms" => Some(Box::new(segment::MolecularSegment)),
+        "FBto" => Some(Box::new(experimental_tool::ExperimentalTool)),
         "FBtr" => Some(Box::new(transcript::Transcript)),
         "FBpp" => Some(Box::new(polypeptide::Polypeptide)),
         "FBab" => Some(Box::new(aberration::Aberration)),

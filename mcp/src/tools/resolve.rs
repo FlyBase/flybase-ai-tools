@@ -136,6 +136,7 @@ pub fn class_of(id: &str) -> &'static str {
         "FBal" => "allele",
         "FBti" => "insertion",
         "FBtp" => "construct",
+        "FBto" => "experimental_tool",
         "FBab" => "aberration",
         "FBba" => "balancer",
         "FBst" => "stock",

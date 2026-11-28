@@ -1,3 +1,4 @@
 select fn, has_function_privilege(fn, 'execute') as ok from (values
-  ('mcp.feature_publications(integer,boolean)'), ('flybase.get_stocks(text)'), ('gene_group.is_pathway(text, character varying)')) v(fn)
+  ('mcp.feature_publications(integer,boolean)'), ('flybase.get_stocks(text)'), ('flybase.get_stocks(text[])'),
+  ('gene_group.is_pathway(text, character varying)')) v(fn)
 order by 1
