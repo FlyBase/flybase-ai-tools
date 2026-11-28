@@ -260,9 +260,13 @@ fn shrink_report(
         if items.len() < 2 {
             return Err(ToolError::LimitExceeded {
                 tool: "get_report",
-                message: format!(
-                    "a complete {name} page at offset {offset} exceeds the response size limit"
-                ),
+                message: if items.is_empty() {
+                    format!("empty {name} page at offset {offset} exceeds the response size limit")
+                } else {
+                    format!(
+                        "one complete {name} row at offset {offset} exceeds the response size limit"
+                    )
+                },
             });
         }
         items.truncate(items.len() / 2);
@@ -331,11 +335,20 @@ mod tests {
         assert!(serde_json::to_vec(&first).unwrap().len() <= MAX_JSON_BYTES);
         assert_eq!(first["sections"]["constructs"]["items"], json!(rows[..2]));
         assert_eq!(first["sections"]["constructs"]["next_offset"], 2);
+        assert_eq!(first["sections"]["constructs"]["count_shown"], 2);
+        assert_eq!(first["sections"]["constructs"]["has_more"], true);
+        assert_eq!(first["truncated"], true);
         let last = page(&rows[2..], 2).unwrap().structured_content.unwrap();
         assert_eq!(last["sections"]["constructs"]["items"], json!(rows[2..]));
         assert!(last["sections"]["constructs"]["next_offset"].is_null());
         let oversized = json!({"reference_ids": vec!["x".repeat(10_000); 30]});
-        assert_eq!(page(&[oversized], 1).unwrap_err().code(), "limit_exceeded");
+        let error = page(&[oversized, rows[0].clone()], 1).unwrap_err();
+        assert_eq!(error.code(), "limit_exceeded");
+        assert!(
+            error
+                .to_string()
+                .contains("one complete constructs row at offset 1")
+        );
     }
 
     #[test]
@@ -345,7 +358,7 @@ mod tests {
         let result = crate::output::Envelope::new("get_report", "test")
             .field(
                 "sections",
-                json!({"related_tools": {"items": items, "count_shown": 10, "has_more": false}}),
+                json!({"related_tools": {"items": items, "count_shown": 10, "has_more": false}, "references": {"items": [], "count_shown": 0, "has_more": false, "next_offset": null}}),
             )
             .finish_with_truncation(|body| super::shrink_report(body, None, &["references"], 0))
             .unwrap();
