@@ -149,6 +149,7 @@ pub fn class_of(id: &str) -> &'static str {
         "FBlc" => "library",
         "FBco" => "split_system_combination",
         "FBmc" => "engineered_plasmid",
+        "FBms" => "molecular_segment",
         "FBsf" => "sequence_feature",
         "FBte" => "transposable_element",
         "FBcl" => "clone",

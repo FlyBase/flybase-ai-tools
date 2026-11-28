@@ -177,3 +177,64 @@ async fn long_tail_feature_reports() {
         assert_eq!(s["type"], ty, "{id}");
     }
 }
+
+#[tokio::test]
+async fn molecular_segment_report() {
+    let c = client().await;
+    let r = call(&c, "get_report", json!({"id":"fbms0000002"})).await;
+    assert_eq!(r["type"], "molecular_segment");
+    let sections = &r["sections"];
+    assert_eq!(sections["identity"]["type"], "cloned_region");
+    assert_eq!(sections["identity"]["symbol"], "6.1_P5'(P5',X1)");
+    assert!(
+        sections["molecular_details"]["items"]
+            .as_array()
+            .unwrap()
+            .contains(&json!({"kind":"kb_length","value":"0.727","references":["FBrf0038720"]}))
+    );
+    assert_eq!(
+        sections["sequence_extents"]["items"],
+        json!([{"accession":"X06779","url":"https://www.ncbi.nlm.nih.gov/entrez/viewer.fcgi?db=nucleotide&tool=FlyBase&val=X06779","start":996,"end":1722,"strand":1}])
+    );
+    assert_eq!(sections["segments"]["count_shown"], 0);
+    let refs = json!({"id":"FBms0000002","sections":["references"],"limit_per_section":1});
+    let first = call(&c, "get_report", refs.clone()).await;
+    let mut next = refs;
+    next["offset"] = first["sections"]["references"]["next_offset"].clone();
+    assert_eq!(next["offset"], 1);
+    let second = call(&c, "get_report", next).await;
+    let mut ids = [
+        first["sections"]["references"]["items"][0]["id"]
+            .as_str()
+            .unwrap(),
+        second["sections"]["references"]["items"][0]["id"]
+            .as_str()
+            .unwrap(),
+    ];
+    ids.sort();
+    assert_eq!(ids, ["FBrf0038720", "FBrf0104946"]);
+    assert_eq!(
+        second["sections"]["references"]["next_offset"],
+        serde_json::Value::Null
+    );
+}
+
+#[tokio::test]
+async fn composite_segment_preserves_order_and_orientation() {
+    let c = client().await;
+    let r = call(&c, "get_report", json!({"id":"FBms0000011"})).await;
+    let data = &r["sections"];
+    let parts = data["segments"]["items"].as_array().unwrap();
+    assert_eq!(parts.len(), 7);
+    assert_eq!(parts[3]["id"], "FBms0000006");
+    assert_eq!(parts[3]["rank"], 4);
+    assert_eq!(parts[3]["orientations"], json!(["-"]));
+    assert_eq!(parts[2]["id"], parts[4]["id"]);
+    assert!(
+        data["molecular_details"]["items"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|p| p["url"] == "https://flybase.org/api/sequence/id/FBms0000011/compiled")
+    );
+}
