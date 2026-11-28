@@ -36,7 +36,7 @@ fn prometheus() -> Option<metrics_exporter_prometheus::PrometheusHandle> {
 
 pub const INSTRUCTIONS: &str = "FlyBase MCP server. Start with `resolve` to turn a gene, allele, or other symbol into a FlyBase ID (FBgn..., FBal...); use `validate_ids` for a batch of exact IDs or symbols and `search` for free text. \
 Use `get_report` with an ID and request only the sections you need; `list_options=true` lists them. `batch_download` returns a table for many IDs. \
-Genome: `get_sequence` (FASTA), `map_features` (what lies in a range), `cytosearch` (cytological bands), `convert_coordinates` (release 5 to release 6 positions). \
+Genome: `get_sequence` (FASTA), `map_features` (what lies in a range), `cytosearch` (cytological bands), `convert_coordinates` (positions between Dmel releases 5 and 6). \
 Vocabularies: `search_vocabulary`, `get_term`, `entities_for_term` with term IDs such as GO:0007219, FBbt:00004729, DOID:162. \
 Homepage data: `get_orthologs`, `get_gene_groups_and_pathways`, `get_disease_models`, `get_stocks`, `get_interactions`. \
 Expression: `rnaseq_profile_search` (genes meeting RPKM conditions in named samples) and `rnaseq_similar_genes` (co-expressed genes); call either with `list_options=true` to see datasets and samples. \

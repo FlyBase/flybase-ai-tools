@@ -43,6 +43,37 @@ async fn converts_a_mixed_batch() {
 }
 
 #[tokio::test]
+async fn reverse_uses_the_published_map() {
+    let c = client().await;
+    let result = call(&c, "convert_coordinates", json!({
+        "from_release": 6, "to_release": 5,
+        "coordinates": ["3R:1300000", "3R:3293543", "Y:1865829..1865839", "2L:23141526..23141527", "2L:22527001"]
+    })).await;
+    let rows = result["conversions"].as_array().unwrap();
+    assert_eq!(
+        rows[0]["to"],
+        json!({"chromosome":"3RHet","start":134383,"end":134383})
+    );
+    assert_eq!(rows[0]["strand_flipped"], true);
+    assert_eq!(
+        rows[1]["to"],
+        json!({"chromosome":"U","start":7104806,"end":7104806})
+    );
+    assert_eq!(rows[1]["strand_flipped"], false);
+    assert_eq!(
+        rows[2]["to"],
+        json!({"chromosome":"2LHet","start":236934,"end":236944})
+    );
+    assert_eq!(rows[3]["status"], "partial");
+    assert!(rows[3]["to"].is_null());
+    assert_eq!(rows[4]["status"], "unmapped");
+    assert_eq!(
+        result["links"]["converter"],
+        "https://flybase.org/convert/coords625"
+    );
+}
+
+#[tokio::test]
 async fn list_options_and_unsupported_pair() {
     let c = client().await;
     let o = call(&c, "convert_coordinates", json!({"list_options": true})).await;
@@ -54,6 +85,16 @@ async fn list_options_and_unsupported_pair() {
             .unwrap()
             .iter()
             .any(|x| x == "2LHet")
+    );
+    let reverse = &o["pairs"][1];
+    assert_eq!(reverse["from_release"], 6);
+    assert_eq!(reverse["to_release"], 5);
+    assert!(
+        reverse["chromosomes"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|x| x == "Y")
     );
     let r = call_raw(
         &c,
