@@ -2,7 +2,7 @@ use crate::backends::cache::ResponseCache;
 use crate::{
     error::{ToolError, ToolResult},
     limits::clamp_limit,
-    output::{Envelope, complete, cv_term_link, report_link},
+    output::{Envelope, complete, cv_term_link, halve_largest_array, report_link},
     report::{
         cvterm::{canonical_term_id, parse_term_id},
         for_id, jbrowse_link, section_error,
@@ -236,10 +236,33 @@ impl FlyBaseServer {
         if let Some(from) = resolved_from {
             env = env.field("resolved_from", json!(from));
         }
-        Ok(env.finish_with_truncation(|body| {
-            repair_pages(body, rt.offset_sections(), ctx.offset);
-        }))
+        env.finish_with_truncation(|body| shrink_report(body, rt.offset_sections(), ctx.offset))
     }
+}
+
+fn shrink_report(body: &mut Value, offset_sections: &[&str], offset: i64) -> ToolResult<bool> {
+    // Nested arrays are part of the row. Removing their elements would make the
+    // missing evidence unreachable from the next offset.
+    if let Some(sections) = body["sections"].as_object_mut()
+        && sections.len() == 1
+        && let Some((name, page)) = sections.iter_mut().next()
+        && offset_sections.contains(&name.as_str())
+        && let Some(items) = page["items"].as_array_mut()
+    {
+        if items.len() < 2 {
+            return Err(ToolError::LimitExceeded {
+                tool: "get_report",
+                message: format!(
+                    "a complete {name} page at offset {offset} exceeds the response size limit"
+                ),
+            });
+        }
+        items.truncate(items.len() / 2);
+    } else if !halve_largest_array(body) {
+        return Ok(false);
+    }
+    repair_pages(body, offset_sections, offset);
+    Ok(true)
 }
 
 fn repair_pages(body: &mut Value, offset_sections: &[&str], offset: i64) {
@@ -273,7 +296,7 @@ mod tests {
         let items = vec![json!({"id":"FBrf0000001","citation":"x".repeat(50_000)}); 10];
         let result = crate::output::Envelope::new("get_report", "test")
             .field("sections", json!({"references":{"items":items,"count_shown":10,"has_more":false,"next_offset":null}}))
-            .finish_with_truncation(|body| super::repair_pages(body, &["references"], 20));
+            .finish_with_truncation(|body| super::shrink_report(body, &["references"], 20)).unwrap();
         let body = result.structured_content.unwrap();
         let page = &body["sections"]["references"];
         let shown = page["items"].as_array().unwrap().len();
@@ -281,6 +304,30 @@ mod tests {
         assert_eq!(page["count_shown"], shown);
         assert_eq!(page["has_more"], true);
         assert_eq!(page["next_offset"], 20 + shown);
+    }
+
+    #[test]
+    fn whole_rows_survive_paging_under_the_byte_limit() {
+        use crate::limits::MAX_JSON_BYTES;
+        use serde_json::json;
+        let evidence = vec!["a".repeat(10_000); 10];
+        let rows: Vec<_> = (0..4)
+            .map(|i| json!({"id": i, "reference_ids": evidence}))
+            .collect();
+        let page = |rows: &[serde_json::Value], offset: i64| {
+            crate::output::Envelope::new("get_report", "test")
+                .field("sections", json!({"constructs":{"items":rows,"count_shown":rows.len(),"has_more":false,"next_offset":null}}))
+                .finish_with_truncation(|body| super::shrink_report(body, &["constructs"], offset))
+        };
+        let first = page(&rows, 0).unwrap().structured_content.unwrap();
+        assert!(serde_json::to_vec(&first).unwrap().len() <= MAX_JSON_BYTES);
+        assert_eq!(first["sections"]["constructs"]["items"], json!(rows[..2]));
+        assert_eq!(first["sections"]["constructs"]["next_offset"], 2);
+        let last = page(&rows[2..], 2).unwrap().structured_content.unwrap();
+        assert_eq!(last["sections"]["constructs"]["items"], json!(rows[2..]));
+        assert!(last["sections"]["constructs"]["next_offset"].is_null());
+        let oversized = json!({"reference_ids": vec!["x".repeat(10_000); 30]});
+        assert_eq!(page(&[oversized], 1).unwrap_err().code(), "limit_exceeded");
     }
 
     #[test]
@@ -292,7 +339,8 @@ mod tests {
                 "sections",
                 json!({"related_tools": {"items": items, "count_shown": 10, "has_more": false}}),
             )
-            .finish_with_truncation(|body| super::repair_pages(body, &["references"], 0));
+            .finish_with_truncation(|body| super::shrink_report(body, &["references"], 0))
+            .unwrap();
         let body = result.structured_content.unwrap();
         let page = &body["sections"]["related_tools"];
         let shown = page["items"].as_array().unwrap().len();
