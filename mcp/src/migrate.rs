@@ -35,6 +35,10 @@ pub const MIGRATIONS: &[(&str, &str)] = &[
         "008_located_feature",
         include_str!("../sql/migrations/008_located_feature.sql"),
     ),
+    (
+        "009_feature_publications",
+        include_str!("../sql/migrations/009_feature_publications.sql"),
+    ),
 ];
 
 /// The database's own explanation of a failure (SQLSTATE and message) when there is one, else the client error.

@@ -19,12 +19,14 @@ async fn migrations_apply_twice_and_populate() {
     flybase_mcp::migrate::run(&cfg, None).await.unwrap();
     flybase_mcp::migrate::run(&cfg, None).await.unwrap(); // idempotent
     let c = client().await;
-    let n: i64 = c
-        .query_one("select count(*) from mcp.migration_log", &[])
+    let logged: Vec<String> = c
+        .query("select name from mcp.migration_log order by name", &[])
         .await
         .unwrap()
-        .get(0);
-    assert_eq!(n, 9);
+        .iter()
+        .map(|row| row.get(0))
+        .collect();
+    assert_eq!(logged, flybase_mcp::migrate::names());
     let located: i64 = c
         .query_one(
             "select count(*) from mcp.located_feature where species = 'Dmel' and arm = 'X' and type = 'gene'",

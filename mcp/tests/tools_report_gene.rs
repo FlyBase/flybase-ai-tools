@@ -188,8 +188,8 @@ async fn reference_pages_cover_the_database_list() {
     tokio::spawn(connection);
     let expected: Vec<String> = db
         .query(
-            "select p.uniquename from feature f join feature_pub fp using(feature_id)
-         join pub p using(pub_id) where f.uniquename = $1 and not p.is_obsolete
+            "select p.uniquename from feature f cross join lateral mcp.feature_publications(f.feature_id,true) refs
+         join pub p on p.pub_id=refs.pub_id where f.uniquename = $1
          order by p.pyear desc nulls last, p.uniquename",
             &[&"FBgn0004647"],
         )
@@ -205,6 +205,13 @@ async fn reference_pages_cover_the_database_list() {
         let response = call(&c, "get_report", args.clone()).await;
         let page = &response["sections"]["references"];
         let items = page["items"].as_array().unwrap();
+        for item in items {
+            if item["id"] == "FBrf0056686" {
+                assert_eq!(item["is_obsolete"], true);
+            } else if item["id"] == "FBrf0217757" {
+                assert_eq!(item["is_obsolete"], false);
+            }
+        }
         ids.extend(
             items
                 .iter()
@@ -220,6 +227,44 @@ async fn reference_pages_cover_the_database_list() {
         args["offset"] = page["next_offset"].clone();
     }
     assert_eq!(ids, expected);
+    assert!(ids.iter().all(|id| id.starts_with("FBrf")));
+    let batch = call(
+        &c,
+        "batch_download",
+        json!({"ids":["FBgn0004647"], "fields":["references", "pubmed_ids"]}),
+    )
+    .await;
+    let mut sorted = expected.clone();
+    sorted.sort();
+    if !support::full_db() {
+        // Frozen FB2026_03 fixture oracle. The full development restore uses an older release.
+        // Independent FB2026_03 Notch report, one distinct publication ID per line.
+        use sha2::{Digest, Sha256};
+        let digest = Sha256::digest(format!("{}\n", sorted.join("\n")));
+        assert_eq!(
+            format!("{digest:x}"),
+            "bb3941ba711206289fc90cfd345a225279cc4c1a3076752b7287f2cdc1d0f7c0"
+        );
+        assert!(!ids.iter().any(|id| id == "FBrf0213040"));
+    }
+    let pmids: Vec<String> = db
+        .query(
+            "select distinct d.accession from pub p join pub_dbxref pd using(pub_id)
+         join dbxref d using(dbxref_id) join db using(db_id)
+         where lower(db.name)='pubmed' and p.uniquename=any($1) order by d.accession",
+            &[&sorted],
+        )
+        .await
+        .unwrap()
+        .iter()
+        .map(|r| r.get(0))
+        .collect();
+    assert_eq!(
+        batch["rows"][0]["pubmed_ids"],
+        format!("{} (+{} more)", pmids[..50].join("|"), pmids.len() - 50)
+    );
+    let preview = format!("{} (+{} more)", sorted[..50].join("|"), sorted.len() - 50);
+    assert_eq!(batch["rows"][0]["references"], preview);
 
     args["sections"] = json!(["references", "identity"]);
     let invalid = call_raw(&c, "get_report", args).await.unwrap();
