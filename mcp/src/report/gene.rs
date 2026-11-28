@@ -1,5 +1,6 @@
 use super::{
-    ReportType, SectionCtx, paged, references_section, rows_to_json, strip_markup, synonyms_section,
+    ReportType, SectionCtx, offset_page, paged, references_section, rows_to_json, strip_markup,
+    synonyms_section,
 };
 use crate::error::{ToolError, ToolResult};
 use serde_json::{Map, Value, json};
@@ -35,6 +36,9 @@ impl ReportType for Gene {
     }
     fn optional_sections(&self) -> &'static [&'static str] {
         OPTIONAL
+    }
+    fn offset_sections(&self) -> &'static [&'static str] {
+        &["references", "alleles"]
     }
 
     async fn location(&self, ctx: &SectionCtx) -> ToolResult<Option<(String, i64, i64)>> {
@@ -155,19 +159,24 @@ impl ReportType for Gene {
                 json!(r.first().map(|r| r.get::<_, i64>("n")).unwrap_or(0))
             }
             "alleles" => {
-                let r = ctx.query("report/gene/alleles", &[id, &ctx.fetch]).await?;
-                paged(
+                let r = ctx
+                    .query("report/gene/alleles", &[id, &ctx.fetch, &ctx.offset])
+                    .await?;
+                offset_page(
                     rows_to_json(&r, |r| {
                         json!({
                             "id": r.get::<_, Option<String>>("fbal_id"),
                             "symbol": r.get::<_, Option<String>>("symbol").map(|s| strip_markup(&s)),
                             "is_construct": r.get::<_, Option<bool>>("is_construct"),
+                            "is_alleleof": r.get::<_, Option<bool>>("is_alleleof"),
+                            "gene_is_regulatory_region": r.get::<_, Option<bool>>("gene_is_regulatory_region"),
                             "stocks": r.get::<_, Option<i64>>("stocks_count"),
                             "papers": r.get::<_, Option<i64>>("paper_count"),
                             "classes": r.get::<_, Option<String>>("classes"),
                         })
                     }),
                     ctx.limit,
+                    ctx.offset,
                 )
             }
             "transcripts" => {

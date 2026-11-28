@@ -109,7 +109,7 @@ Returns the default gene sections: CG4889, cytology 27F1, location 2L:7307159..7
 Returns Ubx-RA (FBtr0083347, 4,282 nt) to Ubx-RE with their polypeptides, `has_more: true`, and the gene's
 synonyms. Pass `list_options: true` to see every section a type offers.
 
-### "List all Notch alleles."
+### "List all Notch allele associations."
 
 ```json
 {"name": "get_report", "arguments": {"id": "FBgn0004647", "sections": ["alleles"], "limit_per_section": 100}}
@@ -117,6 +117,10 @@ synonyms. Pass `list_options: true` to see every section a type offers.
 
 Read `sections.alleles.items`. When `sections.alleles.next_offset` is a number, pass it as
 `offset` with the same ID and section to get the next page. Stop when it is `null`.
+One allele ID can appear more than once when it has distinct gene associations. The
+`is_alleleof` and `gene_is_regulatory_region` fields identify direct allele relationships
+and constructs containing the gene's regulatory region.
+
 Use `list_options: true` to discover `pageable_sections` for any report type.
 Experimental-tool reports support the same workflow for `constructs` and `insertions`.
 
