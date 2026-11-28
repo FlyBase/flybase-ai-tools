@@ -103,9 +103,11 @@ impl FlyBaseServer {
                 });
             }
         }
-        if p.offset.is_some()
-            && !matches!(wanted.as_slice(), [section] if rt.offset_sections().contains(&section.as_str()))
-        {
+        let pageable = match wanted.as_slice() {
+            [section] if rt.offset_sections().contains(&section.as_str()) => Some(section.as_str()),
+            _ => None,
+        };
+        if p.offset.is_some() && pageable.is_none() {
             return Err(ToolError::InvalidInput {
                 tool: T,
                 arg: "offset",
@@ -236,18 +238,24 @@ impl FlyBaseServer {
         if let Some(from) = resolved_from {
             env = env.field("resolved_from", json!(from));
         }
-        env.finish_with_truncation(|body| shrink_report(body, rt.offset_sections(), ctx.offset))
+        env.finish_with_truncation(|body| {
+            shrink_report(body, pageable, rt.offset_sections(), ctx.offset)
+        })
     }
 }
 
-fn shrink_report(body: &mut Value, offset_sections: &[&str], offset: i64) -> ToolResult<bool> {
+fn shrink_report(
+    body: &mut Value,
+    pageable: Option<&str>,
+    offset_sections: &[&str],
+    offset: i64,
+) -> ToolResult<bool> {
     // Nested arrays are part of the row. Removing their elements would make the
     // missing evidence unreachable from the next offset.
-    if let Some(sections) = body["sections"].as_object_mut()
-        && sections.len() == 1
-        && let Some((name, page)) = sections.iter_mut().next()
-        && offset_sections.contains(&name.as_str())
-        && let Some(items) = page["items"].as_array_mut()
+    if let Some(name) = pageable
+        && let Some(items) = body["sections"][name]
+            .get_mut("items")
+            .and_then(Value::as_array_mut)
     {
         if items.len() < 2 {
             return Err(ToolError::LimitExceeded {
@@ -296,7 +304,7 @@ mod tests {
         let items = vec![json!({"id":"FBrf0000001","citation":"x".repeat(50_000)}); 10];
         let result = crate::output::Envelope::new("get_report", "test")
             .field("sections", json!({"references":{"items":items,"count_shown":10,"has_more":false,"next_offset":null}}))
-            .finish_with_truncation(|body| super::shrink_report(body, &["references"], 20)).unwrap();
+            .finish_with_truncation(|body| super::shrink_report(body, Some("references"), &["references"], 20)).unwrap();
         let body = result.structured_content.unwrap();
         let page = &body["sections"]["references"];
         let shown = page["items"].as_array().unwrap().len();
@@ -316,8 +324,8 @@ mod tests {
             .collect();
         let page = |rows: &[serde_json::Value], offset: i64| {
             crate::output::Envelope::new("get_report", "test")
-                .field("sections", json!({"constructs":{"items":rows,"count_shown":rows.len(),"has_more":false,"next_offset":null}}))
-                .finish_with_truncation(|body| super::shrink_report(body, &["constructs"], offset))
+                .field("sections", json!({"constructs":{"items":rows,"count_shown":rows.len(),"has_more":false,"next_offset":null},"jbrowse":{"error":"backend_unavailable"}}))
+                .finish_with_truncation(|body| super::shrink_report(body, Some("constructs"), &["constructs"], offset))
         };
         let first = page(&rows, 0).unwrap().structured_content.unwrap();
         assert!(serde_json::to_vec(&first).unwrap().len() <= MAX_JSON_BYTES);
@@ -339,7 +347,7 @@ mod tests {
                 "sections",
                 json!({"related_tools": {"items": items, "count_shown": 10, "has_more": false}}),
             )
-            .finish_with_truncation(|body| super::shrink_report(body, &["references"], 0))
+            .finish_with_truncation(|body| super::shrink_report(body, None, &["references"], 0))
             .unwrap();
         let body = result.structured_content.unwrap();
         let page = &body["sections"]["related_tools"];
@@ -348,6 +356,32 @@ mod tests {
         assert_eq!(page["count_shown"], shown);
         assert_eq!(page["has_more"], true);
         assert!(page.get("next_offset").is_none());
+    }
+
+    #[test]
+    fn pageable_sections_belong_to_the_report_and_are_unique() {
+        for (prefix, _) in PREFIX_LABELS {
+            let suffix = if prefix.contains(':') {
+                "000001"
+            } else {
+                "0000001"
+            };
+            let Some(report) = for_id(&format!("{prefix}{suffix}")) else {
+                continue;
+            };
+            let pageable = report.offset_sections();
+            for (index, section) in pageable.iter().enumerate() {
+                assert!(
+                    !pageable[..index].contains(section),
+                    "{prefix} repeats {section}"
+                );
+                assert!(
+                    report.default_sections().contains(section)
+                        || report.optional_sections().contains(section),
+                    "{prefix} lacks {section}"
+                );
+            }
+        }
     }
 
     /// The description names a type exactly when `for_id` dispatches its prefix (Plan 1 deferred minor).
