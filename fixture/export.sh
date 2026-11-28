@@ -93,7 +93,7 @@ cp_ "select * from feature_genotype where $(in_ feature_id "$FIDS")" feature_gen
 cp_ "select * from phenstatement where genotype_id in (select genotype_id from feature_genotype where $(in_ feature_id "$FIDS"))" phenstatement
 
 # Whole small tables.
-for t in organism cv cvterm cvtermsynonym cvterm_relationship db pub pubauthor pubprop pub_dbxref stock stock_genotype genotype stockcollection stockcollection_stock \
+for t in organism cv cvterm cvtermsynonym cvterm_relationship db pub pubauthor pubprop pub_dbxref stock stock_cvterm stock_genotype genotype stockcollection stockcollection_stock \
          phenotype phenotype_cvterm grp grpmember grp_synonym grpprop humanhealth humanhealth_synonym humanhealthprop \
          cell_line cell_line_synonym strain strain_synonym library library_synonym; do
   cp_ "select * from $t" "$t"

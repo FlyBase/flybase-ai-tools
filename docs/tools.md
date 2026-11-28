@@ -463,7 +463,7 @@ Find genes, insertions, other features, and aberrations in a cytological locatio
 
 ## `entities_for_term`
 
-List the genes, alleles, disease models, or gene groups annotated to a vocabulary term (GO process, anatomy FBbt phenotype, DOID disease, ...), optionally including its descendant terms, with evidence or qualifier summaries and reference counts. Use after search_vocabulary or get_term; use get_report on a hit for details.
+List the genes, alleles, disease models, or gene groups annotated to a vocabulary term (GO process, anatomy FBbt phenotype, DOID disease, ...), optionally including its descendant terms, with evidence or qualifier summaries and reference counts. For FBsv stock terms, use get_term for stock counts and its FlyBase report link for stock lists. For other Chado vocabularies, use after search_vocabulary or get_term; use get_report on a hit for details.
 
 ```json
 {
@@ -726,7 +726,7 @@ Orthologs of a fly gene in human, mouse, rat, zebrafish, frog, worm, mosquito, y
 
 ## `get_report`
 
-Return the data shown on a FlyBase report page for an ID. Supported: genes, alleles, insertions, constructs, transcripts, polypeptides, aberrations, balancers, stocks, references, gene groups, disease models, cell lines, strains, libraries, vocabulary terms (GO, FBbt, FBcv, FBdv, DOID, SO, MI), clones, sequence features, natural transposons, chemicals, ortholog genes, split system combinations, plasmids. Choose sections to keep responses small; use list_options=true to see section names. To retrieve every available reference, request sections=["references"] and repeat with the returned next_offset until null. Other list sections return the first page only, up to limit_per_section items with has_more. Use resolve first if you only have a symbol.
+Return the data shown on a FlyBase report page for an ID. Supported: genes, alleles, insertions, constructs, transcripts, polypeptides, aberrations, balancers, stocks, references, gene groups, disease models, cell lines, strains, libraries, vocabulary terms (GO, FBbt, FBcv, FBdv, FBsv, DOID, SO, MI, FBbi, CHEBI), clones, sequence features, natural transposons, chemicals, ortholog genes, split system combinations, plasmids. Choose sections to keep responses small; use list_options=true to see section names. To retrieve every available reference, request sections=["references"] and repeat with the returned next_offset until null. Other list sections return the first page only, up to limit_per_section items with has_more. Use resolve first if you only have a symbol.
 
 ```json
 {
@@ -972,7 +972,7 @@ Fly stocks available from stock centres (Bloomington, Kyoto, VDRC, NIG-Fly, Kore
 
 ## `get_term`
 
-Full report for one vocabulary term ID (GO:..., FBbt:..., FBcv:..., FBdv:..., DOID:..., SO:..., MI:...): definition, synonyms, parents, children (100 per page; page with offset), and annotation counts by data class. Use search_vocabulary first if you only have a term name; use entities_for_term to list the annotated genes or alleles.
+Full report for one vocabulary term ID (GO:..., FBbt:..., FBcv:..., FBdv:..., FBsv:..., DOID:..., SO:..., MI:..., FBbi:..., CHEBI:...): definition, synonyms, parents, children (100 per page; page with offset), and annotation counts by data class for Chado vocabularies. Use search_vocabulary to find Chado term IDs. For FBsv, follow the FlyBase report link for stock lists. For other Chado vocabularies, use entities_for_term to list annotated genes or alleles.
 
 ```json
 {
@@ -989,7 +989,7 @@ Full report for one vocabulary term ID (GO:..., FBbt:..., FBcv:..., FBdv:..., DO
       ]
     },
     "term_id": {
-      "description": "A vocabulary term ID: GO:0007219, FBbt:00004729, FBcv:0000013, FBdv:00005289, DOID:1289, SO:0000704.",
+      "description": "A vocabulary term ID: GO:0007219, FBbt:00004729, FBcv:0000013, FBdv:00005289, FBsv:0000002, DOID:1289, SO:0000704, FBbi:00000009, CHEBI:50906.",
       "type": "string"
     }
   },
@@ -1532,7 +1532,7 @@ Free-text search over FlyBase: symbols, names, and synonyms of genes, alleles, i
 
 ## `search_vocabulary`
 
-Search FlyBase controlled vocabularies (GO, anatomy FBbt, development FBdv, disease DOID, sequence SO, miscellaneous FBcv, PSI-MI) by term name or synonym. Returns term IDs for get_term and entities_for_term. Use when you need the ID of a biological concept rather than a gene or allele.
+Search FlyBase controlled vocabularies (GO, anatomy FBbt, development FBdv, disease DOID, sequence SO, miscellaneous FBcv, PSI-MI, stock FBsv) by term name or synonym. Returns term IDs for get_term. Use when you need the ID of a biological concept rather than a gene or allele.
 
 ```json
 {
@@ -1572,6 +1572,11 @@ Search FlyBase controlled vocabularies (GO, anatomy FBbt, development FBdv, dise
         {
           "const": "psi_mi",
           "description": "PSI-MI interaction detection methods and roles.",
+          "type": "string"
+        },
+        {
+          "const": "stock",
+          "description": "FlyBase stock vocabulary (FBsv).",
           "type": "string"
         }
       ]

@@ -3,7 +3,7 @@ use crate::{
     error::{ToolError, ToolResult},
     limits::clamp_limit,
     output::{Envelope, complete, cv_term_link, report_link},
-    report::{SectionCtx, cvterm::canonical_term_id, for_id, jbrowse_link, section_error},
+    report::{cvterm::canonical_term_id, for_id, jbrowse_link, section_error},
     server::FlyBaseServer,
     tools::resolve::{normalize_fb_prefix, resolve_ids},
 };
@@ -33,7 +33,7 @@ pub struct ReportParams {
 impl FlyBaseServer {
     #[tool(
         name = "get_report",
-        description = "Return the data shown on a FlyBase report page for an ID. Supported: genes, alleles, insertions, constructs, transcripts, polypeptides, aberrations, balancers, stocks, references, gene groups, disease models, cell lines, strains, libraries, vocabulary terms (GO, FBbt, FBcv, FBdv, DOID, SO, MI), clones, sequence features, natural transposons, chemicals, ortholog genes, split system combinations, plasmids. Choose sections to keep responses small; use list_options=true to see section names. To retrieve every available reference, request sections=[\"references\"] and repeat with the returned next_offset until null. Other list sections return the first page only, up to limit_per_section items with has_more. Use resolve first if you only have a symbol."
+        description = "Return the data shown on a FlyBase report page for an ID. Supported: genes, alleles, insertions, constructs, transcripts, polypeptides, aberrations, balancers, stocks, references, gene groups, disease models, cell lines, strains, libraries, vocabulary terms (GO, FBbt, FBcv, FBdv, FBsv, DOID, SO, MI, FBbi, CHEBI), clones, sequence features, natural transposons, chemicals, ortholog genes, split system combinations, plasmids. Choose sections to keep responses small; use list_options=true to see section names. To retrieve every available reference, request sections=[\"references\"] and repeat with the returned next_offset until null. Other list sections return the first page only, up to limit_per_section items with has_more. Use resolve first if you only have a symbol."
     )]
     pub async fn get_report(
         &self,
@@ -55,7 +55,7 @@ impl FlyBaseServer {
         Ok(complete(T, started, res))
     }
 
-    /// Sections of one call run concurrently on the single connection checked out here (see `SectionCtx`).
+    /// Chado-backed report sections run concurrently on a single pooled connection.
     async fn report_impl(&self, p: ReportParams) -> ToolResult<CallToolResult> {
         const T: &str = "get_report";
         let input = normalize_fb_prefix(p.id.trim()).into_owned();
@@ -144,14 +144,11 @@ impl FlyBaseServer {
             )
         };
         let limit = clamp_limit(p.limit_per_section);
-        let ctx = SectionCtx {
-            conn: self.chado.get(T).await?,
-            tool: T,
-            id: id.clone(),
-            limit,
-            fetch: limit + 1,
-            offset: i64::from(p.offset.unwrap_or(0)),
-        };
+        let ctx = self
+            .report_context(T, id.clone(), limit, i64::from(p.offset.unwrap_or(0)))
+            .await?;
+        let resolved_from = resolved_from.or_else(|| (id != ctx.id).then_some(id));
+        let id = &ctx.id;
         let futs = wanted.iter().map(|name| {
             let rt = &rt;
             let ctx = &ctx;
@@ -178,9 +175,9 @@ impl FlyBaseServer {
             }
         }
         let link = if rt.resolves_feature_id() {
-            report_link(&id)
+            report_link(id)
         } else {
-            cv_term_link(&id)
+            cv_term_link(id)
         };
         let mut env = Envelope::new(T, &self.release).link("report", link);
         match location {

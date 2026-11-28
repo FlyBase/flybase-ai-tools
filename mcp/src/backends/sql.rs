@@ -147,6 +147,9 @@ pub fn get(name: &str) -> &'static str {
             include_str!("../../sql/queries/report/cvterm/descendant_count.sql")
         }
         "report/cvterm/parents" => include_str!("../../sql/queries/report/cvterm/parents.sql"),
+        "report/cvterm/stock_counts" => {
+            include_str!("../../sql/queries/report/cvterm/stock_counts.sql")
+        }
         "report/cvterm/synonyms" => include_str!("../../sql/queries/report/cvterm/synonyms.sql"),
         "report/cvterm/term" => include_str!("../../sql/queries/report/cvterm/term.sql"),
         "report/gene/alleles" => include_str!("../../sql/queries/report/gene/alleles.sql"),

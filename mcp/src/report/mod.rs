@@ -16,18 +16,21 @@ pub mod stock;
 pub mod transcript;
 
 use crate::{
-    backends::chado::Chado,
+    backends::{
+        chado::Chado,
+        release_terms::{ReleaseTerm, vocabulary},
+    },
     error::{ToolError, ToolResult},
 };
 use deadpool_postgres::Object;
 use serde_json::{Map, Value, json};
+use std::sync::Arc;
 use tokio_postgres::{Row, types::ToSql};
 
-/// Everything a section needs. A report call checks out ONE pooled connection and every section runs
-/// its queries on it through `query`; concurrent sections stay parallel because tokio-postgres pipelines
-/// queries on one client. Never check out a second connection from inside a section (see `Chado`).
+/// Chado-backed reports share one pooled connection across sections. Concurrent queries pipeline on that
+/// connection. Release term sections read directly from the in-memory catalog.
 pub struct SectionCtx {
-    pub conn: Object,
+    pub source: SectionSource,
     pub tool: &'static str,
     pub id: String,
     pub limit: i64,
@@ -38,9 +41,63 @@ pub struct SectionCtx {
     pub offset: i64,
 }
 
+// Keep the pooled handle inline so existing Chado-backed reports need no extra allocation.
+#[allow(clippy::large_enum_variant)]
+pub enum SectionSource {
+    Chado(Object),
+    ReleaseTerm(Arc<ReleaseTerm>),
+}
+
+impl crate::server::FlyBaseServer {
+    pub(crate) async fn report_context(
+        &self,
+        tool: &'static str,
+        mut id: String,
+        limit: i64,
+        offset: i64,
+    ) -> ToolResult<SectionCtx> {
+        let source = if let Some(vocabulary) = vocabulary(&id) {
+            let catalog =
+                self.release_terms
+                    .as_ref()
+                    .ok_or_else(|| ToolError::BackendUnavailable {
+                        tool,
+                        message: format!(
+                            "{vocabulary} term data is unavailable for {}",
+                            self.release
+                        ),
+                    })?;
+            let (canonical_id, term) = catalog.get(&id).ok_or_else(|| ToolError::NotFound {
+                tool,
+                message: format!("{id} is not a term in the {vocabulary} vocabulary"),
+            })?;
+            if id != canonical_id {
+                id = canonical_id.into();
+            }
+            SectionSource::ReleaseTerm(term)
+        } else {
+            SectionSource::Chado(self.chado.get(tool).await?)
+        };
+        Ok(SectionCtx {
+            source,
+            tool,
+            id,
+            limit,
+            fetch: limit + 1,
+            offset,
+        })
+    }
+}
+
 impl SectionCtx {
     pub async fn query(&self, name: &str, params: &[&(dyn ToSql + Sync)]) -> ToolResult<Vec<Row>> {
-        Chado::query_on(&self.conn, self.tool, name, params).await
+        match &self.source {
+            SectionSource::Chado(conn) => Chado::query_on(conn, self.tool, name, params).await,
+            SectionSource::ReleaseTerm(_) => Err(ToolError::BackendUnavailable {
+                tool: self.tool,
+                message: "this vocabulary has no Chado data".into(),
+            }),
+        }
     }
 }
 
@@ -90,7 +147,7 @@ pub const PREFIX_LABELS: &[(&str, &str)] = &[
 
 pub fn for_id(id: &str) -> Option<Box<dyn ReportType>> {
     if cvterm::parse_term_id(id).is_some() {
-        return Some(Box::new(cvterm::CvTerm::default()));
+        return Some(Box::new(cvterm::CvTerm::for_id(id)));
     }
     match id.get(..4).unwrap_or("") {
         "FBal" => Some(Box::new(allele::Allele)),

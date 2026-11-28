@@ -52,7 +52,7 @@ pub fn start(cfg: flybase_mcp::config::Config) -> String {
             let chado = flybase_mcp::backends::chado::Chado::connect(&cfg)
                 .await
                 .unwrap();
-            let app = flybase_mcp::server::app(&cfg, chado);
+            let app = flybase_mcp::server::app(&cfg, chado).unwrap();
             let l = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
             tx.send(format!("http://{}", l.local_addr().unwrap()))
                 .unwrap();
