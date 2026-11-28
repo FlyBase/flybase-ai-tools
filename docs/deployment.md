@@ -18,6 +18,7 @@ All variables are required unless marked optional.
 | `FLYBASE_RELEASE` | `FB2026_03` | Reported in every result and in `/health`. Chado has no release marker, so set it per load. |
 | `FLYBASE_MCP_RELEASE_TERMS_PATH` | `/data/release-terms.json` | Optional. Read-only FBbi and ChEBI term projection matching `FLYBASE_RELEASE`. See [Imaging Methods and ChEBI term reports](../mcp/README.md#imaging-methods-and-chebi-term-reports) for export and installation. |
 | `FLYBASE_MCP_RELEASE_IMAGES_PATH` | `/data/release-images.json` | Optional. Read-only FBim report projection matching `FLYBASE_RELEASE`. See [Image reports](../mcp/README.md#image-reports) for export and installation. |
+| `FLYBASE_MCP_RECORD_XREFS_DIR` | `/data/record-cross-references` | Optional. Read-only FlyBase website catalogs and report membership for `batch_download` record cross-references. See [Record cross-reference catalogs](#record-cross-reference-catalogs). |
 | `CHADO_URL` | `postgres://flybase_mcp:<secret>@chado-mcp:5432/flybase` | Runtime role for `serve`; the owner role for `migrate`. |
 | `CHADO_POOL_SIZE` | `32` | Optional, default 32. Keep it below the role's connection limit. |
 | `BLAST_BASE_URL` | `http://blast-jobs:8800` | Optional. Base URL of the private BLAST job API (see `docs/handoff-private-side.md` for the contract, and `docs/blast-jobs.md` for the service in this repository that implements it). Must be `http://`: no TLS is compiled in, and an `https://` value is rejected at startup (logged, BLAST tools then answer as unconfigured). Unset: BLAST tools answer `backend_unavailable` and `/health` reports `blast: unconfigured`. |
@@ -29,6 +30,37 @@ All variables are required unless marked optional.
 
 `migrate` loads the same configuration as `serve`, so the bind, public URL, and release variables must be
 set for it too. Secrets come from the environment at deploy time and never belong in the repository.
+
+## Record cross-reference catalogs
+
+Use the website's release-matched `maps.sqlite` and `relationship-index.sqlite`.
+Place both in `FLYBASE_MCP_RECORD_XREFS_DIR` with the `general`, `references`, and
+`stock_objects` files under `relationship-sources/`, using the relative paths
+in the relationship index's `sources` metadata. Mount this directory read-only.
+
+From the same website release's MariaDB reporting database, export the three report ID lists
+used for exact stock, cell line and dataset membership. Run the command against the release
+database with read-only access. The MCP server reads the exported file from the catalog directory.
+
+```sh
+(
+  set -eu
+  : "${FLYBASE_MCP_RECORD_XREFS_DIR:?}" "${FLYBASE_RELEASE:?}"
+  output=$(mktemp "$FLYBASE_MCP_RECORD_XREFS_DIR/.report-membership.XXXXXXXX")
+  trap 'rm -f -- "$output"' EXIT
+  trap 'exit 1' HUP INT TERM
+  mariadb --batch --raw --skip-column-names "$FLYBASE_RELEASE" \
+    < scripts/export_record_xref_membership.sql > "$output"
+  chmod 0444 "$output"
+  mv -f -- "$output" "$FLYBASE_MCP_RECORD_XREFS_DIR/report-membership.tsv"
+)
+```
+
+Startup checks the release and relevant counts of both indexes, validates the membership file,
+and verifies the three catalog file sizes and SHA-256 hashes. Allow time to read those files
+before declaring the server ready. A configured directory with missing, incomplete, or
+incompatible assets prevents the server from starting. When the variable is unset, cross-reference calls return
+`backend_unavailable` and the report-field mode remains available.
 
 ## Build the image
 

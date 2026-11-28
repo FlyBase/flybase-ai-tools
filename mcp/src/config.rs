@@ -14,6 +14,8 @@ pub struct Config {
     pub release_terms_path: Option<PathBuf>,
     /// Offline FBim report projection for this release, if configured.
     pub release_images_path: Option<PathBuf>,
+    /// Read-only website record cross-reference catalogs for this release, if configured.
+    pub record_xrefs_dir: Option<PathBuf>,
     pub pool_size: usize,
     pub blast_base_url: Option<Url>,
     pub blast_token: Option<String>,
@@ -45,6 +47,9 @@ impl Config {
                 .filter(|v| !v.trim().is_empty())
                 .map(PathBuf::from),
             release_images_path: get("FLYBASE_MCP_RELEASE_IMAGES_PATH")
+                .filter(|v| !v.trim().is_empty())
+                .map(PathBuf::from),
+            record_xrefs_dir: get("FLYBASE_MCP_RECORD_XREFS_DIR")
                 .filter(|v| !v.trim().is_empty())
                 .map(PathBuf::from),
             pool_size: get("CHADO_POOL_SIZE")
@@ -114,6 +119,7 @@ impl std::fmt::Debug for Config {
             .field("chado_url", &redact_url(&self.chado_url))
             .field("release_terms_path", &self.release_terms_path)
             .field("release_images_path", &self.release_images_path)
+            .field("record_xrefs_dir", &self.record_xrefs_dir)
             .field("pool_size", &self.pool_size)
             .field("blast_base_url", &self.blast_base_url)
             .field("blast_token", &self.blast_token.as_ref().map(|_| "***"))

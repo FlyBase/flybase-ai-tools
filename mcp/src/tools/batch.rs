@@ -16,8 +16,11 @@ use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value, json};
 use std::collections::{BTreeMap, HashMap};
 
+mod record_xrefs;
+
 const MAX_DOWNLOAD_IDS: usize = 50_000;
 const MAX_PAGE_ROWS: usize = 1_000;
+const TOOL: &str = "batch_download";
 
 /// Multi-valued cells stop at this many values and append "(+N more)".
 pub const CELL_CAP: i64 = 50;
@@ -30,22 +33,39 @@ pub enum Format {
     Tsv,
 }
 
+#[derive(Deserialize, Serialize, JsonSchema, Clone, Copy, PartialEq, Eq, Default)]
+#[serde(rename_all = "snake_case")]
+pub enum Mode {
+    #[default]
+    ReportFields,
+    RecordCrossReferences,
+}
+
 #[derive(Deserialize, Serialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct BatchParams {
-    /// Up to 50,000 FlyBase IDs, in output order. Resend the same list for each page.
+    /// Up to 50,000 FlyBase IDs in output order. Record cross-references also accept exact symbols. Resend the same list for each page.
+    #[serde(default)]
     #[schemars(length(max = 50000))]
     pub ids: Vec<String>,
-    /// Field names from the catalog; pass list_options=true to see them by class.
+    /// Output mode: report_fields (default) or record_cross_references (internal FlyBase links).
+    pub mode: Option<Mode>,
+    /// Field names for report_fields mode. Pass list_options=true to see them by class.
+    #[serde(default)]
     pub fields: Vec<String>,
+    /// Optional target FlyBase ID prefixes such as FBgn, FBal, or FBtr, for record_cross_references mode.
+    #[schemars(length(min = 1, max = 64))]
+    pub target_classes: Option<Vec<String>>,
     /// json (default) returns rows as objects; tsv returns a tab-separated text block and row_count instead.
     pub format: Option<Format>,
     /// Zero-based index of the first input to return. Use next_offset from the previous response.
     pub offset: Option<usize>,
+    /// Offset within one record's cross-references. Pass next_link_offset when non-null. Omit link_offset when next_link_offset is null.
+    pub link_offset: Option<usize>,
     /// Maximum rows per page (1 to 1,000). Wide rows can reduce the number that fit.
     #[schemars(range(min = 1, max = 1000))]
     pub limit: Option<usize>,
-    /// If true, return only the field catalog.
+    /// If true, return only the options for the selected mode.
     pub list_options: Option<bool>,
 }
 
@@ -204,27 +224,40 @@ fn tsv_line(cells: impl Iterator<Item = String>) -> String {
 impl FlyBaseServer {
     #[tool(
         name = "batch_download",
-        description = "Download chosen fields for up to 50,000 FlyBase IDs as JSON or TSV. Lists over 500 IDs are paged. Repeat with the same arguments and offset=next_offset until next_offset is null. Available fields include symbols, names, locations, synonyms, references, GO terms, alleles, transcripts, human orthologs, allele classes, stocks, and more. Use list_options=true to see the field catalog. Use when you have a list of IDs and want a table; use get_report for one entity in depth."
+        description = "Download report fields or internal FlyBase record cross-references (mode=record_cross_references) as JSON or TSV for up to 50,000 inputs. Record cross-references accept FlyBase IDs and exact symbols. Use list_options=true to see options for the selected mode. Keep inputs, filters, and format fixed when paging. Pass next_offset as offset and, for record cross-references, pass next_link_offset as link_offset when present. Omit link_offset when next_link_offset is null. Stop when next_offset is null. Use get_report for one entity in depth."
     )]
     pub async fn batch_download(
         &self,
         Parameters(p): Parameters<BatchParams>,
     ) -> Result<CallToolResult, ErrorData> {
-        const T: &str = "batch_download";
+        const T: &str = TOOL;
         let started = std::time::Instant::now();
         let res = async {
             let key = ResponseCache::key(T, &p);
             self.caches
                 .response
                 .get_or_else(key, async {
+                    let mode = p.mode.unwrap_or_default();
                     if p.list_options.unwrap_or(false) {
-                        return Ok(Envelope::new(T, &self.release)
-                            .summary("Fields by class; 'any' fields apply to every feature ID.")
-                            .field("fields", catalog())
-                            .finish());
+                        return Ok(match mode {
+                            Mode::ReportFields => Envelope::new(T, &self.release)
+                                .summary("Fields by class; 'any' fields apply to every feature ID.")
+                                .field("fields", catalog())
+                                .field(
+                                    "modes",
+                                    json!([Mode::ReportFields, Mode::RecordCrossReferences]),
+                                )
+                                .finish(),
+                            Mode::RecordCrossReferences => self.record_cross_reference_options(),
+                        });
                     }
-                    let _permit = self.limits.heavy(T).await?;
-                    self.batch_impl(p).await
+                    match mode {
+                        Mode::ReportFields => {
+                            let _permit = self.limits.heavy(T).await?;
+                            self.batch_impl(p).await
+                        }
+                        Mode::RecordCrossReferences => self.record_cross_references(p).await,
+                    }
                 })
                 .await
         }
@@ -233,7 +266,21 @@ impl FlyBaseServer {
     }
 
     async fn batch_impl(&self, p: BatchParams) -> ToolResult<CallToolResult> {
-        const T: &str = "batch_download";
+        const T: &str = TOOL;
+        if p.link_offset.is_some() {
+            return Err(ToolError::InvalidInput {
+                tool: T,
+                arg: "link_offset",
+                message: "only available in record_cross_references mode".into(),
+            });
+        }
+        if p.target_classes.is_some() {
+            return Err(ToolError::InvalidInput {
+                tool: T,
+                arg: "target_classes",
+                message: "only available in record_cross_references mode".into(),
+            });
+        }
         if p.ids.is_empty() {
             return Err(ToolError::InvalidInput {
                 tool: T,

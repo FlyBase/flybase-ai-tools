@@ -117,8 +117,21 @@ async fn list_options_and_unsupported_pair() {
     let e = r.structured_content.unwrap();
     assert_eq!(e["error"], "invalid_input");
     assert!(e["message"].as_str().unwrap().contains("to_release"), "{e}");
-    let r = call_raw(&c, "convert_coordinates", json!({"species": "Dpse", "from_release": 2, "to_release": 3, "coordinates": ["XL_group1a:1"]})).await.unwrap();
-    assert_eq!(r.structured_content.unwrap()["error"], "invalid_input");
+    for species in [
+        "Dpse",
+        " dpse ",
+        "D. pseudoobscura",
+        "Drosophila pseudoobscura",
+        "pseudoobscura",
+    ] {
+        let r = call_raw(&c, "convert_coordinates", json!({"species": species, "from_release": 2, "to_release": 3, "coordinates": ["XL_group1a:1"]})).await.unwrap();
+        let e = r.structured_content.unwrap();
+        assert_eq!(e["error"], "invalid_input");
+        let message = e["message"].as_str().unwrap();
+        assert!(message.contains("does not support D. pseudoobscura"));
+        assert!(message.contains("legacy release 2 to 3"));
+        assert!(message.contains("https://flybase.org/convert/coordinates"));
+    }
 }
 
 #[tokio::test]

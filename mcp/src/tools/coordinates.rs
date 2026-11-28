@@ -75,6 +75,23 @@ impl FlyBaseServer {
         }
         let species = p.species.as_deref().unwrap_or("Dmel").trim();
         let (from, to) = (p.from_release.unwrap_or(5), p.to_release.unwrap_or(6));
+        if [
+            "Dpse",
+            "D. pseudoobscura",
+            "Drosophila pseudoobscura",
+            "pseudoobscura",
+        ]
+        .iter()
+        .any(|name| species.eq_ignore_ascii_case(name))
+        {
+            return Err(ToolError::InvalidInput {
+                tool: T,
+                arg: "species",
+                message: format!(
+                    "The MCP does not support D. pseudoobscura coordinate conversion. For legacy release 2 to 3 coordinates, use the FlyBase website converter at {CONVERTER_URL}."
+                ),
+            });
+        }
         let map = maps::find(species, from, to).ok_or_else(|| ToolError::InvalidInput {
             tool: T,
             arg: unsupported_arg(species, from),

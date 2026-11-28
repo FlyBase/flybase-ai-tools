@@ -149,7 +149,7 @@ Stock Center, with component allele FBal0018186.
 ```
 
 Returns a 4-row TSV block, for example `hh  hedgehog  3R:23128169..23141906(-)  94E1-94E1  CG4637`. Call it
-with `"list_options": true` (and empty `ids` and `fields`) to see the field catalogue by class.
+with `"list_options": true` to see the field catalog by class.
 
 For lists of 501 to 50,000 IDs, the response includes `total`, `offset`, and `next_offset`.
 Send the same IDs, fields, and format on each call, setting `offset` to the previous
@@ -157,6 +157,29 @@ Send the same IDs, fields, and format on each call, setting `offset` to the prev
 shorter when the selected fields fill the response. To assemble a single TSV file,
 keep the header from the first page and append the data lines from every page.
 Pass `limit` (1 to 1,000) to request smaller pages or enable paging for a short list.
+
+### "Which FlyBase records cross-reference these stock, literature, and allele records?"
+
+```json
+{"name": "batch_download", "arguments": {"mode": "record_cross_references", "ids": ["FBst0000002", "FBrf0015431", "FBal0012694"], "format": "json"}}
+```
+
+The response groups IDs by target record prefix. On FB2026_03, the stock links to
+`FBal0000021`, `FBal0005583` and `FBba0000025`, the reference links to
+`FBgn0000055`, and the allele links to `FBgn0004647`. Each row retains its input.
+Exact symbols, mixed record classes and duplicate inputs are supported. Unknown inputs
+have `status: "unknown"` and a null `id`. A resolved input can have no links.
+Use `list_options: true` in this mode to see available target classes, or
+set `target_classes` to restrict the export, for example `["FBgn", "FBal"]`.
+Engineered plasmid and molecular segment IDs are grouped under `FBtp`.
+
+Keep the same IDs, filters and format for each page. Pass `next_offset` as `offset`
+and, when non-null, `next_link_offset` as `link_offset`. Omit `link_offset` whenever
+`next_link_offset` is null. A record with more than
+4,000 matching links spans pages, so its input offset can repeat. Links are ordered
+by target class, then by ID. Stop when `next_offset` is null. TSV includes a header
+for each page with the target classes present on that page. Use those headers to
+align the columns when combining pages into one table.
 
 ### "Get me the Wingless protein sequence."
 
