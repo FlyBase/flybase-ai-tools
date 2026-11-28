@@ -134,9 +134,18 @@ cp_ "select * from library_feature where library_id in $RNA_LIBS and $(in_ featu
 # is misestimated and seq-scans the whole table (85 s on public chado).
 cp_ "select p.* from library_featureprop p where p.library_feature_id = any(array(
        select library_feature_id from library_feature where library_id in $RNA_LIBS and $(in_ feature_id "$FIDS")))" library_featureprop
-FR="(select feature_relationship_id from feature_relationship where $(in_ subject_id "$FIDS") and $(in_ object_id "$FIDS"))"
-cp_ "select * from feature_relationship_pub where feature_relationship_id in $FR" feature_relationship_pub
-cp_ "select * from feature_relationshipprop where feature_relationship_id in $FR" feature_relationshipprop
+# Copy evidence for the exact relationships exported above. Recomputing the two-ended
+# relationship set for each evidence table can exceed the public server's query timeout.
+for table in feature_relationship_pub feature_relationshipprop; do
+  {
+    printf '%s;\n' "$NOTIMEOUT"
+    while mapfile -t -n 10000 keys && (( ${#keys[@]} )); do
+      ids=$(IFS=,; echo "${keys[*]}")
+      printf '\\copy (select * from %s where %s) to stdout\n' "$table" "$(in_ feature_relationship_id "$ids")"
+    done < <(cut -f1 data/feature_relationship.tsv)
+  } | psql "$SRC" -v ON_ERROR_STOP=1 -qAt > "data/$table.tsv"
+  echo "$table: $(wc -l < "data/$table.tsv") rows"
+done
 cp_ "select * from feature_interaction where $(in_ feature_id "$FIDS")" feature_interaction
 FI="(select interaction_id from feature_interaction where $(in_ feature_id "$FIDS"))"
 cp_ "select * from interaction where interaction_id in $FI" interaction
