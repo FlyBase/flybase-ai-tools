@@ -26,6 +26,7 @@ jobs:
         with:
           manifest-path: mcp/Cargo.toml
           command: check advisories
+      - run: python3 -B ../scripts/test_build_precomputed.py
       - run: cargo test --lib
       - run: cargo run --bin tool-catalog > /tmp/tools.md && diff -u ../docs/tools.md /tmp/tools.md
   fixture-tests:

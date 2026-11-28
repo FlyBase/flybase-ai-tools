@@ -3,6 +3,7 @@ pub mod cache;
 pub mod chado;
 pub mod coordinates;
 pub mod diopt;
+pub(crate) mod precomputed_files;
 pub mod record_xrefs;
 pub mod release_images;
 pub mod release_terms;

@@ -19,6 +19,7 @@ All variables are required unless marked optional.
 | `FLYBASE_MCP_RELEASE_TERMS_PATH` | `/data/release-terms.json` | Optional. Read-only FBbi and ChEBI term projection matching `FLYBASE_RELEASE`. See [Imaging Methods and ChEBI term reports](../mcp/README.md#imaging-methods-and-chebi-term-reports) for export and installation. |
 | `FLYBASE_MCP_RELEASE_IMAGES_PATH` | `/data/release-images.json` | Optional. Read-only FBim report projection matching `FLYBASE_RELEASE`. See [Image reports](../mcp/README.md#image-reports) for export and installation. |
 | `FLYBASE_MCP_RECORD_XREFS_DIR` | `/data/record-cross-references` | Optional. Read-only FlyBase website catalogs and report membership for `batch_download` record cross-references. See [Record cross-reference catalogs](#record-cross-reference-catalogs). |
+| `FLYBASE_MCP_PRECOMPUTED_PATH` | `/data/precomputed.sqlite` | Optional. Read-only, release-matched index for Batch Download files. See [Precomputed files](#precomputed-files). |
 | `CHADO_URL` | `postgres://flybase_mcp:<secret>@chado-mcp:5432/flybase` | Runtime role for `serve`; the owner role for `migrate`. |
 | `CHADO_POOL_SIZE` | `32` | Optional, default 32. Keep it below the role's connection limit. |
 | `BLAST_BASE_URL` | `http://blast-jobs:8800` | Optional. Base URL of the private BLAST job API (see `docs/handoff-private-side.md` for the contract, and `docs/blast-jobs.md` for the service in this repository that implements it). Must be `http://`: no TLS is compiled in, and an `https://` value is rejected at startup (logged, BLAST tools then answer as unconfigured). Unset: BLAST tools answer `backend_unavailable` and `/health` reports `blast: unconfigured`. |
@@ -61,6 +62,31 @@ and verifies the three catalog file sizes and SHA-256 hashes. Allow time to read
 before declaring the server ready. A configured directory with missing, incomplete, or
 incompatible assets prevents the server from starting. When the variable is unset, cross-reference calls return
 `backend_unavailable` and the report-field mode remains available.
+
+## Precomputed files
+
+Build the index with Python 3 from the website's release downloads, its
+`download-manifest.json`, and its release Batch Download lookup directory.
+
+```sh
+python3 scripts/build_precomputed.py \
+  --release "$FLYBASE_RELEASE" \
+  --downloads /path/to/release-downloads \
+  --manifest /path/to/download-manifest.json \
+  --batch /path/to/query/batch \
+  --output /path/to/precomputed.sqlite
+```
+
+The lookup directory contains `batch-aliases.sqlite`, its
+`batch-aliases.json` manifest, `batch-external.json`, and the sources named
+in that manifest. The builder checks source hashes and writes a SQLite index
+atomically. Mount the completed file read-only at `FLYBASE_MCP_PRECOMPUTED_PATH`.
+Build a new file when the release changes and restart the service to load it.
+Configure the release-matched record cross-reference catalogs to enable exact
+symbol, synonym, and external identifier lookup.
+
+An unset index path leaves the precomputed mode unavailable and its options
+list empty. An incompatible or unreadable configured index fails startup.
 
 ## Build the image
 

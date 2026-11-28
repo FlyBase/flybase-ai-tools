@@ -12,10 +12,10 @@ use std::{fmt::Write, fs, path::PathBuf};
 
 const RELEASE: &str = "FB2026_03";
 
-struct Fixture(PathBuf);
+pub(in crate::tools::batch) struct Fixture(PathBuf);
 
 impl Fixture {
-    fn new() -> Self {
+    pub(in crate::tools::batch) fn new() -> Self {
         let path = std::env::temp_dir().join(format!(
             "flybase-crossrefs-{}-{}",
             std::process::id(),
@@ -133,7 +133,7 @@ impl Fixture {
         db
     }
 
-    fn load(&self) -> RecordXrefs {
+    pub(in crate::tools::batch) fn load(&self) -> RecordXrefs {
         RecordXrefs::load(&self.0, RELEASE).unwrap()
     }
 }
@@ -345,7 +345,7 @@ fn catalog_rejects_incomplete_membership_export() {
     }
 }
 
-async fn call_batch(server: &FlyBaseServer, args: Value) -> Value {
+pub(in crate::tools::batch) async fn call_batch(server: &FlyBaseServer, args: Value) -> Value {
     let params = serde_json::from_value(args).unwrap();
     server
         .batch_download(Parameters(params))
@@ -355,8 +355,7 @@ async fn call_batch(server: &FlyBaseServer, args: Value) -> Value {
         .unwrap()
 }
 
-#[tokio::test]
-async fn batch_dispatches_both_modes_and_validates_mode_specific_inputs() {
+pub(in crate::tools::batch) async fn batch_server() -> FlyBaseServer {
     let cfg = Config::from_lookup(|key| {
         Some(
             match key {
@@ -371,14 +370,19 @@ async fn batch_dispatches_both_modes_and_validates_mode_specific_inputs() {
     })
     .unwrap();
     let chado = Chado::connect(&cfg).await.unwrap();
-    let mut server = FlyBaseServer::new(
+    FlyBaseServer::new(
         chado,
         Limits::new(),
         RELEASE.into(),
         Arc::new(Caches::new(0)),
         None,
         None,
-    );
+    )
+}
+
+#[tokio::test]
+async fn batch_dispatches_both_modes_and_validates_mode_specific_inputs() {
+    let mut server = batch_server().await;
     let default_options = call_batch(&server, json!({"list_options": true})).await;
     assert!(default_options["fields"]["gene"].is_array());
     let xrefs_options = json!({"mode": "record_cross_references", "list_options": true});
