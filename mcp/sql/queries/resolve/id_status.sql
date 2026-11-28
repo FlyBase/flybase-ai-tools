@@ -9,6 +9,7 @@ cur as (
   union all select uniquename, name, is_obsolete from cell_line where uniquename = any($1::text[])
   union all select uniquename, name, is_obsolete from library where uniquename = any($1::text[])
   union all select uniquename, name, is_obsolete from strain where uniquename = any($1::text[])
+  union all select uniquename, null, is_obsolete from interaction_group where uniquename = any($1::text[])
   union all select uniquename, null, is_obsolete from pub where uniquename = any($1::text[])
 ),
 secondary as (

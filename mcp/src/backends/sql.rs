@@ -66,6 +66,15 @@ pub fn get(name: &str) -> &'static str {
         "report/group/members" => include_str!("../../sql/queries/report/group/members.sql"),
         "report/group/references" => include_str!("../../sql/queries/report/group/references.sql"),
         "report/group/synonyms" => include_str!("../../sql/queries/report/group/synonyms.sql"),
+        "report/physical_interaction/identity" => {
+            include_str!("../../sql/queries/report/physical_interaction/identity.sql")
+        }
+        "report/physical_interaction/references" => {
+            include_str!("../../sql/queries/report/physical_interaction/references.sql")
+        }
+        "report/physical_interaction/reported_interactions" => {
+            include_str!("../../sql/queries/report/physical_interaction/reported_interactions.sql")
+        }
         "report/aberration/genes" => include_str!("../../sql/queries/report/aberration/genes.sql"),
         "report/allele/classes" => include_str!("../../sql/queries/report/allele/classes.sql"),
         "report/allele/constructs" => {

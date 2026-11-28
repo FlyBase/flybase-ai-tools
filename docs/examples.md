@@ -306,6 +306,16 @@ its OMIM phenotypes. WNT3 scores 3.
 Returns 15 orthologs in total, ranked by score, starting with Drer\abcg2a and Mmus\Abcg2 at score 9. The
 `species` argument is a list, even for one species.
 
+### "What experiments support the physical interaction between fz and wg?"
+
+```json
+{"name": "get_report", "arguments": {"id": "FBig0000104993", "sections": ["identity", "reported_interactions", "references"]}}
+```
+
+The identity lists the interacting genes and links to their interaction networks.
+Each reported interaction identifies its own assay terms, participant roles, and reference IDs.
+The references section gives the corresponding citations. Page through it using `next_offset`.
+
 ### "Which proteins physically interact with Notch?"
 
 ```json

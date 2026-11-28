@@ -30,6 +30,10 @@ echo "schema: $((SECONDS - t0))s"
 
 IDS=$(paste -sd, ids.txt | sed "s/\([^,]*\)/'\1'/g")
 SO="(select cv_id from cv where name = 'SO')"
+# Keep the complete curated records for these two physical interaction reports and one obsolete ID.
+FBIG_GROUPS="(select interaction_group_id from interaction_group where uniquename in ('FBig0000000059', 'FBig0000104993', 'FBig0000000001'))"
+FBIG_RECORDS="(select distinct fi.interaction_id from interaction_group_feature_interaction j
+  join feature_interaction fi using (feature_interaction_id) where j.interaction_group_id in $FBIG_GROUPS)"
 GP="(select cvterm_id from cvterm where name = 'golden_path' and cv_id = $SO)"
 # Feature-id set (reduced from the plan's generic two-hop rule, which reached 208k features and 8.8M relationships
 # because Notch alone has 2,305 direct neighbours):
@@ -57,12 +61,16 @@ FIDS=$(q "with seed as (select feature_id, uniquename from feature where uniquen
    union select fr.object_id from feature_relationship fr where fr.subject_id in (
      select fo.feature_id from xp join feature_interaction fi on fi.feature_id = xp.feature_id
      join feature_interaction fo on fo.interaction_id = fi.interaction_id where fo.feature_id <> xp.feature_id)),
+ interaction_report_features as (
+   select feature_id from feature_interaction where interaction_id in $FBIG_RECORDS
+   union select feature_id from feature where uniquename in ('FBgn0001085', 'FBgn0284084', 'FBgn0016691', 'FBgn0038224')),
  domains as (select fl.feature_id from featureloc fl where fl.srcfeature_id in (select feature_id from seed where uniquename like 'FBpp%')),
  clones as (select lf.feature_id from library_feature lf where lf.library_id = (select library_id from library where uniquename = 'FBlc0000001') order by lf.library_feature_id limit 5000),
  bands as (select feature_id from feature where type_id = (select cvterm_id from cvterm where name = 'chromosome_band' and cv_id = $SO)
    and organism_id = (select organism_id from organism where abbreviation = 'Dmel'))
  select string_agg(feature_id::text, ',') from (select feature_id from hop1 union select feature_id from tx_children union select feature_id from bands
-   union select feature_id from partners union select feature_id from domains union select feature_id from clones) x")
+   union select feature_id from partners union select feature_id from interaction_report_features
+   union select feature_id from domains union select feature_id from clones) x")
 echo "feature ids: $(echo "$FIDS" | tr ',' '\n' | wc -l), $((SECONDS - t0))s"
 
 # Feature rows, excluding golden paths (their residues are 20+ Mb each; a selected copy follows).
@@ -132,6 +140,18 @@ cp_ "select * from interaction where interaction_id in $FI" interaction
 cp_ "select * from interaction_pub where interaction_id in $FI" interaction_pub
 cp_ "select * from interactionprop where interaction_id in $FI" interactionprop
 cp_ "select * from interaction_cvterm where interaction_id in $FI" interaction_cvterm
+cp_ "select * from interaction_group where interaction_group_id in $FBIG_GROUPS" interaction_group
+cp_ "select * from interaction_group_feature_interaction where interaction_group_id in $FBIG_GROUPS" interaction_group_feature_interaction
+cp_ "select * from feature_interactionprop where feature_interaction_id in (
+  select feature_interaction_id from feature_interaction where interaction_id in $FBIG_RECORDS)" feature_interactionprop
+cp_ "select * from interactionprop_pub where interactionprop_id in (
+  select interactionprop_id from interactionprop where interaction_id in $FBIG_RECORDS)" interactionprop_pub
+for t in interaction_cell_line interaction_expression library_interaction; do
+  cp_ "select * from $t where interaction_id in $FBIG_RECORDS" "$t"
+done
+EXP="(select expression_id from interaction_expression where interaction_id in $FBIG_RECORDS)"
+cp_ "select * from expression where expression_id in $EXP" expression
+cp_ "select * from expression_cvterm where expression_id in $EXP" expression_cvterm
 cp_ "select * from phenotype_comparison where genotype1_id in (select genotype_id from feature_genotype where $(in_ feature_id "$FIDS"))" phenotype_comparison
 for t in dataclass_relationship.gene_diseasev2 humanhealth.allele_disease_variant \
          gene.split_system_combination gene.split_system_combination_component_allele gene_group.pathway_member; do

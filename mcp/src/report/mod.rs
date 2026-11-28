@@ -11,6 +11,7 @@ pub mod gene;
 pub mod group;
 pub mod image;
 pub mod insertion;
+pub mod physical_interaction;
 pub mod polypeptide;
 pub mod record;
 pub mod reference;
@@ -168,6 +169,7 @@ pub const PREFIX_LABELS: &[(&str, &str)] = &[
     ("FBmc", "plasmids"),
     ("FBms", "molecular segments"),
     ("FBim", "images"),
+    ("FBig", "physical interactions"),
 ];
 
 pub fn for_id(id: &str) -> Option<Box<dyn ReportType>> {
@@ -177,6 +179,7 @@ pub fn for_id(id: &str) -> Option<Box<dyn ReportType>> {
     match id.get(..4).unwrap_or("") {
         "FBal" => Some(Box::new(allele::Allele)),
         "FBgn" => Some(Box::new(gene::Gene)),
+        "FBig" => Some(Box::new(physical_interaction::PhysicalInteraction)),
         "FBrf" => Some(Box::new(reference::Reference)),
         "FBst" => Some(Box::new(stock::Stock)),
         "FBti" => Some(Box::new(insertion::Insertion)),

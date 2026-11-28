@@ -36,7 +36,7 @@ pub struct ReportParams {
 impl FlyBaseServer {
     #[tool(
         name = "get_report",
-        description = "Return the data shown on a FlyBase report page for an ID. Supported: genes, alleles, insertions, constructs, transcripts, polypeptides, aberrations, balancers, stocks, references, gene groups, disease models, cell lines, strains, libraries, vocabulary terms (GO, FBbt, FBcv, FBdv, FBsv, DOID, SO, MI, FBbi, CHEBI), clones, sequence features, natural transposons, chemicals, ortholog genes, split system combinations, plasmids, molecular segments, images. Choose sections to keep responses small; use list_options=true to see section names. To retrieve every available reference, request sections=[\"references\"] and repeat with the returned next_offset until null. For images, annotations and regions also support next_offset when requested alone. Other list sections return the first page only, up to limit_per_section items with has_more. Use resolve first if you only have a symbol."
+        description = "Return the data shown on a FlyBase report page for an ID. Supported: genes, alleles, insertions, constructs, transcripts, polypeptides, aberrations, balancers, stocks, references, gene groups, disease models, cell lines, strains, libraries, vocabulary terms (GO, FBbt, FBcv, FBdv, FBsv, DOID, SO, MI, FBbi, CHEBI), clones, sequence features, natural transposons, chemicals, ortholog genes, split system combinations, plasmids, molecular segments, images, physical interactions. Choose sections to keep responses small; use list_options=true to see section names. To retrieve every available reference, request sections=[\"references\"] and repeat with the returned next_offset until null. For images, annotations and regions also support next_offset when requested alone. Other list sections return the first page only, up to limit_per_section items with has_more. Use resolve first if you only have a symbol."
     )]
     pub async fn get_report(
         &self,
@@ -237,6 +237,7 @@ impl FlyBaseServer {
                     repair_page(page, ctx.offset);
                 }
             }
+            repair_reported_interactions_page(body);
         }))
     }
 }
@@ -249,6 +250,16 @@ fn repair_page(page: &mut Value, offset: i64) {
             page["has_more"] = json!(true);
             page["next_offset"] = json!(offset + shown);
         }
+    }
+}
+
+fn repair_reported_interactions_page(body: &mut Value) {
+    if let Some(page) = body.pointer_mut("/sections/reported_interactions")
+        && let Some(items) = page["items"].as_array()
+        && page["count_shown"].as_u64() != Some(items.len() as u64)
+    {
+        page["count_shown"] = json!(items.len());
+        page["has_more"] = json!(true);
     }
 }
 
