@@ -43,14 +43,17 @@ used for exact stock, cell line and dataset membership. Run the command against 
 database with read-only access. The MCP server reads the exported file from the catalog directory.
 
 ```sh
-set -e
-output=$(mktemp "$FLYBASE_MCP_RECORD_XREFS_DIR/.report-membership.XXXXXXXX")
-trap 'rm -f -- "$output"' EXIT
-mariadb --batch --raw --skip-column-names "$FLYBASE_RELEASE" \
-  < scripts/export_record_xref_membership.sql \
-  > "$output"
-chmod 0444 "$output"
-mv -- "$output" "$FLYBASE_MCP_RECORD_XREFS_DIR/report-membership.tsv"
+(
+  set -eu
+  : "${FLYBASE_MCP_RECORD_XREFS_DIR:?}" "${FLYBASE_RELEASE:?}"
+  output=$(mktemp "$FLYBASE_MCP_RECORD_XREFS_DIR/.report-membership.XXXXXXXX")
+  trap 'rm -f -- "$output"' EXIT
+  trap 'exit 1' HUP INT TERM
+  mariadb --batch --raw --skip-column-names "$FLYBASE_RELEASE" \
+    < scripts/export_record_xref_membership.sql > "$output"
+  chmod 0444 "$output"
+  mv -f -- "$output" "$FLYBASE_MCP_RECORD_XREFS_DIR/report-membership.tsv"
+)
 ```
 
 Startup checks the release and relevant counts of both indexes, validates the membership file,

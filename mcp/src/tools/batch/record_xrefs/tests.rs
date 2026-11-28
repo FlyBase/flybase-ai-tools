@@ -330,12 +330,18 @@ fn catalog_rejects_incomplete_membership_export() {
     let fixture = Fixture::new();
     let file = fixture.0.join("report-membership.tsv");
     let original = fs::read_to_string(&file).unwrap();
-    for incomplete in [
-        original.trim_end_matches("# complete\n").to_owned(),
-        format!("{original}FBtc0000013\n"),
+    fixture.load();
+    let without_footer = original.strip_suffix("# complete\n").unwrap();
+    for (contents, expected_error) in [
+        (without_footer.to_owned(), "incomplete report membership"),
+        (
+            format!("{original}FBtc0000013\n"),
+            "unexpected content after report membership footer",
+        ),
     ] {
-        fs::write(&file, incomplete).unwrap();
-        assert!(RecordXrefs::load(&fixture.0, RELEASE).is_err());
+        fs::write(&file, contents).unwrap();
+        let error = RecordXrefs::load(&fixture.0, RELEASE).err().unwrap();
+        assert!(format!("{error:#}").contains(expected_error), "{error:#}");
     }
 }
 
