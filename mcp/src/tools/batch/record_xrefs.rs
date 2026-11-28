@@ -1,6 +1,6 @@
 use super::{BatchParams, Format, MAX_DOWNLOAD_IDS, MAX_PAGE_ROWS, Mode, TOOL, tsv_line};
 use crate::{
-    backends::record_xrefs::{MAX_SCAN_BYTES, RecordXrefs, id_prefix},
+    backends::record_xrefs::{MAX_SCAN_BYTES, RecordXrefs},
     error::{ToolError, ToolResult},
     limits::MAX_JSON_BYTES,
     output::Envelope,
@@ -77,21 +77,14 @@ fn prefix(input: &str) -> Option<String> {
     }
 }
 
-fn input_token(raw: &str) -> ToolResult<String> {
-    let raw = raw.trim();
-    if !(1..=MAX_INPUT_BYTES).contains(&raw.len()) || raw.chars().any(char::is_control) {
+fn validate_input(raw: &str) -> ToolResult<()> {
+    if raw.trim().is_empty() || raw.len() > MAX_INPUT_BYTES || raw.chars().any(char::is_control) {
         return Err(invalid(
             "ids",
             "each ID or symbol must be nonempty and at most 256 bytes, with no control characters",
         ));
     }
-    if let Some(prefix) = raw.get(..4).and_then(prefix) {
-        let id = format!("{prefix}{}", &raw[4..]);
-        if id_prefix(&id).is_some() {
-            return Ok(id);
-        }
-    }
-    Ok(raw.to_owned())
+    Ok(())
 }
 
 #[derive(Serialize)]
@@ -105,7 +98,7 @@ struct RecordRow {
 
 impl RecordRow {
     fn tsv_prefix(&self) -> String {
-        let input = if self.input.starts_with(['=', '+', '-', '@']) {
+        let input = if self.input.trim_start().starts_with(['=', '+', '-', '@']) {
             format!("'{}", self.input)
         } else {
             self.input.clone()
@@ -218,8 +211,8 @@ impl FlyBaseServer {
         }
         let end = (offset + limit).min(total);
         let mut inputs = Vec::with_capacity(end - offset);
-        for (index, input) in p.ids.iter().enumerate() {
-            let input = input_token(input)?;
+        for (index, input) in p.ids.into_iter().enumerate() {
+            validate_input(&input)?;
             if (offset..end).contains(&index) {
                 inputs.push(input);
             }
@@ -268,7 +261,7 @@ fn load_row(
     bytes_left: &mut u64,
 ) -> ToolResult<Option<(RecordRow, Option<usize>)>> {
     let record = (|| -> anyhow::Result<_> {
-        let id = catalogs.resolve(&input)?;
+        let id = catalogs.resolve(input.trim())?;
         let groups = match &id {
             Some(id) => catalogs.associations(id, targets, bytes_left)?,
             None => Some(BTreeMap::new()),

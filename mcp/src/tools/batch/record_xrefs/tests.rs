@@ -1,6 +1,13 @@
 use super::*;
+use crate::{
+    backends::{cache::Caches, chado::Chado},
+    config::Config,
+    limits::Limits,
+};
+use rmcp::handler::server::wrapper::Parameters;
 use rusqlite::Connection;
 use sha2::{Digest, Sha256};
+use std::sync::Arc;
 use std::{fmt::Write, fs, path::PathBuf};
 
 const RELEASE: &str = "FB2026_03";
@@ -20,15 +27,15 @@ impl Fixture {
         fs::create_dir(root.join("relationship-sources")).unwrap();
         fs::write(
             root.join("report-membership.tsv"),
-            format!("# release: {RELEASE}\nFBlc0000001\nFBst0000002\nFBst0000004\nFBtc0000012\n"),
+            format!("# release: {RELEASE}\nFBlc0000001\nFBst0000002\nFBst0000004\nFBtc0000012\n# complete\n"),
         )
         .unwrap();
 
         let maps = Self::index(
             root.join("maps.sqlite"),
             json!({
-                "symbols": {"rows": 3},
-                "symbol_ids": {"rows": 2},
+                "symbols": {"rows": 6},
+                "symbol_ids": {"rows": 4},
             }),
         );
         maps.execute_batch(
@@ -37,8 +44,13 @@ impl Fixture {
                ('symbols','FBgn0000055','Adh'),\
                ('symbols','FBgn0004000','dense source'),\
                ('symbols','FBgn0004001','no relationships'),\
+               ('symbols','FBgn0004002','another dense source'),\
+               ('symbols','FBgn0004003','FBgn0004003'),\
+               ('symbols','utf8 FBgn0004003','different display'),\
                ('symbol_ids','Adh','FBgn0000055'),\
-               ('symbol_ids','alpha[example]','FBgn0000055');",
+               ('symbol_ids','alpha[example]','FBgn0000055'),\
+               ('symbol_ids','Fbxl4','FBgn0000055'),\
+               ('symbol_ids','Omega[[example]]','FBgn0000055');",
         )
         .unwrap();
 
@@ -50,9 +62,14 @@ impl Fixture {
             let source = if i == 1 { "FBgn0004000" } else { "" };
             writeln!(general, "{source}\tFBal{i:07}").unwrap();
         }
+        let dense_offset = general.len();
+        for i in 1..=3_600 {
+            let source = if i == 1 { "FBgn0004002" } else { "" };
+            writeln!(general, "{source}\tFBal{i:07}").unwrap();
+        }
         let mut sources = serde_json::Map::new();
         for (name, contents, records) in [
-            ("general", general.as_str(), 2),
+            ("general", general.as_str(), 3),
             (
                 "references",
                 "FBrf0015431\tFBgn0000055\n\t\tFBst0000002\n",
@@ -60,7 +77,7 @@ impl Fixture {
             ),
             (
                 "stock_objects",
-                "FBst0000002\tFBal0000021\nFBst0000002\tFBal0005583\nFBst0000002\tFBba0000025\nFBst0000002\tFBsv:0000101\nFBst0000002\tFBsn0000277\n",
+                "FBst0000002\tFBal0000021\nFBst0000002\nFBst0000002\tFBal0000078_bad_target\nFBst0000002\tFBal0005583\nFBst0000002\tFBba0000025\nFBst0000002\tFBsv:0000101\nFBst0000002\tFBsn0000277\n",
                 1,
             ),
         ] {
@@ -89,6 +106,12 @@ impl Fixture {
             .execute(
                 "insert into offsets values ('general','FBgn0004000',?1)",
                 [i64::try_from(large_offset).unwrap()],
+            )
+            .unwrap();
+        offsets
+            .execute(
+                "insert into offsets values ('general','FBgn0004002',?1)",
+                [i64::try_from(dense_offset).unwrap()],
             )
             .unwrap();
         fixture
@@ -132,10 +155,7 @@ fn page(
     record_page(
         catalogs,
         RELEASE,
-        ids[offset..]
-            .iter()
-            .map(|id| input_token(id).unwrap())
-            .collect(),
+        ids[offset..].iter().map(|id| id.to_string()).collect(),
         &targets.iter().map(|s| s.to_string()).collect(),
         PageStart {
             offset,
@@ -154,7 +174,7 @@ fn catalog_preserves_source_rules_and_input_order() {
     let fixture = Fixture::new();
     let catalogs = fixture.load();
     let ids = [
-        " fbGN0000055 ",
+        " FBgn0000055 ",
         "&agr;<up>example</up>",
         "FBst0000002",
         "FBrf0015431",
@@ -164,11 +184,18 @@ fn catalog_preserves_source_rules_and_input_order() {
         "Adh",
         "FBgn0004001",
         "adh",
+        " fbGN0000055 ",
+        "Fbxl4",
+        "&OHgr;<down>example</down>",
+        "FBlc0000001",
+        "FBtc0000012",
+        "FBtc9999999",
+        "FBgn0004003",
     ];
     let result = page(&catalogs, &ids, 0, 0, &[], false);
     let rows = result["rows"].as_array().unwrap();
     assert_eq!(rows.len(), ids.len());
-    assert_eq!(rows[0]["input"], "FBgn0000055");
+    assert_eq!(rows[0]["input"], " FBgn0000055 ");
     assert_eq!(rows[0]["id"], "FBgn0000055");
     assert_eq!(rows[1]["input"], "&agr;<up>example</up>");
     assert_eq!(rows[1]["id"], rows[0]["id"]);
@@ -192,11 +219,15 @@ fn catalog_preserves_source_rules_and_input_order() {
         rows[3]["cross_references"],
         json!({"FBgn": ["FBgn0000055"]})
     );
-    for index in [4, 5, 8] {
+    for index in [11, 12] {
+        assert_eq!(rows[index]["input"], ids[index]);
+        assert_eq!(rows[index]["cross_references"], rows[0]["cross_references"]);
+    }
+    for index in [4, 5, 8, 13, 14, 16] {
         assert_eq!(rows[index]["status"], "resolved");
         assert_eq!(rows[index]["cross_references"], json!({}));
     }
-    for index in [6, 9] {
+    for index in [6, 9, 10, 15] {
         assert_eq!(rows[index]["status"], "unknown");
         assert!(rows[index]["id"].is_null());
     }
@@ -216,7 +247,7 @@ fn catalog_preserves_source_rules_and_input_order() {
             &["FBba"],
             true
         )["tsv"],
-        "input\tid\tstatus\tlink_offset\tFBba\nFBst0000002\tFBst0000002\tresolved\t0\tFBba0000025\n'=1+1\t\tunknown\t0\t\n",
+        "input\tid\tstatus\tlink_offset\tFBba\nFBst0000002\tFBst0000002\tresolved\t0\tFBba0000025\n' \u{2002}=1+1\t\tunknown\t0\t\n",
     );
 }
 
@@ -278,5 +309,126 @@ fn catalog_requires_matching_release_and_verified_sources() {
     let mut data = fs::read(&general).unwrap();
     data[0] = b'Z';
     fs::write(&general, data).unwrap();
-    assert!(RecordXrefs::load(&fixture.0, RELEASE).is_err());
+    let result = RecordXrefs::load(&fixture.0, RELEASE);
+    assert!(
+        matches!(result, Err(err) if err.to_string().contains("general catalog hash mismatch"))
+    );
+
+    let index = Connection::open(fixture.0.join("relationship-index.sqlite")).unwrap();
+    index
+        .execute("delete from metadata where key = 'sources'", [])
+        .unwrap();
+    let result = RecordXrefs::load(&fixture.0, RELEASE);
+    assert!(matches!(result, Err(err) if {
+        let message = err.to_string();
+        message.contains("metadata key sources") && message.contains("relationship-index.sqlite")
+    }));
+}
+
+#[test]
+fn catalog_rejects_incomplete_membership_export() {
+    let fixture = Fixture::new();
+    let file = fixture.0.join("report-membership.tsv");
+    let original = fs::read_to_string(&file).unwrap();
+    for incomplete in [
+        original.trim_end_matches("# complete\n").to_owned(),
+        format!("{original}FBtc0000013\n"),
+    ] {
+        fs::write(&file, incomplete).unwrap();
+        assert!(RecordXrefs::load(&fixture.0, RELEASE).is_err());
+    }
+}
+
+async fn call_batch(server: &FlyBaseServer, args: Value) -> Value {
+    let params = serde_json::from_value(args).unwrap();
+    server
+        .batch_download(Parameters(params))
+        .await
+        .unwrap()
+        .structured_content
+        .unwrap()
+}
+
+#[tokio::test]
+async fn batch_dispatches_both_modes_and_validates_mode_specific_inputs() {
+    let cfg = Config::from_lookup(|key| {
+        Some(
+            match key {
+                "FLYBASE_MCP_BIND" => "127.0.0.1:0",
+                "FLYBASE_MCP_PUBLIC_URL" => "http://127.0.0.1",
+                "FLYBASE_RELEASE" => RELEASE,
+                "CHADO_URL" => "postgres://127.0.0.1/flybase",
+                _ => return None,
+            }
+            .to_owned(),
+        )
+    })
+    .unwrap();
+    let chado = Chado::connect(&cfg).await.unwrap();
+    let mut server = FlyBaseServer::new(
+        chado,
+        Limits::new(),
+        RELEASE.into(),
+        Arc::new(Caches::new(0)),
+        None,
+        None,
+    );
+    let default_options = call_batch(&server, json!({"list_options": true})).await;
+    assert!(default_options["fields"]["gene"].is_array());
+    let xrefs_options = json!({"mode": "record_cross_references", "list_options": true});
+    assert_eq!(
+        call_batch(&server, xrefs_options.clone()).await["available"],
+        false
+    );
+    let xrefs = json!({"mode": "record_cross_references", "ids": ["Fbxl4"]});
+    assert_eq!(
+        call_batch(&server, xrefs.clone()).await["error"],
+        "backend_unavailable"
+    );
+    let fixture = Fixture::new();
+    server.record_xrefs = Some(Arc::new(fixture.load()));
+    assert_eq!(call_batch(&server, xrefs_options).await["available"], true);
+    let valid = call_batch(&server, xrefs).await;
+    assert_eq!(valid["rows"][0]["input"], "Fbxl4");
+    assert_eq!(valid["rows"][0]["id"], "FBgn0000055");
+    for args in [
+        json!({"ids": ["FBgn0000055"], "fields": ["name"], "link_offset": 1}),
+        json!({"mode": "report_fields", "ids": ["FBgn0000055"], "fields": ["name"], "target_classes": ["FBgn"]}),
+        json!({"mode": "record_cross_references", "ids": ["Fbxl4"], "fields": ["name"]}),
+        json!({"mode": "record_cross_references", "ids": ["Fbxl4"], "target_classes": ["FBzz"]}),
+        json!({"mode": "record_cross_references", "ids": ["Fbxl4"], "target_classes": ["FBmc"]}),
+        json!({"mode": "record_cross_references", "ids": ["Fbxl4", "bad\ttoken"], "limit": 1}),
+    ] {
+        assert_eq!(call_batch(&server, args).await["error"], "invalid_input");
+    }
+}
+
+#[test]
+fn wide_json_and_tsv_pages_resume_at_first_unreturned_input() {
+    let fixture = Fixture::new();
+    let catalogs = fixture.load();
+    let mut ids = vec!["FBst0000002"];
+    ids.extend(["FBgn0004002"; 8]);
+    for tsv in [false, true] {
+        let first = page(&catalogs, &ids, 0, 0, &[], tsv);
+        assert_eq!(first["truncated"], false);
+        assert!(serde_json::to_vec(&first).unwrap().len() <= MAX_JSON_BYTES);
+        let offset = first["next_offset"].as_u64().unwrap() as usize;
+        assert!((2..ids.len()).contains(&offset));
+        assert!(first["next_link_offset"].is_null());
+        assert_eq!(first["columns"], json!(["FBal", "FBba"]));
+        let second = page(&catalogs, &ids, offset, 0, &[], tsv);
+        assert_eq!(second["offset"], offset);
+        assert_eq!(second["columns"], json!(["FBal"]));
+        assert!(second["next_offset"].is_null());
+        if tsv {
+            let header = "input\tid\tstatus\tlink_offset\tFBal\tFBba";
+            assert_eq!(first["tsv"].as_str().unwrap().lines().next(), Some(header));
+            assert_eq!(first["row_count"], offset);
+            assert_eq!(second["row_count"], ids.len() - offset);
+        } else {
+            assert_eq!(first["rows"].as_array().unwrap().len(), offset);
+            assert_eq!(second["rows"].as_array().unwrap().len(), ids.len() - offset);
+        }
+    }
 }

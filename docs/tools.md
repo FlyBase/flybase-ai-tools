@@ -92,7 +92,7 @@ Download report fields or internal FlyBase record cross-references (mode=record_
       ]
     },
     "link_offset": {
-      "description": "Offset within one record's cross-references. Resend next_link_offset when it is present.",
+      "description": "Offset within one record's cross-references. Pass next_link_offset when non-null. Omit link_offset when next_link_offset is null.",
       "format": "uint",
       "minimum": 0,
       "type": [

@@ -60,7 +60,7 @@ pub struct BatchParams {
     pub format: Option<Format>,
     /// Zero-based index of the first input to return. Use next_offset from the previous response.
     pub offset: Option<usize>,
-    /// Offset within one record's cross-references. Resend next_link_offset when it is present.
+    /// Offset within one record's cross-references. Pass next_link_offset when non-null. Omit link_offset when next_link_offset is null.
     pub link_offset: Option<usize>,
     /// Maximum rows per page (1 to 1,000). Wide rows can reduce the number that fit.
     #[schemars(range(min = 1, max = 1000))]

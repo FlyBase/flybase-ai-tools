@@ -14,5 +14,7 @@ FROM (
     ) AS records
     WHERE raw_id IS NOT NULL AND CHAR_LENGTH(TRIM(raw_id)) > 0
     GROUP BY BINARY raw_id
+    UNION ALL
+    SELECT 2, '# complete'
 ) AS output_rows
 ORDER BY ord, BINARY line;

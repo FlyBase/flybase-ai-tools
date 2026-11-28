@@ -43,14 +43,20 @@ used for exact stock, cell line and dataset membership. Run the command against 
 database with read-only access. The MCP server reads the exported file from the catalog directory.
 
 ```sh
+set -e
+output=$(mktemp "$FLYBASE_MCP_RECORD_XREFS_DIR/.report-membership.XXXXXXXX")
+trap 'rm -f -- "$output"' EXIT
 mariadb --batch --raw --skip-column-names "$FLYBASE_RELEASE" \
   < scripts/export_record_xref_membership.sql \
-  > "$FLYBASE_MCP_RECORD_XREFS_DIR/report-membership.tsv"
+  > "$output"
+chmod 0444 "$output"
+mv -- "$output" "$FLYBASE_MCP_RECORD_XREFS_DIR/report-membership.tsv"
 ```
 
 Startup checks the release and relevant counts of both indexes, validates the membership file,
 and verifies the three catalog file sizes and SHA-256 hashes. Allow time to read those files
-before declaring the server ready. When the variable is unset, cross-reference calls return
+before declaring the server ready. A configured directory with missing, incomplete, or
+incompatible assets prevents the server from starting. When the variable is unset, cross-reference calls return
 `backend_unavailable` and the report-field mode remains available.
 
 ## Build the image

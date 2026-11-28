@@ -174,7 +174,8 @@ set `target_classes` to restrict the export, for example `["FBgn", "FBal"]`.
 Engineered plasmid and molecular segment IDs are grouped under `FBtp`.
 
 Keep the same IDs, filters and format for each page. Pass `next_offset` as `offset`
-and, when non-null, `next_link_offset` as `link_offset`. A record with more than
+and, when non-null, `next_link_offset` as `link_offset`. Omit `link_offset` whenever
+`next_link_offset` is null. A record with more than
 4,000 matching links spans pages, so its input offset can repeat. Links are ordered
 by target class, then by ID. Stop when `next_offset` is null. TSV includes a header
 for each page with the target classes present on that page. Use those headers to

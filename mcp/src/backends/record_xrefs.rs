@@ -37,7 +37,8 @@ struct Source {
 fn read_index(path: &Path, release: &str) -> Result<Connection> {
     let db = Connection::open_with_flags(path, OpenFlags::SQLITE_OPEN_READ_ONLY)
         .with_context(|| format!("open {}", path.display()))?;
-    db.pragma_update(None, "cache_size", -2048)?;
+    db.pragma_update(None, "cache_size", -2048)
+        .with_context(|| format!("configure {}", path.display()))?;
     for (key, expected) in [
         ("schema", "1"),
         ("scope", "full-release"),
@@ -45,7 +46,7 @@ fn read_index(path: &Path, release: &str) -> Result<Connection> {
         ("release", release),
     ] {
         ensure!(
-            metadata(&db, key)? == expected,
+            metadata(&db, path, key)? == expected,
             "incompatible {key} in {}",
             path.display()
         );
@@ -53,12 +54,11 @@ fn read_index(path: &Path, release: &str) -> Result<Connection> {
     Ok(db)
 }
 
-fn metadata(db: &Connection, key: &str) -> Result<String> {
-    Ok(
-        db.query_row("select value from metadata where key=?1", [key], |r| {
-            r.get(0)
-        })?,
-    )
+fn metadata(db: &Connection, path: &Path, key: &str) -> Result<String> {
+    db.query_row("select value from metadata where key=?1", [key], |r| {
+        r.get(0)
+    })
+    .with_context(|| format!("read metadata key {key} from {}", path.display()))
 }
 
 fn report_ids(root: &Path, release: &str) -> Result<HashSet<String>> {
@@ -76,8 +76,17 @@ fn report_ids(root: &Path, release: &str) -> Result<HashSet<String>> {
     let mut ids = HashSet::new();
     let mut previous = String::new();
     let mut prefixes = HashSet::new();
+    let mut complete = false;
     for line in lines {
         let id = line?;
+        ensure!(
+            !complete,
+            "unexpected content after report membership footer"
+        );
+        if id == "# complete" {
+            complete = true;
+            continue;
+        }
         let prefix = id_prefix(&id)
             .filter(|p| REPORT_PREFIXES.contains(p))
             .context("invalid report membership ID")?;
@@ -90,7 +99,7 @@ fn report_ids(root: &Path, release: &str) -> Result<HashSet<String>> {
         ids.insert(id);
     }
     ensure!(
-        prefixes.len() == REPORT_PREFIXES.len(),
+        complete && prefixes.len() == REPORT_PREFIXES.len(),
         "incomplete report membership"
     );
     Ok(ids)
@@ -174,54 +183,86 @@ fn greek_name(entity: &str) -> Option<String> {
 
 impl RecordXrefs {
     pub fn load(root: &Path, release: &str) -> Result<Self> {
-        let maps = read_index(&root.join("maps.sqlite"), release)?;
-        let maps_sources: serde_json::Value = serde_json::from_str(&metadata(&maps, "sources")?)?;
-        for name in ["symbols", "symbol_ids"] {
-            let count: i64 =
-                maps.query_row("select count(*) from maps where source=?1", [name], |r| {
-                    r.get(0)
-                })?;
-            ensure!(
-                count > 0 && maps_sources[name]["rows"].as_i64() == Some(count),
-                "incomplete {name} map"
-            );
-        }
-        let offsets = read_index(&root.join("relationship-index.sqlite"), release)?;
+        let report_ids = report_ids(root, release)
+            .with_context(|| format!("load {}", root.join("report-membership.tsv").display()))?;
+
+        let maps_path = root.join("maps.sqlite");
+        let maps = read_index(&maps_path, release)?;
+        let maps_sources: serde_json::Value =
+            serde_json::from_str(&metadata(&maps, &maps_path, "sources")?)
+                .with_context(|| format!("parse sources metadata in {}", maps_path.display()))?;
+
+        let offsets_path = root.join("relationship-index.sqlite");
+        let offsets = read_index(&offsets_path, release)?;
         let sources: HashMap<String, Source> =
-            serde_json::from_str(&metadata(&offsets, "sources")?)?;
-        let mut catalogs = HashMap::new();
+            serde_json::from_str(&metadata(&offsets, &offsets_path, "sources")?)
+                .with_context(|| format!("parse sources metadata in {}", offsets_path.display()))?;
+
+        let mut open_catalogs = Vec::new();
         for name in ["general", "references", "stock_objects"] {
             let source = sources
                 .get(name)
-                .with_context(|| format!("missing {name} source"))?;
+                .with_context(|| format!("missing {name} source in {}", offsets_path.display()))?;
             let relative = Path::new(&source.file);
             ensure!(
                 !source.file.is_empty()
                     && relative
                         .components()
                         .all(|c| matches!(c, Component::Normal(_))),
-                "invalid {name} catalog path"
+                "invalid {name} catalog path in {}",
+                offsets_path.display()
             );
-            let mut file = File::open(root.join("relationship-sources").join(relative))
-                .with_context(|| format!("open {name} catalog"))?;
+            let catalog_path = root.join("relationship-sources").join(relative);
+            let file = File::open(&catalog_path)
+                .with_context(|| format!("open {name} catalog {}", catalog_path.display()))?;
+            let actual_size = file
+                .metadata()
+                .with_context(|| format!("read catalog size for {}", catalog_path.display()))?
+                .len();
             ensure!(
-                file.metadata()?.len() == source.bytes,
-                "{name} catalog size mismatch"
+                actual_size == source.bytes,
+                "{name} catalog size mismatch in {}",
+                catalog_path.display()
             );
-            let mut sha = Sha256::new();
-            std::io::copy(&mut file, &mut sha)?;
+            open_catalogs.push((name, source, catalog_path, file));
+        }
+
+        for name in ["symbols", "symbol_ids"] {
+            let count: i64 = maps
+                .query_row("select count(*) from maps where source=?1", [name], |r| {
+                    r.get(0)
+                })
+                .with_context(|| format!("count {name} map entries in {}", maps_path.display()))?;
             ensure!(
-                format!("{:x}", sha.finalize()) == source.sha256,
-                "{name} catalog hash mismatch"
+                count > 0 && maps_sources[name]["rows"].as_i64() == Some(count),
+                "incomplete {name} map in {}",
+                maps_path.display()
             );
-            let count: i64 = offsets.query_row(
-                "select count(*) from offsets where source=?1",
-                [name],
-                |r| r.get(0),
-            )?;
+        }
+        for (name, source, _, _) in &open_catalogs {
+            let count: i64 = offsets
+                .query_row(
+                    "select count(*) from offsets where source=?1",
+                    [name],
+                    |r| r.get(0),
+                )
+                .with_context(|| format!("count {name} offsets in {}", offsets_path.display()))?;
             ensure!(
                 count > 0 && u64::try_from(count)? == source.records,
-                "incomplete {name} catalog index"
+                "incomplete {name} catalog index in {}",
+                offsets_path.display()
+            );
+        }
+
+        let mut catalogs = HashMap::new();
+        for (name, source, path, mut file) in open_catalogs {
+            let mut sha = Sha256::new();
+            std::io::copy(&mut file, &mut sha)
+                .with_context(|| format!("hash {name} catalog {}", path.display()))?;
+            ensure!(
+                format!("{:x}", sha.finalize()) == source.sha256,
+                "{name} catalog hash mismatch in {}",
+                path.display()
             );
             catalogs.insert(name, Mutex::new(file));
         }
@@ -229,7 +270,7 @@ impl RecordXrefs {
             maps: Mutex::new(maps),
             offsets: Mutex::new(offsets),
             catalogs,
-            report_ids: report_ids(root, release)?,
+            report_ids,
         })
     }
 
@@ -319,19 +360,29 @@ impl RecordXrefs {
             }
             *bytes_left -= bytes;
             let line = std::str::from_utf8(&line).context("invalid catalog encoding")?;
-            let Some(link) = link_from_line(source, id, line, first) else {
-                break;
+            let link = if source == "stock_objects" {
+                let mut fields = line.split_ascii_whitespace();
+                if fields.next() != Some(id) {
+                    break;
+                }
+                let Some(link) = fields.next() else {
+                    continue;
+                };
+                link
+            } else {
+                let Some(link) = link_from_line(source, id, line, first) else {
+                    break;
+                };
+                first = false;
+                link
             };
-            first = false;
-            // The stock catalog also carries controlled vocabulary terms and other non-record fields.
-            if source == "stock_objects"
-                && !matches!(link.as_bytes(), [b'F', b'B', a, b, first, ..] if
-                    a.is_ascii_lowercase() && b.is_ascii_lowercase() && first.is_ascii_digit()
-                )
-            {
-                continue;
-            }
-            let prefix = id_prefix(link).context("invalid associated FlyBase ID")?;
+            let Some(prefix) = id_prefix(link) else {
+                // Stock rows also carry non-record targets such as controlled vocabulary terms.
+                if source == "stock_objects" {
+                    continue;
+                }
+                anyhow::bail!("invalid associated FlyBase ID");
+            };
             let group = match prefix {
                 "FBmc" | "FBms" => "FBtp",
                 _ => prefix,
@@ -361,10 +412,6 @@ fn link_from_line<'a>(source: &str, id: &str, line: &'a str, first: bool) -> Opt
         LazyLock::new(|| Regex::new(r"\A(?:[ \t]+)(FB[a-z]{2}[0-9]+)").unwrap());
     static REFERENCE: LazyLock<Regex> =
         LazyLock::new(|| Regex::new(r"\A(?:[ \t]+)(FB[a-z]{2}[0-9]+)\n").unwrap());
-    if source == "stock_objects" {
-        let mut fields = line.split_ascii_whitespace();
-        return (fields.next() == Some(id)).then(|| fields.next()).flatten();
-    }
     let rest = if first { line.strip_prefix(id)? } else { line };
     let pattern = if source == "references" {
         &*REFERENCE
