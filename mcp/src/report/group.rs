@@ -1,4 +1,6 @@
-use super::{ReportType, SectionCtx, paged, pub_row, rows_to_json, strip_markup, synonym_row};
+use super::{
+    ReportType, SectionCtx, paged, reference_page, rows_to_json, strip_markup, synonym_row,
+};
 use crate::error::{ToolError, ToolResult};
 use serde_json::{Value, json};
 
@@ -69,12 +71,7 @@ impl ReportType for Group {
                     |r| json!({"vocabulary": r.get::<_, String>("vocabulary"), "term": r.get::<_, String>("term"), "term_id": r.get::<_, String>("term_id")})
                 ))
             }
-            "references" => {
-                let r = ctx
-                    .query("report/group/references", &[id, &ctx.fetch])
-                    .await?;
-                paged(rows_to_json(&r, pub_row), ctx.limit)
-            }
+            "references" => reference_page(ctx, "report/group/references").await?,
             "synonyms" => json!(rows_to_json(
                 &ctx.query("report/group/synonyms", &[id]).await?,
                 synonym_row

@@ -128,6 +128,11 @@ impl Envelope {
     /// the same body as compact JSON, so clients that read only `content` still get the data.
     /// Arrays are halved until the body JSON fits MAX_JSON_BYTES and the whole text fits twice that.
     pub fn finish(self) -> CallToolResult {
+        self.finish_with_truncation(|_| {})
+    }
+
+    /// Keep tool-specific continuation metadata consistent when the size guard removes rows.
+    pub fn finish_with_truncation(self, on_truncate: impl Fn(&mut Value)) -> CallToolResult {
         debug_assert!(
             !["tool", "release", "links", "truncated"]
                 .iter()
@@ -150,6 +155,7 @@ impl Envelope {
             if !halve_largest_array(&mut body) {
                 break json;
             }
+            on_truncate(&mut body);
             truncated = true;
             body["truncated"] = json!(true);
         };

@@ -175,3 +175,56 @@ async fn gene_stock_count_is_distinct_stocks() {
         assert_eq!(sum, 165);
     }
 }
+
+/// Compare the concatenated reference pages with the unpaged bibliography from the
+/// same fixture. This detects skipped, duplicated and out-of-order publications.
+#[tokio::test]
+async fn reference_pages_cover_the_database_list() {
+    let c = client().await;
+    let (db, connection) =
+        tokio_postgres::connect(&support::test_config().chado_url, tokio_postgres::NoTls)
+            .await
+            .unwrap();
+    tokio::spawn(connection);
+    let expected: Vec<String> = db
+        .query(
+            "select p.uniquename from feature f join feature_pub fp using(feature_id)
+         join pub p using(pub_id) where f.uniquename = $1 and not p.is_obsolete
+         order by p.pyear desc nulls last, p.uniquename",
+            &[&"FBgn0004647"],
+        )
+        .await
+        .unwrap()
+        .iter()
+        .map(|row| row.get(0))
+        .collect();
+    assert!(expected.len() > 100);
+    let mut ids = Vec::new();
+    let mut args = json!({"id":"FBgn0004647","sections":["references"],"limit_per_section":100});
+    loop {
+        let response = call(&c, "get_report", args.clone()).await;
+        let page = &response["sections"]["references"];
+        let items = page["items"].as_array().unwrap();
+        ids.extend(
+            items
+                .iter()
+                .map(|item| item["id"].as_str().unwrap().to_owned()),
+        );
+        if page["has_more"] == false {
+            assert_eq!(page.get("next_offset"), Some(&serde_json::Value::Null));
+            break;
+        }
+        assert_eq!(items.len(), 100);
+        assert_eq!(page["next_offset"], ids.len());
+        assert!(ids.len() < expected.len());
+        args["offset"] = page["next_offset"].clone();
+    }
+    assert_eq!(ids, expected);
+
+    args["sections"] = json!(["references", "identity"]);
+    let invalid = call_raw(&c, "get_report", args).await.unwrap();
+    assert_eq!(
+        invalid.structured_content.unwrap()["error"],
+        "invalid_input"
+    );
+}

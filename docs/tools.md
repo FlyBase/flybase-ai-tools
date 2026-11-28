@@ -726,7 +726,7 @@ Orthologs of a fly gene in human, mouse, rat, zebrafish, frog, worm, mosquito, y
 
 ## `get_report`
 
-Return the data shown on a FlyBase report page for an ID. Supported: genes, alleles, insertions, constructs, transcripts, polypeptides, aberrations, balancers, stocks, references, gene groups, disease models, cell lines, strains, libraries, vocabulary terms (GO, FBbt, FBcv, FBdv, DOID, SO, MI), clones, sequence features, natural transposons, chemicals, ortholog genes, split system combinations, plasmids. Choose sections to keep responses small; use list_options=true to see section names. List sections (library features, alleles, references, and the like) return the first page only, up to limit_per_section items with has_more. Use resolve first if you only have a symbol.
+Return the data shown on a FlyBase report page for an ID. Supported: genes, alleles, insertions, constructs, transcripts, polypeptides, aberrations, balancers, stocks, references, gene groups, disease models, cell lines, strains, libraries, vocabulary terms (GO, FBbt, FBcv, FBdv, DOID, SO, MI), clones, sequence features, natural transposons, chemicals, ortholog genes, split system combinations, plasmids. Choose sections to keep responses small; use list_options=true to see section names. To retrieve every available reference, request sections=["references"] and repeat with the returned next_offset until null. Other list sections return the first page only, up to limit_per_section items with has_more. Use resolve first if you only have a symbol.
 
 ```json
 {
@@ -750,6 +750,15 @@ Return the data shown on a FlyBase report page for an ID. Supported: genes, alle
       "description": "If true, return only the section names available for this ID's type.",
       "type": [
         "boolean",
+        "null"
+      ]
+    },
+    "offset": {
+      "description": "Rows to skip when requesting only the references section. Use its next_offset to continue.",
+      "format": "uint32",
+      "minimum": 0,
+      "type": [
+        "integer",
         "null"
       ]
     },
