@@ -23,6 +23,8 @@ pub struct ReportParams {
     pub sections: Option<Vec<String>>,
     /// Max items per list section (default 25, max 100).
     pub limit_per_section: Option<u32>,
+    /// Rows to skip when requesting only the references section. Use its next_offset to continue.
+    pub offset: Option<u32>,
     /// If true, return only the section names available for this ID's type.
     pub list_options: Option<bool>,
 }
@@ -31,7 +33,7 @@ pub struct ReportParams {
 impl FlyBaseServer {
     #[tool(
         name = "get_report",
-        description = "Return the data shown on a FlyBase report page for an ID. Supported: genes, alleles, insertions, constructs, transcripts, polypeptides, aberrations, balancers, stocks, references, gene groups, disease models, cell lines, strains, libraries, vocabulary terms (GO, FBbt, FBcv, FBdv, DOID, SO, MI), clones, sequence features, natural transposons, chemicals, ortholog genes, split system combinations, plasmids. Choose sections to keep responses small; use list_options=true to see section names. List sections (library features, alleles, references, and the like) return the first page only, up to limit_per_section items with has_more. Use resolve first if you only have a symbol."
+        description = "Return the data shown on a FlyBase report page for an ID. Supported: genes, alleles, insertions, constructs, transcripts, polypeptides, aberrations, balancers, stocks, references, gene groups, disease models, cell lines, strains, libraries, vocabulary terms (GO, FBbt, FBcv, FBdv, DOID, SO, MI), clones, sequence features, natural transposons, chemicals, ortholog genes, split system combinations, plasmids. Choose sections to keep responses small; use list_options=true to see section names. To retrieve every available reference, request sections=[\"references\"] and repeat with the returned next_offset until null. Other list sections return the first page only, up to limit_per_section items with has_more. Use resolve first if you only have a symbol."
     )]
     pub async fn get_report(
         &self,
@@ -97,6 +99,13 @@ impl FlyBaseServer {
                 });
             }
         }
+        if p.offset.is_some() && wanted.as_slice() != ["references"] {
+            return Err(ToolError::InvalidInput {
+                tool: T,
+                arg: "offset",
+                message: "request only the references section when paging".into(),
+            });
+        }
         let (id, resolved_from) = if rt.resolves_feature_id() {
             // resolve_ids checks out and returns its own connection before ours is taken.
             let st = resolve_ids(&self.chado, T, std::slice::from_ref(&input))
@@ -141,7 +150,7 @@ impl FlyBaseServer {
             id: id.clone(),
             limit,
             fetch: limit + 1,
-            offset: 0,
+            offset: i64::from(p.offset.unwrap_or(0)),
         };
         let futs = wanted.iter().map(|name| {
             let rt = &rt;
@@ -217,7 +226,20 @@ impl FlyBaseServer {
         if let Some(from) = resolved_from {
             env = env.field("resolved_from", json!(from));
         }
-        Ok(env.finish())
+        Ok(env.finish_with_truncation(|body| repair_reference_page(body, ctx.offset)))
+    }
+}
+
+fn repair_reference_page(body: &mut Value, offset: i64) {
+    if let Some(page) = body.pointer_mut("/sections/references")
+        && let Some(items) = page["items"].as_array()
+    {
+        let shown = items.len() as i64;
+        if page["count_shown"].as_i64() != Some(shown) {
+            page["count_shown"] = json!(shown);
+            page["has_more"] = json!(true);
+            page["next_offset"] = json!(offset + shown);
+        }
     }
 }
 
@@ -225,6 +247,22 @@ impl FlyBaseServer {
 mod tests {
     use crate::report::{PREFIX_LABELS, for_id};
     use crate::server::FlyBaseServer;
+
+    #[test]
+    fn byte_limited_reference_page_continues_after_last_returned_row() {
+        use serde_json::json;
+        let items = vec![json!({"id":"FBrf0000001","citation":"x".repeat(50_000)}); 10];
+        let result = crate::output::Envelope::new("get_report", "test")
+            .field("sections", json!({"references":{"items":items,"count_shown":10,"has_more":false,"next_offset":null}}))
+            .finish_with_truncation(|body| super::repair_reference_page(body, 20));
+        let body = result.structured_content.unwrap();
+        let page = &body["sections"]["references"];
+        let shown = page["items"].as_array().unwrap().len();
+        assert!(shown > 0 && shown < 10);
+        assert_eq!(page["count_shown"], shown);
+        assert_eq!(page["has_more"], true);
+        assert_eq!(page["next_offset"], 20 + shown);
+    }
 
     /// The description names a type exactly when `for_id` dispatches its prefix (Plan 1 deferred minor).
     #[test]

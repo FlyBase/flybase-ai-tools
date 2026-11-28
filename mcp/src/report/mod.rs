@@ -34,7 +34,7 @@ pub struct SectionCtx {
     /// `limit + 1`: list sections fetch one extra row so `paged` can set `has_more`.
     pub fetch: i64,
     /// Rows to skip in the one pageable list of a tool that exposes `offset` (`get_term` children,
-    /// `get_gene_groups_and_pathways` members); 0 for `get_report`, whose list sections return the first page.
+    /// `get_gene_groups_and_pathways` members, or `get_report` references).
     pub offset: i64,
 }
 
@@ -258,10 +258,17 @@ pub async fn props(ctx: &SectionCtx, types: &[&str]) -> ToolResult<Map<String, V
 }
 
 pub async fn references_section(ctx: &SectionCtx) -> ToolResult<Value> {
-    let r = ctx
-        .query("report/common/references", &[&ctx.id, &ctx.fetch])
+    reference_page(ctx, "report/common/references").await
+}
+
+pub async fn reference_page(ctx: &SectionCtx, query: &str) -> ToolResult<Value> {
+    let rows = ctx
+        .query(query, &[&ctx.id, &ctx.fetch, &ctx.offset])
         .await?;
-    Ok(paged(rows_to_json(&r, pub_row), ctx.limit))
+    let next_offset = (rows.len() > ctx.limit as usize).then_some(ctx.offset + ctx.limit);
+    let mut page = paged(rows_to_json(&rows, pub_row), ctx.limit);
+    page["next_offset"] = json!(next_offset);
+    Ok(page)
 }
 
 /// `{name, kind, is_current}` from any synonyms query with columns name, kind, is_current (feature, grp, humanhealth,

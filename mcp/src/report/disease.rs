@@ -1,4 +1,6 @@
-use super::{ReportType, SectionCtx, paged, pub_row, rows_to_json, strip_markup, synonym_row};
+use super::{
+    ReportType, SectionCtx, paged, reference_page, rows_to_json, strip_markup, synonym_row,
+};
 use crate::error::{ToolError, ToolResult};
 use serde_json::{Value, json};
 
@@ -139,12 +141,7 @@ impl ReportType for Disease {
                     |r| json!({"relationship": r.get::<_, String>("relationship"), "direction": r.get::<_, String>("direction"), "id": r.get::<_, String>("id"), "name": r.get::<_, Option<String>>("name")})
                 ))
             }
-            "references" => {
-                let r = ctx
-                    .query("report/disease/references", &[id, &ctx.fetch])
-                    .await?;
-                paged(rows_to_json(&r, pub_row), ctx.limit)
-            }
+            "references" => reference_page(ctx, "report/disease/references").await?,
             "synonyms" => json!(rows_to_json(
                 &ctx.query("report/disease/synonyms", &[id]).await?,
                 synonym_row
