@@ -409,4 +409,4 @@ fn record_page(
 }
 
 #[cfg(test)]
-mod tests;
+pub(super) mod tests;

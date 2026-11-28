@@ -16,6 +16,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value, json};
 use std::collections::{BTreeMap, HashMap};
 
+mod precomputed_files;
 mod record_xrefs;
 
 const MAX_DOWNLOAD_IDS: usize = 50_000;
@@ -39,26 +40,31 @@ pub enum Mode {
     #[default]
     ReportFields,
     RecordCrossReferences,
+    PrecomputedFiles,
 }
 
 #[derive(Deserialize, Serialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct BatchParams {
-    /// Up to 50,000 FlyBase IDs in output order. Record cross-references also accept exact symbols. Resend the same list for each page.
+    /// Up to 50,000 FlyBase IDs. Record cross-references and precomputed files also accept exact symbols. Resend the same list for each page.
     #[serde(default)]
     #[schemars(length(max = 50000))]
     pub ids: Vec<String>,
-    /// Output mode: report_fields (default) or record_cross_references (internal FlyBase links).
+    /// Output mode: report_fields (default), record_cross_references (internal links), or precomputed_files (filtered bulk file lines).
     pub mode: Option<Mode>,
     /// Field names for report_fields mode. Pass list_options=true to see them by class.
     #[serde(default)]
     pub fields: Vec<String>,
+    /// File keys in output order for precomputed_files mode. Use list_options=true in that mode to discover keys.
+    #[serde(default)]
+    #[schemars(length(max = 64))]
+    pub files: Vec<String>,
     /// Optional target FlyBase ID prefixes such as FBgn, FBal, or FBtr, for record_cross_references mode.
     #[schemars(length(min = 1, max = 64))]
     pub target_classes: Option<Vec<String>>,
-    /// json (default) returns rows as objects; tsv returns a tab-separated text block and row_count instead.
+    /// json (default) returns rows as objects. tsv returns a text block and row_count. Precomputed files preserve source lines in both formats.
     pub format: Option<Format>,
-    /// Zero-based index of the first input to return. Use next_offset from the previous response.
+    /// Zero-based index of the first input, or a source position in precomputed_files mode. Use next_offset from the previous response.
     pub offset: Option<usize>,
     /// Offset within one record's cross-references. Pass next_link_offset when non-null. Omit link_offset when next_link_offset is null.
     pub link_offset: Option<usize>,
@@ -224,7 +230,7 @@ fn tsv_line(cells: impl Iterator<Item = String>) -> String {
 impl FlyBaseServer {
     #[tool(
         name = "batch_download",
-        description = "Download report fields or internal FlyBase record cross-references (mode=record_cross_references) as JSON or TSV for up to 50,000 inputs. Record cross-references accept FlyBase IDs and exact symbols. Use list_options=true to see options for the selected mode. Keep inputs, filters, and format fixed when paging. Pass next_offset as offset and, for record cross-references, pass next_link_offset as link_offset when present. Omit link_offset when next_link_offset is null. Stop when next_offset is null. Use get_report for one entity in depth."
+        description = "Download report fields (default), internal FlyBase record cross-references (mode=record_cross_references), or matching lines from release bulk files (mode=precomputed_files). JSON and TSV are available for up to 50,000 inputs. Use list_options=true to see options for the selected mode. Keep inputs, filters, and format fixed when paging. Pass next_offset as offset and, for record cross-references, pass next_link_offset as link_offset when present. Omit link_offset when next_link_offset is null. Stop when next_offset is null. Use get_report for one entity in depth."
     )]
     pub async fn batch_download(
         &self,
@@ -239,16 +245,30 @@ impl FlyBaseServer {
                 .get_or_else(key, async {
                     let mode = p.mode.unwrap_or_default();
                     if p.list_options.unwrap_or(false) {
-                        return Ok(match mode {
-                            Mode::ReportFields => Envelope::new(T, &self.release)
+                        return match mode {
+                            Mode::ReportFields => Ok(Envelope::new(T, &self.release)
                                 .summary("Fields by class; 'any' fields apply to every feature ID.")
                                 .field("fields", catalog())
                                 .field(
                                     "modes",
-                                    json!([Mode::ReportFields, Mode::RecordCrossReferences]),
+                                    json!([
+                                        Mode::ReportFields,
+                                        Mode::RecordCrossReferences,
+                                        Mode::PrecomputedFiles
+                                    ]),
                                 )
-                                .finish(),
-                            Mode::RecordCrossReferences => self.record_cross_reference_options(),
+                                .finish()),
+                            Mode::RecordCrossReferences => {
+                                Ok(self.record_cross_reference_options())
+                            }
+                            Mode::PrecomputedFiles => self.precomputed_file_options(),
+                        };
+                    }
+                    if mode != Mode::PrecomputedFiles && !p.files.is_empty() {
+                        return Err(ToolError::InvalidInput {
+                            tool: T,
+                            arg: "files",
+                            message: "only available in precomputed_files mode".into(),
                         });
                     }
                     match mode {
@@ -257,6 +277,7 @@ impl FlyBaseServer {
                             self.batch_impl(p).await
                         }
                         Mode::RecordCrossReferences => self.record_cross_references(p).await,
+                        Mode::PrecomputedFiles => self.download_precomputed_files(p).await,
                     }
                 })
                 .await

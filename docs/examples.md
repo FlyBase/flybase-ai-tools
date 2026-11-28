@@ -181,6 +181,31 @@ by target class, then by ID. Stop when `next_offset` is null. TSV includes a hea
 for each page with the target classes present on that page. Use those headers to
 align the columns when combining pages into one table.
 
+### "Filter the FlyBase annotation ID file for Adh and dpp."
+
+```json
+{"name": "batch_download", "arguments": {"mode": "precomputed_files", "files": ["fbgn_annotation_ID"], "ids": ["Adh", "FBgn0000490"], "format": "tsv"}}
+```
+
+Call the same mode with `list_options: true` to see the release's available file
+keys, relevant record classes, and full download URLs. Use the keys in `files`
+in the order you want the files returned. Supply up to 50,000 IDs or identifiers.
+The filter accepts exact symbols, synonyms, and external identifiers when
+`identifier_lookup_available` is true. Canonical FlyBase IDs such as `FBgn0000055`
+are matched as submitted, including secondary IDs. `unresolved_count` counts
+inputs that the resolver could not translate into FlyBase IDs.
+
+The response preserves source lines in file order, including lines that begin
+with `#`. A source line that matches more than one submitted ID appears once.
+A valid ID with no matches can return just the file's comments. JSON gives
+`rows` with a `file` key and the original `line`, including its line ending
+when present. TSV concatenates the same lines into `tsv`.
+
+For more results, use `next_offset` as `offset` and keep the IDs, file order, and
+format fixed. Stop when `next_offset` is null. Concatenate the TSV pages
+directly, including any comments on later pages. Use JSON or request files
+individually when files have different column layouts.
+
 ### "Get me the Wingless protein sequence."
 
 ```json

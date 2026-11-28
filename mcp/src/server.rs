@@ -1,7 +1,8 @@
 use crate::{
     backends::{
-        blast::BlastClient, cache::Caches, chado::Chado, record_xrefs::RecordXrefs,
-        release_images::ReleaseImages, release_terms::ReleaseTerms, wiki::WikiClient,
+        blast::BlastClient, cache::Caches, chado::Chado, precomputed_files::PrecomputedFiles,
+        record_xrefs::RecordXrefs, release_images::ReleaseImages, release_terms::ReleaseTerms,
+        wiki::WikiClient,
     },
     config::Config,
     limits::Limits,
@@ -143,6 +144,7 @@ pub struct FlyBaseServer {
     pub blast: Option<Arc<BlastClient>>,
     /// None when WIKI_BASE_URL is unset; the wiki tools then answer backend_unavailable.
     pub wiki: Option<Arc<Wiki>>,
+    pub(crate) precomputed_files: Option<Arc<PrecomputedFiles>>,
     pub(crate) record_xrefs: Option<Arc<RecordXrefs>>,
     pub(crate) release_images: Option<Arc<ReleaseImages>>,
     pub(crate) release_terms: Option<Arc<ReleaseTerms>>,
@@ -188,6 +190,7 @@ impl FlyBaseServer {
             caches,
             blast,
             wiki,
+            precomputed_files: None,
             record_xrefs: None,
             release_images: None,
             release_terms: None,
@@ -221,6 +224,12 @@ pub fn app(cfg: &Config, chado: Chado) -> anyhow::Result<Router> {
         .record_xrefs_dir
         .as_deref()
         .map(|path| RecordXrefs::load(path, &cfg.release))
+        .transpose()?
+        .map(Arc::new);
+    let precomputed_files = cfg
+        .precomputed_files_path
+        .as_deref()
+        .map(|path| PrecomputedFiles::load(path, &cfg.release))
         .transpose()?
         .map(Arc::new);
     let limits = Limits::new();
@@ -269,6 +278,7 @@ pub fn app(cfg: &Config, chado: Chado) -> anyhow::Result<Router> {
             blast.clone(),
             wiki.clone(),
         );
+        server.precomputed_files = precomputed_files.clone();
         server.record_xrefs = record_xrefs.clone();
         server.release_images = release_images.clone();
         server.release_terms = release_terms.clone();
