@@ -2,7 +2,7 @@ use crate::backends::cache::ResponseCache;
 use crate::{
     error::{ToolError, ToolResult},
     limits::clamp_limit,
-    output::{Envelope, complete, cv_term_link, report_link},
+    output::{Envelope, complete, cv_term_link, halve_largest_array, report_link},
     report::{
         cvterm::{canonical_term_id, parse_term_id},
         for_id, jbrowse_link, section_error,
@@ -26,9 +26,9 @@ pub struct ReportParams {
     pub sections: Option<Vec<String>>,
     /// Max items per list section (default 25, max 100).
     pub limit_per_section: Option<u32>,
-    /// Rows to skip when requesting references, image annotations, or image regions alone. Use next_offset to continue.
+    /// Rows to skip when requesting one pageable section. Use the returned next_offset to continue.
     pub offset: Option<u32>,
-    /// If true, return only the section names available for this ID's type.
+    /// If true, list the default, optional and pageable sections for this ID's type.
     pub list_options: Option<bool>,
 }
 
@@ -36,7 +36,7 @@ pub struct ReportParams {
 impl FlyBaseServer {
     #[tool(
         name = "get_report",
-        description = "Return the data shown on a FlyBase report page for an ID. Supported: genes, alleles, insertions, constructs, experimental tools (FBto), transcripts, polypeptides, aberrations, balancers, stocks, references, gene groups, disease models, cell lines, strains, libraries, vocabulary terms (GO, FBbt, FBcv, FBdv, FBsv, DOID, SO, MI, FBbi, CHEBI), clones, sequence features, natural transposons, chemicals, ortholog genes, split system combinations, plasmids, molecular segments, images, physical interactions. Choose sections to keep responses small; use list_options=true to see section names. To retrieve every available reference, request sections=[\"references\"] and repeat with the returned next_offset until null. For images, annotations and regions also support next_offset when requested alone. Other list sections return the first page only, up to limit_per_section items with has_more. For experimental tools, use the FBto ID. For other supported types, use resolve first if you only have a symbol."
+        description = "Return the data shown on a FlyBase report page for an ID. Supported: genes, alleles, insertions, constructs, experimental tools (FBto), transcripts, polypeptides, aberrations, balancers, stocks, references, gene groups, disease models, cell lines, strains, libraries, vocabulary terms (GO, FBbt, FBcv, FBdv, FBsv, DOID, SO, MI, FBbi, CHEBI), clones, sequence features, natural transposons, chemicals, ortholog genes, split system combinations, plasmids, molecular segments, images, physical interactions. Use list_options=true to discover the default, optional and pageable sections. To retrieve a complete pageable list, request that section alone and pass the returned next_offset as offset until next_offset is null. For experimental tools, use the FBto ID. For other supported types, use resolve first if you only have a symbol."
     )]
     pub async fn get_report(
         &self,
@@ -73,6 +73,7 @@ impl FlyBaseServer {
                 .field("type", json!(rt.name()))
                 .field("default_sections", json!(rt.default_sections()))
                 .field("optional_sections", json!(rt.optional_sections()))
+                .field("pageable_sections", json!(rt.offset_sections()))
                 .finish());
         }
         let valid: Vec<&str> = rt
@@ -102,16 +103,22 @@ impl FlyBaseServer {
                 });
             }
         }
-        if p.offset.is_some()
-            && !matches!(wanted.as_slice(), [section] if rt.offset_sections().contains(&section.as_str()))
-        {
+        let pageable = match wanted.as_slice() {
+            [section] if rt.offset_sections().contains(&section.as_str()) => Some(section.as_str()),
+            _ => None,
+        };
+        if p.offset.is_some() && pageable.is_none() {
             return Err(ToolError::InvalidInput {
                 tool: T,
                 arg: "offset",
-                message: format!(
-                    "request one of these sections alone when paging: {}",
-                    rt.offset_sections().join(", ")
-                ),
+                message: if rt.offset_sections().is_empty() {
+                    format!("{} reports have no pageable sections", rt.name())
+                } else {
+                    format!(
+                        "request one of these sections alone when paging: {}",
+                        rt.offset_sections().join(", ")
+                    )
+                },
             });
         }
         let (id, resolved_from) = if rt.resolves_feature_id() {
@@ -231,10 +238,43 @@ impl FlyBaseServer {
         if let Some(from) = resolved_from {
             env = env.field("resolved_from", json!(from));
         }
-        Ok(env.finish_with_truncation(|body| {
-            repair_pages(body, rt.offset_sections(), ctx.offset);
-        }))
+        env.finish_with_truncation(|body| {
+            shrink_report(body, pageable, rt.offset_sections(), ctx.offset)
+        })
     }
+}
+
+fn shrink_report(
+    body: &mut Value,
+    pageable: Option<&str>,
+    offset_sections: &[&str],
+    offset: i64,
+) -> ToolResult<bool> {
+    // Nested arrays are part of the row. Removing their elements would make the
+    // missing evidence unreachable from the next offset.
+    if let Some(name) = pageable
+        && let Some(items) = body["sections"][name]
+            .get_mut("items")
+            .and_then(Value::as_array_mut)
+    {
+        if items.len() < 2 {
+            return Err(ToolError::LimitExceeded {
+                tool: "get_report",
+                message: if items.is_empty() {
+                    format!("empty {name} page at offset {offset} exceeds the response size limit")
+                } else {
+                    format!(
+                        "one complete {name} row at offset {offset} exceeds the response size limit"
+                    )
+                },
+            });
+        }
+        items.truncate(items.len() / 2);
+    } else if !halve_largest_array(body) {
+        return Ok(false);
+    }
+    repair_pages(body, offset_sections, offset);
+    Ok(true)
 }
 
 fn repair_pages(body: &mut Value, offset_sections: &[&str], offset: i64) {
@@ -268,7 +308,7 @@ mod tests {
         let items = vec![json!({"id":"FBrf0000001","citation":"x".repeat(50_000)}); 10];
         let result = crate::output::Envelope::new("get_report", "test")
             .field("sections", json!({"references":{"items":items,"count_shown":10,"has_more":false,"next_offset":null}}))
-            .finish_with_truncation(|body| super::repair_pages(body, &["references"], 20));
+            .finish_with_truncation(|body| super::shrink_report(body, Some("references"), &["references"], 20)).unwrap();
         let body = result.structured_content.unwrap();
         let page = &body["sections"]["references"];
         let shown = page["items"].as_array().unwrap().len();
@@ -279,15 +319,49 @@ mod tests {
     }
 
     #[test]
+    fn whole_rows_survive_paging_under_the_byte_limit() {
+        use crate::limits::MAX_JSON_BYTES;
+        use serde_json::json;
+        let evidence = vec!["a".repeat(10_000); 10];
+        let rows: Vec<_> = (0..4)
+            .map(|i| json!({"id": i, "reference_ids": evidence}))
+            .collect();
+        let page = |rows: &[serde_json::Value], offset: i64| {
+            crate::output::Envelope::new("get_report", "test")
+                .field("sections", json!({"constructs":{"items":rows,"count_shown":rows.len(),"has_more":false,"next_offset":null},"jbrowse":{"error":"backend_unavailable"}}))
+                .finish_with_truncation(|body| super::shrink_report(body, Some("constructs"), &["constructs"], offset))
+        };
+        let first = page(&rows, 0).unwrap().structured_content.unwrap();
+        assert!(serde_json::to_vec(&first).unwrap().len() <= MAX_JSON_BYTES);
+        assert_eq!(first["sections"]["constructs"]["items"], json!(rows[..2]));
+        assert_eq!(first["sections"]["constructs"]["next_offset"], 2);
+        assert_eq!(first["sections"]["constructs"]["count_shown"], 2);
+        assert_eq!(first["sections"]["constructs"]["has_more"], true);
+        assert_eq!(first["truncated"], true);
+        let last = page(&rows[2..], 2).unwrap().structured_content.unwrap();
+        assert_eq!(last["sections"]["constructs"]["items"], json!(rows[2..]));
+        assert!(last["sections"]["constructs"]["next_offset"].is_null());
+        let oversized = json!({"reference_ids": vec!["x".repeat(10_000); 30]});
+        let error = page(&[oversized, rows[0].clone()], 1).unwrap_err();
+        assert_eq!(error.code(), "limit_exceeded");
+        assert!(
+            error
+                .to_string()
+                .contains("one complete constructs row at offset 1")
+        );
+    }
+
+    #[test]
     fn byte_limited_first_page_reports_the_rows_returned() {
         use serde_json::json;
         let items = vec![json!({"id":"FBto0000001","symbol":"x".repeat(50_000)}); 10];
         let result = crate::output::Envelope::new("get_report", "test")
             .field(
                 "sections",
-                json!({"related_tools": {"items": items, "count_shown": 10, "has_more": false}}),
+                json!({"related_tools": {"items": items, "count_shown": 10, "has_more": false}, "references": {"items": [], "count_shown": 0, "has_more": false, "next_offset": null}}),
             )
-            .finish_with_truncation(|body| super::repair_pages(body, &["references"], 0));
+            .finish_with_truncation(|body| super::shrink_report(body, None, &["references"], 0))
+            .unwrap();
         let body = result.structured_content.unwrap();
         let page = &body["sections"]["related_tools"];
         let shown = page["items"].as_array().unwrap().len();
@@ -295,6 +369,32 @@ mod tests {
         assert_eq!(page["count_shown"], shown);
         assert_eq!(page["has_more"], true);
         assert!(page.get("next_offset").is_none());
+    }
+
+    #[test]
+    fn pageable_sections_belong_to_the_report_and_are_unique() {
+        for (prefix, _) in PREFIX_LABELS {
+            let suffix = if prefix.contains(':') {
+                "000001"
+            } else {
+                "0000001"
+            };
+            let Some(report) = for_id(&format!("{prefix}{suffix}")) else {
+                continue;
+            };
+            let pageable = report.offset_sections();
+            for (index, section) in pageable.iter().enumerate() {
+                assert!(
+                    !pageable[..index].contains(section),
+                    "{prefix} repeats {section}"
+                );
+                assert!(
+                    report.default_sections().contains(section)
+                        || report.optional_sections().contains(section),
+                    "{prefix} lacks {section}"
+                );
+            }
+        }
     }
 
     /// The description names a type exactly when `for_id` dispatches its prefix (Plan 1 deferred minor).

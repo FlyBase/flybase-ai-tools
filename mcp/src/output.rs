@@ -59,7 +59,7 @@ const TRUNCATION_NOTE: &str = "(Result truncated to fit the size limit. Request 
 
 /// Find the longest array in a JSON tree and halve it. Returns false when nothing could be halved.
 /// Ties prefer the outer array, then the first child in iteration order.
-fn halve_largest_array(v: &mut Value) -> bool {
+pub(crate) fn halve_largest_array(v: &mut Value) -> bool {
     /// Length of the longest array anywhere in the tree, or None when the tree holds no array.
     fn longest(v: &Value) -> Option<usize> {
         match v {
@@ -128,11 +128,15 @@ impl Envelope {
     /// the same body as compact JSON, so clients that read only `content` still get the data.
     /// Arrays are halved until the body JSON fits MAX_JSON_BYTES and the whole text fits twice that.
     pub fn finish(self) -> CallToolResult {
-        self.finish_with_truncation(|_| {})
+        self.finish_with_truncation(|body| Ok(halve_largest_array(body)))
+            .unwrap_or_else(|error| error.into_result())
     }
 
-    /// Keep tool-specific continuation metadata consistent when the size guard removes rows.
-    pub fn finish_with_truncation(self, on_truncate: impl Fn(&mut Value)) -> CallToolResult {
+    /// Let the caller choose a smaller, valid response when the body exceeds the size limit.
+    pub fn finish_with_truncation(
+        self,
+        shrink: impl Fn(&mut Value) -> ToolResult<bool>,
+    ) -> ToolResult<CallToolResult> {
         debug_assert!(
             !["tool", "release", "links", "truncated"]
                 .iter()
@@ -152,10 +156,9 @@ impl Envelope {
             if json.len() <= MAX_JSON_BYTES && text_len <= 2 * MAX_JSON_BYTES {
                 break json;
             }
-            if !halve_largest_array(&mut body) {
+            if !shrink(&mut body)? {
                 break json;
             }
-            on_truncate(&mut body);
             truncated = true;
             body["truncated"] = json!(true);
         };
@@ -166,7 +169,7 @@ impl Envelope {
         let text = format!("{summary}\n\n{compact}");
         let mut r = CallToolResult::structured(body);
         r.content = vec![ContentBlock::text(text)];
-        r
+        Ok(r)
     }
 }
 

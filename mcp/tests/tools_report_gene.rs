@@ -63,6 +63,7 @@ async fn gene_optional_sections_and_limit() {
         3
     );
     assert_eq!(s["sections"]["alleles"]["has_more"], true);
+    assert_eq!(s["sections"]["alleles"]["next_offset"], 3);
     assert!(s["sections"].get("identity").is_none());
     assert!(
         s["sections"]["transcripts"]["items"]
@@ -271,5 +272,91 @@ async fn reference_pages_cover_the_database_list() {
     assert_eq!(
         invalid.structured_content.unwrap()["error"],
         "invalid_input"
+    );
+}
+
+#[tokio::test]
+async fn allele_pages_preserve_existing_order_and_finish() {
+    let c = client().await;
+    let (db, connection) =
+        tokio_postgres::connect(&support::test_config().chado_url, tokio_postgres::NoTls)
+            .await
+            .unwrap();
+    tokio::spawn(connection);
+    let id = "FBgn0004647";
+    let expected: Vec<(String, Option<bool>, Option<bool>)> = db
+        .query(
+            "select a.fbal_id, a.is_alleleof, a.gene_is_regulatory_region
+             from gene.allele a join feature g on g.feature_id = a.gene_id
+             where g.uniquename = $1 order by a.paper_count desc nulls last, a.fbal_id, a.id",
+            &[&id],
+        )
+        .await
+        .unwrap()
+        .iter()
+        .map(|row| (row.get(0), row.get(1), row.get(2)))
+        .collect();
+    assert!(expected.len() > 100);
+
+    for limit in [37, 100] {
+        let mut args = json!({"id":id,"sections":["alleles"],"limit_per_section":limit});
+        for (index, chunk) in expected.chunks(limit).enumerate() {
+            let response = call(&c, "get_report", args.clone()).await;
+            let page = &response["sections"]["alleles"];
+            let items = page["items"].as_array().unwrap();
+            let rows: Vec<_> = items
+                .iter()
+                .map(|item| {
+                    (
+                        item["id"].as_str().unwrap().to_owned(),
+                        item["is_alleleof"].as_bool(),
+                        item["gene_is_regulatory_region"].as_bool(),
+                    )
+                })
+                .collect();
+            assert_eq!(rows, chunk);
+            assert_eq!(page["count_shown"], chunk.len());
+            let next = index * limit + chunk.len();
+            let has_more = next < expected.len();
+            assert_eq!(page["has_more"], has_more);
+            assert_eq!(page["next_offset"], json!(has_more.then_some(next)));
+            args["offset"] = page["next_offset"].clone();
+        }
+    }
+
+    if !support::full_db() {
+        let allele = "FBal0033811";
+        let index = expected.iter().position(|row| row.0 == allele).unwrap();
+        assert_eq!(expected[index + 1].0, allele);
+        let mut roles = Vec::new();
+        for offset in [index, index + 1] {
+            let response = call(
+                &c,
+                "get_report",
+                json!({"id":id,"sections":["alleles"],"limit_per_section":1,"offset":offset}),
+            )
+            .await;
+            let page = &response["sections"]["alleles"];
+            let row = &page["items"][0];
+            assert_eq!(row["id"], allele);
+            assert_eq!(page["next_offset"], offset + 1);
+            roles.push((
+                row["is_alleleof"].as_bool().unwrap(),
+                row["gene_is_regulatory_region"].as_bool().unwrap(),
+            ));
+        }
+        roles.sort_unstable();
+        assert_eq!(roles, vec![(false, true), (true, false)]);
+    }
+
+    let response = call(
+        &c,
+        "get_report",
+        json!({"id":id,"sections":["alleles"],"offset":expected.len()}),
+    )
+    .await;
+    assert_eq!(
+        response["sections"]["alleles"],
+        json!({"items":[],"count_shown":0,"has_more":false,"next_offset":null})
     );
 }

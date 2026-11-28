@@ -1,6 +1,46 @@
 mod support;
 use serde_json::json;
-use support::server::{call, client};
+use support::server::{call, call_raw, client};
+
+#[tokio::test]
+async fn report_options_advertise_only_sections_that_can_resume() {
+    let c = client().await;
+    for (id, expected) in [
+        ("FBrf0227604", vec![]),
+        ("FBal0012701", vec!["references"]),
+        ("FBim0000001", vec!["annotations", "references", "regions"]),
+        ("FBgn0004647", vec!["alleles", "references"]),
+        (
+            "FBto0000001",
+            vec!["constructs", "insertions", "references"],
+        ),
+    ] {
+        let options = call(&c, "get_report", json!({"id": id, "list_options": true})).await;
+        assert!(options["type"].is_string());
+        assert!(options["default_sections"].is_array());
+        assert!(options["optional_sections"].is_array());
+        let mut sections: Vec<String> =
+            serde_json::from_value(options["pageable_sections"].clone()).unwrap();
+        sections.sort();
+        assert_eq!(sections, expected, "{id}");
+    }
+    let error = call_raw(
+        &c,
+        "get_report",
+        json!({"id":"FBrf0227604","sections":["authors"],"offset":1}),
+    )
+    .await
+    .unwrap()
+    .structured_content
+    .unwrap();
+    assert_eq!(error["error"], "invalid_input");
+    assert!(
+        error["message"]
+            .as_str()
+            .unwrap()
+            .contains("no pageable sections")
+    );
+}
 
 #[tokio::test]
 async fn allele_report() {

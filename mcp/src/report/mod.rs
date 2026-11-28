@@ -134,7 +134,13 @@ pub trait ReportType: Send + Sync {
     }
     /// List sections that allow offsets when requested individually.
     fn offset_sections(&self) -> &'static [&'static str] {
-        &["references"]
+        if self.default_sections().contains(&"references")
+            || self.optional_sections().contains(&"references")
+        {
+            &["references"]
+        } else {
+            &[]
+        }
     }
     /// Chromosome, fmin (0-based), fmax for a JBrowse link, if the entity is located.
     async fn location(&self, _ctx: &SectionCtx) -> ToolResult<Option<(String, i64, i64)>> {

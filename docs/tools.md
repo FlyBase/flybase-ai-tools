@@ -726,7 +726,7 @@ Orthologs of a fly gene in human, mouse, rat, zebrafish, frog, worm, mosquito, y
 
 ## `get_report`
 
-Return the data shown on a FlyBase report page for an ID. Supported: genes, alleles, insertions, constructs, experimental tools (FBto), transcripts, polypeptides, aberrations, balancers, stocks, references, gene groups, disease models, cell lines, strains, libraries, vocabulary terms (GO, FBbt, FBcv, FBdv, FBsv, DOID, SO, MI, FBbi, CHEBI), clones, sequence features, natural transposons, chemicals, ortholog genes, split system combinations, plasmids, molecular segments, images, physical interactions. Choose sections to keep responses small; use list_options=true to see section names. To retrieve every available reference, request sections=["references"] and repeat with the returned next_offset until null. For images, annotations and regions also support next_offset when requested alone. Other list sections return the first page only, up to limit_per_section items with has_more. For experimental tools, use the FBto ID. For other supported types, use resolve first if you only have a symbol.
+Return the data shown on a FlyBase report page for an ID. Supported: genes, alleles, insertions, constructs, experimental tools (FBto), transcripts, polypeptides, aberrations, balancers, stocks, references, gene groups, disease models, cell lines, strains, libraries, vocabulary terms (GO, FBbt, FBcv, FBdv, FBsv, DOID, SO, MI, FBbi, CHEBI), clones, sequence features, natural transposons, chemicals, ortholog genes, split system combinations, plasmids, molecular segments, images, physical interactions. Use list_options=true to discover the default, optional and pageable sections. To retrieve a complete pageable list, request that section alone and pass the returned next_offset as offset until next_offset is null. For experimental tools, use the FBto ID. For other supported types, use resolve first if you only have a symbol.
 
 ```json
 {
@@ -747,14 +747,14 @@ Return the data shown on a FlyBase report page for an ID. Supported: genes, alle
       ]
     },
     "list_options": {
-      "description": "If true, return only the section names available for this ID's type.",
+      "description": "If true, list the default, optional and pageable sections for this ID's type.",
       "type": [
         "boolean",
         "null"
       ]
     },
     "offset": {
-      "description": "Rows to skip when requesting references, image annotations, or image regions alone. Use next_offset to continue.",
+      "description": "Rows to skip when requesting one pageable section. Use the returned next_offset to continue.",
       "format": "uint32",
       "minimum": 0,
       "type": [
