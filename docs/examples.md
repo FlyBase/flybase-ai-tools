@@ -230,6 +230,14 @@ Returns 3 genes in 2L:7277617..7334242: `wg`, `lncRNA:CR45304`, and `Wnt6`.
 Returns all 3 as mapped. X:330 becomes X:103943 and 3R:12000000 becomes 3R:16174278. The 2L range keeps its
 length but is flagged as spanning 1 region of change.
 
+### "Where was release 6 position 3R:1300000 in release 5?"
+
+```json
+{"name": "convert_coordinates", "arguments": {"from_release": 6, "to_release": 5, "coordinates": ["3R:1300000"]}}
+```
+
+The June 2014 map places this base at `3RHet:134383` on the opposite strand. Converting it forward returns `3R:1300000`.
+
 ## Controlled vocabularies
 
 `search_vocabulary`, `get_term`, `entities_for_term`

@@ -7,6 +7,9 @@ Licence: `LICENSE.bulkfile-scripts` (BSD-3-Clause, FlyBase and Indiana Universit
 Columns are tab separated: `from_chr from_start from_end to_chr to_start to_end strand`, 1-based inclusive on
 both releases. A `-` strand block is reverse complemented in release 6.
 
+For R6 to R5, the MCP swaps the source and target intervals and preserves the strand of each block.
+The legacy FlyBase back-converter uses an April 2014 map and can return different bases or scaffolds near inversions.
+
 The FlyBase website converter also offers Dmel releases 3 and 4 and D. pseudoobscura release 2, but FlyBase
 publishes no map files for those pairs, so they are not supported here. Re-run the script if FlyBase republishes
 the map; `cargo test --lib` checks the known conversions.

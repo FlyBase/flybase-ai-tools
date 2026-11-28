@@ -42,14 +42,15 @@ pub struct ReleaseMap {
 }
 
 pub static MAPS: LazyLock<Vec<ReleaseMap>> = LazyLock::new(|| {
-    vec![
-        ReleaseMap::parse(
-            Pair { species: "Dmel", from_release: 5, to_release: 6 },
-            "FlyBase Schroeder.Dmel_r5-to-r6_map.2014.6.12 (BSD-3-Clause, see data/coordinates/LICENSE.bulkfile-scripts)",
-            DMEL_R5_TO_R6,
-        )
-        .expect("bundled Dmel r5 to r6 map parses"),
-    ]
+    let forward = ReleaseMap::parse(
+        Pair { species: "Dmel", from_release: 5, to_release: 6 },
+        "FlyBase Schroeder.Dmel_r5-to-r6_map.2014.6.12 (BSD-3-Clause, see data/coordinates/LICENSE.bulkfile-scripts)",
+        DMEL_R5_TO_R6,
+    ).expect("bundled Dmel r5 to r6 map parses");
+    let reverse = forward
+        .inverse()
+        .expect("bundled Dmel r6 blocks are disjoint");
+    vec![forward, reverse]
 });
 
 pub fn find(species: &str, from_release: u8, to_release: u8) -> Option<&'static ReleaseMap> {
@@ -213,6 +214,36 @@ impl ReleaseMap {
             }
             chrs.entry(f[0].to_string()).or_default().push(b);
         }
+        Self::from_blocks(pair, source, chrs)
+    }
+
+    fn inverse(&self) -> Result<Self, String> {
+        let mut chrs: HashMap<String, Vec<Block>> = HashMap::new();
+        for (chr, blocks) in &self.chrs {
+            for b in blocks {
+                chrs.entry(b.to_chr.clone()).or_default().push(Block {
+                    from_start: b.to_start,
+                    from_end: b.to_end,
+                    to_chr: chr.clone(),
+                    to_start: b.from_start,
+                    to_end: b.from_end,
+                    minus: b.minus,
+                });
+            }
+        }
+        let pair = Pair {
+            from_release: self.pair.to_release,
+            to_release: self.pair.from_release,
+            ..self.pair
+        };
+        Self::from_blocks(pair, self.source, chrs)
+    }
+
+    fn from_blocks(
+        pair: Pair,
+        source: &'static str,
+        mut chrs: HashMap<String, Vec<Block>>,
+    ) -> Result<Self, String> {
         for (chr, blocks) in chrs.iter_mut() {
             blocks.sort_by_key(|b| b.from_start);
             for w in blocks.windows(2) {
@@ -447,14 +478,39 @@ mod tests {
         assert_eq!(m.chrs.values().map(Vec::len).sum::<usize>(), 6621);
         assert_eq!(
             pairs(),
-            vec![Pair {
-                species: "Dmel",
-                from_release: 5,
-                to_release: 6
-            }]
+            vec![
+                Pair {
+                    species: "Dmel",
+                    from_release: 5,
+                    to_release: 6
+                },
+                Pair {
+                    species: "Dmel",
+                    from_release: 6,
+                    to_release: 5
+                },
+            ]
         );
         assert!(find("Dmel", 4, 5).is_none());
         assert!(find("dmel", 5, 6).is_some());
+    }
+
+    #[test]
+    fn all_bundled_block_boundaries_round_trip() {
+        let forward = r5();
+        let reverse = find("Dmel", 6, 5).unwrap();
+        assert_eq!(reverse.chrs.values().map(Vec::len).sum::<usize>(), 6621);
+        for (chr, blocks) in &forward.chrs {
+            for b in blocks {
+                for pos in [b.from_start, b.from_end] {
+                    let (target, mapped, minus) = forward.position(chr, pos).unwrap();
+                    assert_eq!(
+                        reverse.position(&target, mapped),
+                        Some((chr.clone(), pos, minus))
+                    );
+                }
+            }
+        }
     }
 
     /// The nine cases from FlyBase's own converter test suite (bulkfile-scripts, 01_dmel_r5_to_r6_converter.t).
