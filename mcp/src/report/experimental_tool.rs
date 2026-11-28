@@ -1,6 +1,6 @@
 use super::{
     ReportType, SectionCtx, curated_text::curated_text, external_links_section, feature_identity,
-    paged, references_section, rows_to_json, strip_markup, synonym_row,
+    offset_page, paged, references_section, rows_to_json, strip_markup, synonym_row,
 };
 use crate::{
     error::{ToolError, ToolResult},
@@ -37,6 +37,10 @@ impl ReportType for ExperimentalTool {
         OPTIONAL
     }
 
+    fn offset_sections(&self) -> &'static [&'static str] {
+        &["references", "constructs", "insertions"]
+    }
+
     async fn section(&self, ctx: &SectionCtx, name: &str) -> ToolResult<Value> {
         let map: fn(&Row) -> Value = match name {
             "identity" => return feature_identity(ctx).await,
@@ -60,8 +64,14 @@ impl ReportType for ExperimentalTool {
                 })
             },
             "related_tools" => related_tool_row,
-            "constructs" => construct_row,
-            "insertions" => insertion_row,
+            "constructs" => {
+                return linked_page(ctx, "report/experimental_tool/constructs", construct_row)
+                    .await;
+            }
+            "insertions" => {
+                return linked_page(ctx, "report/experimental_tool/insertions", insertion_row)
+                    .await;
+            }
             "synonyms" => |r| {
                 let mut item = synonym_row(r);
                 item["reference_ids"] = json!(r.get::<_, Vec<String>>("reference_ids"));
@@ -85,6 +95,13 @@ impl ReportType for ExperimentalTool {
             .await?;
         Ok(paged(rows_to_json(&rows, map), ctx.limit))
     }
+}
+
+async fn linked_page(ctx: &SectionCtx, query: &str, map: fn(&Row) -> Value) -> ToolResult<Value> {
+    let rows = ctx
+        .query(query, &[&ctx.id, &ctx.fetch, &ctx.offset])
+        .await?;
+    Ok(offset_page(rows_to_json(&rows, map), ctx.limit, ctx.offset))
 }
 
 fn related_tool_row(r: &Row) -> Value {

@@ -1,4 +1,4 @@
--- $1 FBto, $2 fetch. One row per tool role and annotated component with an
+-- $1 FBto, $2 fetch, $3 offset. One row per tool role and annotated component with an
 -- associated transgenic construct, engineered plasmid or molecular segment.
 with page as (
   select roles.*, component.uniquename as component_id, component.name as component_symbol,
@@ -30,7 +30,7 @@ with page as (
       and assoc.type_id = any(array(select cvterm_id from cvterm where name = 'associated_with'))
     having count(*) > 0
   ) constructs
-  order by roles.component_feature_id, roles.relationship limit $2
+  order by roles.component_feature_id, roles.relationship limit $2 offset $3
 )
 select page.*,
   array(select distinct p.uniquename

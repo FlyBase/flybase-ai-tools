@@ -1,4 +1,4 @@
--- $1 FBto, $2 fetch. An insertion belongs here when its parent FBtp has a direct
+-- $1 FBto, $2 fetch, $3 offset. An insertion belongs here when its parent FBtp has a direct
 -- relationship to the tool. An annotation on an allele alone is insufficient.
 with constructs as materialized (
   select distinct c.feature_id, c.uniquename, c.name
@@ -16,7 +16,7 @@ with constructs as materialized (
     and not i.is_obsolete and not i.is_analysis
   where produced.type_id = any(array(select cvterm_id from cvterm where name = 'producedby'))
   group by i.feature_id, i.uniquename, i.name, c.feature_id, c.uniquename, c.name
-  order by i.uniquename, c.uniquename limit $2
+  order by i.uniquename, c.uniquename limit $2 offset $3
 )
 select page.*,
   array(

@@ -248,3 +248,64 @@ async fn experimental_tool_current_symbol_keeps_all_synonym_citations() {
         })]
     );
 }
+
+#[tokio::test]
+async fn experimental_tool_constructs_and_insertions_resume_in_first_page_order() {
+    let c = client().await;
+    for (id, section) in [("FBto0000001", "constructs"), ("FBto0000349", "insertions")] {
+        let combined = call(
+            &c,
+            "get_report",
+            json!({"id": id, "sections": [section, "identity"], "limit_per_section": 2}),
+        )
+        .await;
+        let expected = combined["sections"][section]["items"].as_array().unwrap();
+        assert_eq!(expected.len(), 2, "{id} {section}");
+
+        let first = call(
+            &c,
+            "get_report",
+            json!({"id": id, "sections": [section], "limit_per_section": 1}),
+        )
+        .await;
+        let first = &first["sections"][section];
+        assert_eq!(first["items"], json!([expected[0]]), "{id} {section}");
+        assert_eq!(first["count_shown"], 1);
+        assert_eq!(first["has_more"], true);
+        assert_eq!(first["next_offset"], 1);
+
+        let second = call(
+            &c,
+            "get_report",
+            json!({
+                "id": id,
+                "sections": [section],
+                "limit_per_section": 1,
+                "offset": first["next_offset"]
+            }),
+        )
+        .await;
+        let second = &second["sections"][section];
+        assert_eq!(second["items"], json!([expected[1]]), "{id} {section}");
+        assert_eq!(second["count_shown"], 1);
+        assert_eq!(
+            second["has_more"],
+            combined["sections"][section]["has_more"]
+        );
+        assert_eq!(
+            second["next_offset"],
+            combined["sections"][section]["next_offset"]
+        );
+
+        let past_end = call(
+            &c,
+            "get_report",
+            json!({"id": "FBto0000713", "sections": [section], "offset": 1}),
+        )
+        .await;
+        assert_eq!(
+            past_end["sections"][section],
+            json!({"items": [], "count_shown": 0, "has_more": false, "next_offset": null})
+        );
+    }
+}
