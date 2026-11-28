@@ -102,7 +102,10 @@ async fn fbig_resolves_current_ids_and_rejects_obsolete_ids() {
     let s = call(&c, "resolve", json!({"query": "fbig0000104993"})).await;
     assert_eq!(s["matches"][0]["id"], "FBig0000104993");
     assert_eq!(s["matches"][0]["data_class"], "physical_interaction");
-    for id in ["FBig0000000001", "FBig9999999999"] {
+    for (id, message) in [
+        ("FBig0000000001", "is obsolete with no replacement"),
+        ("FBig9999999999", "is not a FlyBase ID"),
+    ] {
         let err = call_raw(
             &c,
             "get_report",
@@ -111,7 +114,12 @@ async fn fbig_resolves_current_ids_and_rejects_obsolete_ids() {
         .await
         .unwrap();
         assert_eq!(err.is_error, Some(true), "{id}: {err:?}");
-        assert_eq!(err.structured_content.unwrap()["error"], "not_found");
+        let error = err.structured_content.unwrap();
+        assert_eq!(error["error"], "not_found");
+        assert!(
+            error["message"].as_str().unwrap().contains(message),
+            "{error}"
+        );
     }
 }
 
@@ -188,4 +196,23 @@ async fn fbig_resolves_participants_stored_as_genes() {
                     && participant["gene_ids"] == json!(["FBgn0260397"])
             })
     );
+}
+
+#[tokio::test]
+async fn fbig_maps_rna_participants_to_their_genes() {
+    let c = client().await;
+    let s = call(
+        &c,
+        "get_report",
+        json!({"id": "FBig0000046271", "sections": ["reported_interactions"]}),
+    )
+    .await;
+    let record = &s["sections"]["reported_interactions"]["items"][0];
+    assert_eq!(record["record_id"], "FBrf0218722-8.PD.MS");
+    assert_eq!(record["molecule_pair"], "RNA-protein");
+    assert!(record["participants"].as_array().unwrap().iter().any(|p| {
+        p["feature_id"] == "FBtr0091292"
+            && p["molecule_type"] == "RNA"
+            && p["gene_ids"] == json!(["FBgn0001137"])
+    }));
 }

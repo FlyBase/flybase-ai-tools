@@ -46,18 +46,25 @@ left join lateral (
     'molecule_type', gf.ftype,
     'role', role.name,
     'gene_ids', array(
+      with parents as (
+        select parent.feature_id, parent.uniquename
+        from feature_relationship fr
+        join cvterm rt on rt.cvterm_id = fr.type_id and rt.name = 'associated_with'
+        join feature parent on parent.feature_id = fr.object_id
+        where fr.subject_id = f.feature_id and not parent.is_obsolete
+      )
       select f.uniquename
       where f.uniquename ~ '^FBgn[0-9]{7}$' and not f.is_obsolete
       union
+      select parent.uniquename from parents parent where parent.uniquename ~ '^FBgn[0-9]{7}$'
+      union
       select g.uniquename
-      from feature_relationship fr
+      from parents parent
+      join feature_relationship fr on fr.subject_id = parent.feature_id
       join cvterm rt on rt.cvterm_id = fr.type_id and rt.name = 'associated_with'
-      join feature parent on parent.feature_id = fr.object_id
-      left join feature_relationship parent_rel on parent_rel.subject_id = parent.feature_id
-      left join cvterm prt on prt.cvterm_id = parent_rel.type_id and prt.name = 'associated_with'
-      join feature g on g.feature_id = parent.feature_id
-        or (prt.cvterm_id is not null and g.feature_id = parent_rel.object_id)
-      where fr.subject_id = f.feature_id and g.uniquename ~ '^FBgn[0-9]{7}$' and not g.is_obsolete
+      join feature g on g.feature_id = fr.object_id
+      where parent.uniquename !~ '^FBgn[0-9]{7}$'
+        and g.uniquename ~ '^FBgn[0-9]{7}$' and not g.is_obsolete
       order by uniquename
     ),
     'reported_as', coalesce(props.reported_as, '{}'),

@@ -31,7 +31,7 @@ echo "schema: $((SECONDS - t0))s"
 IDS=$(paste -sd, ids.txt | sed "s/\([^,]*\)/'\1'/g")
 SO="(select cv_id from cv where name = 'SO')"
 # Keep the complete curated records for the selected physical interaction reports.
-FBIG_GROUPS="(select interaction_group_id from interaction_group where uniquename in ('FBig0000000059', 'FBig0000040694', 'FBig0000104993', 'FBig0000113090', 'FBig0000000001'))"
+FBIG_GROUPS="(select interaction_group_id from interaction_group where uniquename in ('FBig0000000059', 'FBig0000040694', 'FBig0000046271', 'FBig0000104993', 'FBig0000113090', 'FBig0000000001'))"
 FBIG_RECORDS="(select distinct fi.interaction_id from interaction_group_feature_interaction j
   join feature_interaction fi using (feature_interaction_id) where j.interaction_group_id in $FBIG_GROUPS)"
 GP="(select cvterm_id from cvterm where name = 'golden_path' and cv_id = $SO)"
@@ -61,8 +61,14 @@ FIDS=$(q "with seed as (select feature_id, uniquename from feature where uniquen
    union select fr.object_id from feature_relationship fr where fr.subject_id in (
      select fo.feature_id from xp join feature_interaction fi on fi.feature_id = xp.feature_id
      join feature_interaction fo on fo.interaction_id = fi.interaction_id where fo.feature_id <> xp.feature_id)),
+ interaction_report_participants as (select feature_id from feature_interaction where interaction_id in $FBIG_RECORDS),
+ interaction_report_parents as (
+   select fr.object_id as feature_id from interaction_report_participants p
+   join feature_relationship fr on fr.subject_id = p.feature_id
+   join cvterm t on t.cvterm_id = fr.type_id and t.name = 'associated_with'),
  interaction_report_features as (
-   select feature_id from feature_interaction where interaction_id in $FBIG_RECORDS
+   select feature_id from interaction_report_participants
+   union select feature_id from interaction_report_parents
    union select f.feature_id
    from interaction_group g cross join lateral unnest(string_to_array(g.description, '-')) as member(id)
    join feature f on f.uniquename = member.id

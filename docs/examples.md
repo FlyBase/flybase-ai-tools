@@ -314,7 +314,7 @@ Returns 15 orthologs in total, ranked by score, starting with Drer\abcg2a and Mm
 
 The identity lists the interacting genes and links to their interaction networks.
 Each reported interaction identifies its own assay terms, participant roles, and reference IDs.
-The references section gives the corresponding citations. Page through it using `next_offset`.
+The references section gives the corresponding citations. To continue from `next_offset`, request only `sections: ["references"]` and pass that value as `offset`.
 
 ### "Which proteins physically interact with Notch?"
 
