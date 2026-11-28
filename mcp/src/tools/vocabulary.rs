@@ -35,6 +35,8 @@ pub enum Vocabulary {
     Misc,
     /// PSI-MI interaction detection methods and roles.
     PsiMi,
+    /// FlyBase stock vocabulary (FBsv).
+    Stock,
 }
 
 impl Vocabulary {
@@ -46,6 +48,7 @@ impl Vocabulary {
         Self::Sequence,
         Self::Misc,
         Self::PsiMi,
+        Self::Stock,
     ];
     pub fn name(self) -> &'static str {
         match self {
@@ -56,6 +59,7 @@ impl Vocabulary {
             Self::Sequence => "sequence",
             Self::Misc => "misc",
             Self::PsiMi => "psi_mi",
+            Self::Stock => "stock",
         }
     }
     /// The `cv.name` values the vocabulary covers in chado.
@@ -72,6 +76,14 @@ impl Vocabulary {
             Self::Sequence => &["SO"],
             Self::Misc => &["FlyBase miscellaneous CV"],
             Self::PsiMi => &["PSI-MI"],
+            Self::Stock => &[
+                "FlyBase_stock_CV",
+                "stock_breeding_history",
+                "stock_collection",
+                "stock_feature",
+                "stock_predefined_set",
+                "stock_state",
+            ],
         }
     }
 }
@@ -92,7 +104,7 @@ pub struct SearchVocabularyParams {
 #[derive(Deserialize, Serialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct GetTermParams {
-    /// A vocabulary term ID: GO:0007219, FBbt:00004729, FBcv:0000013, FBdv:00005289, DOID:1289, SO:0000704.
+    /// A vocabulary term ID: GO:0007219, FBbt:00004729, FBcv:0000013, FBdv:00005289, FBsv:0000002, DOID:1289, SO:0000704.
     pub term_id: String,
     /// Children to skip (the children list is paged 100 at a time); offset + 100 may not exceed 10,000.
     pub offset: Option<u32>,
@@ -102,7 +114,7 @@ pub struct GetTermParams {
 impl FlyBaseServer {
     #[tool(
         name = "search_vocabulary",
-        description = "Search FlyBase controlled vocabularies (GO, anatomy FBbt, development FBdv, disease DOID, sequence SO, miscellaneous FBcv, PSI-MI) by term name or synonym. Returns term IDs for get_term and entities_for_term. Use when you need the ID of a biological concept rather than a gene or allele."
+        description = "Search FlyBase controlled vocabularies (GO, anatomy FBbt, development FBdv, disease DOID, sequence SO, miscellaneous FBcv, PSI-MI, stock FBsv) by term name or synonym. Returns term IDs for get_term. Use when you need the ID of a biological concept rather than a gene or allele."
     )]
     pub async fn search_vocabulary(
         &self,
@@ -205,7 +217,7 @@ impl FlyBaseServer {
 
     #[tool(
         name = "get_term",
-        description = "Full report for one vocabulary term ID (GO:..., FBbt:..., FBcv:..., FBdv:..., DOID:..., SO:..., MI:...): definition, synonyms, parents, children (100 per page; page with offset), and annotation counts by data class. Use search_vocabulary first if you only have a term name; use entities_for_term to list the annotated genes or alleles."
+        description = "Full report for one vocabulary term ID (GO:..., FBbt:..., FBcv:..., FBdv:..., FBsv:..., DOID:..., SO:..., MI:...): definition, synonyms, parents, children (100 per page; page with offset), and Chado annotation counts by data class. Use search_vocabulary first if you only have a term name. For FBsv, the FlyBase report link leads to stock lists. Use entities_for_term to list annotated genes or alleles."
     )]
     pub async fn get_term(
         &self,
@@ -293,7 +305,7 @@ impl FlyBaseServer {
         };
         let mut env = Envelope::new(T, &self.release)
             .summary(format!(
-                "{id} ({label}): definition, synonyms, parents, children, annotation counts.{failed}"
+                "{id} ({label}): definition, synonyms, parents, children, Chado annotation counts.{failed}"
             ))
             .link("report", cv_term_link(&id))
             .field("id", json!(id))

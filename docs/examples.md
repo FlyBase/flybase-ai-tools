@@ -234,8 +234,8 @@ Returns FBbt:00005801 (mushroom body) with its definition, then related terms.
 ```
 
 Returns DOID:14330 (Parkinson's disease), then narrower diseases such as Kufor-Rakeb syndrome
-(DOID:0060556). The vocabulary names are `go`, `anatomy`, `development`, `disease`, `sequence`, `misc`, and
-`psi_mi`.
+(DOID:0060556). The vocabulary names are `go`, `anatomy`, `development`, `disease`, `sequence`, `misc`,
+`psi_mi`, and `stock`.
 
 ### "Tell me about GO:0007219."
 
@@ -245,6 +245,16 @@ Returns DOID:14330 (Parkinson's disease), then narrower diseases such as Kufor-R
 
 Returns Notch signaling pathway with its definition, parents, 7 child terms (for example GO:0045747, positive
 regulation), and annotation counts: 27 genes and 4 gene groups.
+
+### "What does the stock vocabulary term living stock mean?"
+
+```json
+{"name": "get_term", "arguments": {"term_id": "FBsv:0000002"}}
+```
+
+Returns the living stock definition, its parent term (stock state), and the number of matching stocks in Chado.
+Use `search_vocabulary` with `vocabularies: ["stock"]` to find stock terms by name. Follow the FlyBase report link
+to browse matching stocks.
 
 ### "Which genes are annotated to Notch signaling?"
 

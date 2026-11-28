@@ -3,6 +3,21 @@ use serde_json::json;
 use support::server::{call, call_raw, client};
 
 #[tokio::test]
+async fn stock_terms_direct_users_to_stock_reports() {
+    let c = client().await;
+    let r = call_raw(
+        &c,
+        "entities_for_term",
+        json!({"term_id": "FBsv:0000002", "data_class": "gene"}),
+    )
+    .await
+    .unwrap();
+    let error = r.structured_content.unwrap();
+    assert_eq!(error["error"], "invalid_input");
+    assert!(error["message"].as_str().unwrap().contains("Use get_term"));
+}
+
+#[tokio::test]
 async fn genes_for_go_term_with_descendants() {
     let c = client().await;
     let s = call(

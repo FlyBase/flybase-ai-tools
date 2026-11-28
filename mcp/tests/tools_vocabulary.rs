@@ -190,3 +190,53 @@ async fn term_children_page_with_offset() {
     .unwrap();
     assert_eq!(r.structured_content.unwrap()["error"], "invalid_input");
 }
+
+#[tokio::test]
+async fn stock_vocabulary_search_and_reports() {
+    let c = client().await;
+    let hits = call(
+        &c,
+        "search_vocabulary",
+        json!({"query": "stock state", "vocabularies": ["stock"]}),
+    )
+    .await;
+    assert_eq!(hits["terms"][0]["id"], "FBsv:0000001");
+    assert_eq!(hits["terms"][0]["match_kind"], "exact");
+
+    let s = call(&c, "get_report", json!({"id": "fbsv:0000000"})).await;
+    assert_eq!(s["id"], "FBsv:0000000");
+    assert_eq!(s["type"], "cv_term");
+    assert_eq!(s["sections"]["definition"]["name"], "stock descriptor");
+    assert_eq!(
+        s["sections"]["definition"]["definition"],
+        "An aspect of a stock relevant to its use for research."
+    );
+    assert!(
+        s["sections"]["children"]["items"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|t| t["relationship"] == "is_a" && t["term_id"] == "FBsv:0000001")
+    );
+
+    let living = call(&c, "get_term", json!({"term_id": "FBsv:0000002"})).await;
+    assert_eq!(living["sections"]["definition"]["name"], "living stock");
+    assert_eq!(living["sections"]["parents"][0]["term_id"], "FBsv:0000001");
+    let count = &living["sections"]["annotation_counts"]["counts"][0];
+    assert_eq!(count["class"], "stock");
+    assert!(count["count"].as_u64().unwrap() > 0);
+
+    let provider = call(&c, "get_term", json!({"term_id": "FBsv:0000103"})).await;
+    let count = &provider["sections"]["annotation_counts"]["counts"][0];
+    assert_eq!(count["class"], "stock");
+    assert!(count["count"].as_u64().unwrap() > 0);
+
+    let balancer = call(&c, "get_term", json!({"term_id": "FBsv:0001006"})).await;
+    assert_eq!(
+        balancer["sections"]["definition"]["name"],
+        "chromosome 1 balancer"
+    );
+    let count = &balancer["sections"]["annotation_counts"]["counts"][0];
+    assert_eq!(count["class"], "stock");
+    assert!(count["count"].as_u64().unwrap() > 0);
+}

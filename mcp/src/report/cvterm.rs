@@ -1,4 +1,4 @@
-//! Controlled-vocabulary term report (GO, FBbt, FBcv, FBdv, DOID, SO, PSI-MI), served by `get_report` and `get_term`.
+//! Controlled-vocabulary term report (GO, FBbt, FBcv, FBdv, FBsv, DOID, SO, PSI-MI), served by `get_report` and `get_term`.
 use super::{ReportType, SectionCtx, paged, rows_to_json};
 use crate::error::{ToolError, ToolResult};
 use serde_json::{Value, json};
@@ -17,7 +17,7 @@ pub const OPTIONAL: &[&str] = &["annotation_counts"];
 /// timeout).
 pub const MAX_DESCENDANTS: i64 = 5000;
 /// The db names (the part before the colon) this server treats as vocabulary term IDs; `DO` is accepted for `DOID`.
-pub const VOCAB_DBS: &[&str] = &["GO", "FBbt", "FBcv", "FBdv", "DOID", "SO", "MI"];
+pub const VOCAB_DBS: &[&str] = &["GO", "FBbt", "FBcv", "FBdv", "FBsv", "DOID", "SO", "MI"];
 
 /// Split `GO:0007219` into `("GO", "0007219")` when the prefix is a known vocabulary (case-insensitive, `DO` meaning
 /// `DOID`) and the accession is digits.
@@ -123,9 +123,12 @@ impl ReportType for CvTerm {
                     .await?;
                 let descendants = d.first().map(|r| r.get::<_, i64>("n")).unwrap_or(0);
                 let include = descendants <= MAX_DESCENDANTS;
-                let r = ctx
-                    .query("report/cvterm/annotation_counts", &[&cvterm_id, &include])
-                    .await?;
+                let query = if ctx.id.starts_with("FBsv:") {
+                    "report/cvterm/stock_counts"
+                } else {
+                    "report/cvterm/annotation_counts"
+                };
+                let r = ctx.query(query, &[&cvterm_id, &include]).await?;
                 let counts: Vec<Value> = r
                     .iter()
                     .filter(|r| r.get::<_, i64>("n") > 0)
@@ -153,6 +156,10 @@ mod tests {
         assert_eq!(canonical_term_id("doid:162").as_deref(), Some("DOID:162"));
         assert_eq!(canonical_term_id("DO:162").as_deref(), Some("DOID:162"));
         assert_eq!(parse_term_id("MI:0004"), Some(("MI", "0004")));
+        assert_eq!(
+            canonical_term_id("fbsv:0000002").as_deref(),
+            Some("FBsv:0000002")
+        );
         assert_eq!(parse_term_id("GO:abc"), None);
         assert_eq!(parse_term_id("GO:"), None);
         assert_eq!(parse_term_id("HGNC:7881"), None);
