@@ -3,6 +3,27 @@ use serde_json::json;
 use support::server::{call, client};
 
 #[tokio::test]
+async fn report_options_advertise_only_sections_that_can_resume() {
+    let c = client().await;
+    for (id, expected) in [
+        ("FBrf0227604", vec![]),
+        ("FBal0012701", vec!["references"]),
+        ("FBim0000001", vec!["annotations", "regions", "references"]),
+        ("FBgn0004647", vec!["alleles", "references"]),
+        (
+            "FBto0000001",
+            vec!["constructs", "insertions", "references"],
+        ),
+    ] {
+        let options = call(&c, "get_report", json!({"id": id, "list_options": true})).await;
+        let mut sections: Vec<String> =
+            serde_json::from_value(options["pageable_sections"].clone()).unwrap();
+        sections.sort();
+        assert_eq!(sections, expected, "{id}");
+    }
+}
+
+#[tokio::test]
 async fn allele_report() {
     let c = client().await;
     let s = call(&c, "get_report", json!({"id": "FBal0012701"})).await;

@@ -26,9 +26,9 @@ pub struct ReportParams {
     pub sections: Option<Vec<String>>,
     /// Max items per list section (default 25, max 100).
     pub limit_per_section: Option<u32>,
-    /// Rows to skip when requesting references, image annotations, or image regions alone. Use next_offset to continue.
+    /// Rows to skip when requesting one pageable section. Use the returned next_offset to continue.
     pub offset: Option<u32>,
-    /// If true, return only the section names available for this ID's type.
+    /// If true, list the default, optional and pageable sections for this ID's type.
     pub list_options: Option<bool>,
 }
 
@@ -36,7 +36,7 @@ pub struct ReportParams {
 impl FlyBaseServer {
     #[tool(
         name = "get_report",
-        description = "Return the data shown on a FlyBase report page for an ID. Supported: genes, alleles, insertions, constructs, experimental tools (FBto), transcripts, polypeptides, aberrations, balancers, stocks, references, gene groups, disease models, cell lines, strains, libraries, vocabulary terms (GO, FBbt, FBcv, FBdv, FBsv, DOID, SO, MI, FBbi, CHEBI), clones, sequence features, natural transposons, chemicals, ortholog genes, split system combinations, plasmids, molecular segments, images, physical interactions. Choose sections to keep responses small; use list_options=true to see section names. To retrieve every available reference, request sections=[\"references\"] and repeat with the returned next_offset until null. For images, annotations and regions also support next_offset when requested alone. Other list sections return the first page only, up to limit_per_section items with has_more. For experimental tools, use the FBto ID. For other supported types, use resolve first if you only have a symbol."
+        description = "Return the data shown on a FlyBase report page for an ID. Supported: genes, alleles, insertions, constructs, experimental tools (FBto), transcripts, polypeptides, aberrations, balancers, stocks, references, gene groups, disease models, cell lines, strains, libraries, vocabulary terms (GO, FBbt, FBcv, FBdv, FBsv, DOID, SO, MI, FBbi, CHEBI), clones, sequence features, natural transposons, chemicals, ortholog genes, split system combinations, plasmids, molecular segments, images, physical interactions. Use list_options=true to discover the default, optional and pageable sections. To retrieve a complete pageable list, request that section alone and pass the returned next_offset as offset until next_offset is null. For experimental tools, use the FBto ID. For other supported types, use resolve first if you only have a symbol."
     )]
     pub async fn get_report(
         &self,
@@ -73,6 +73,7 @@ impl FlyBaseServer {
                 .field("type", json!(rt.name()))
                 .field("default_sections", json!(rt.default_sections()))
                 .field("optional_sections", json!(rt.optional_sections()))
+                .field("pageable_sections", json!(rt.offset_sections()))
                 .finish());
         }
         let valid: Vec<&str> = rt
@@ -108,10 +109,14 @@ impl FlyBaseServer {
             return Err(ToolError::InvalidInput {
                 tool: T,
                 arg: "offset",
-                message: format!(
-                    "request one of these sections alone when paging: {}",
-                    rt.offset_sections().join(", ")
-                ),
+                message: if rt.offset_sections().is_empty() {
+                    format!("{} reports have no pageable sections", rt.name())
+                } else {
+                    format!(
+                        "request one of these sections alone when paging: {}",
+                        rt.offset_sections().join(", ")
+                    )
+                },
             });
         }
         let (id, resolved_from) = if rt.resolves_feature_id() {

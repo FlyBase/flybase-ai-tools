@@ -124,7 +124,9 @@ too wide. `src/tools/entities.rs` is the reference shape.
 2. Add one `match` arm for the section name in that type's `section` method in `src/report/<type>.rs`.
    List sections query `ctx.fetch` rows (one more than the limit) and return `paged(rows, ctx.limit)`.
 3. Add the name to the type's `DEFAULT` list if it is cheap and broadly useful, else to `OPTIONAL`.
-   `list_options` and section validation read these lists.
+   `list_options` and section validation read these lists. For a pageable section, also register it
+   in `offset_sections()`, apply `ctx.offset` after a stable sort, and return `offset_page` so a
+   client can resume from the last row delivered.
 4. Cover it in `tests/tools_report_*.rs`.
 
 Sections shared by many types (identity, location, props, references, synonyms, external links,
