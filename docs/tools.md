@@ -726,7 +726,7 @@ Orthologs of a fly gene in human, mouse, rat, zebrafish, frog, worm, mosquito, y
 
 ## `get_report`
 
-Return the data shown on a FlyBase report page for an ID. Supported: genes, alleles, insertions, constructs, transcripts, polypeptides, aberrations, balancers, stocks, references, gene groups, disease models, cell lines, strains, libraries, vocabulary terms (GO, FBbt, FBcv, FBdv, FBsv, DOID, SO, MI, FBbi, CHEBI), clones, sequence features, natural transposons, chemicals, ortholog genes, split system combinations, plasmids. Choose sections to keep responses small; use list_options=true to see section names. To retrieve every available reference, request sections=["references"] and repeat with the returned next_offset until null. Other list sections return the first page only, up to limit_per_section items with has_more. Use resolve first if you only have a symbol.
+Return the data shown on a FlyBase report page for an ID. Supported: genes, alleles, insertions, constructs, transcripts, polypeptides, aberrations, balancers, stocks, references, gene groups, disease models, cell lines, strains, libraries, vocabulary terms (GO, FBbt, FBcv, FBdv, FBsv, DOID, SO, MI, FBbi, CHEBI), clones, sequence features, natural transposons, chemicals, ortholog genes, split system combinations, plasmids, molecular segments. Choose sections to keep responses small; use list_options=true to see section names. To retrieve every available reference, request sections=["references"] and repeat with the returned next_offset until null. Other list sections return the first page only, up to limit_per_section items with has_more. Use resolve first if you only have a symbol.
 
 ```json
 {

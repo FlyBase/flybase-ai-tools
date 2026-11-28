@@ -208,6 +208,14 @@ pub fn get(name: &str) -> &'static str {
             include_str!("../../sql/queries/report/reference/data_types.sql")
         }
         "report/reference/genes" => include_str!("../../sql/queries/report/reference/genes.sql"),
+        "report/segment/components" => {
+            include_str!("../../sql/queries/report/segment/components.sql")
+        }
+        "report/segment/details" => include_str!("../../sql/queries/report/segment/details.sql"),
+        "report/segment/extents" => include_str!("../../sql/queries/report/segment/extents.sql"),
+        "report/segment/references" => {
+            include_str!("../../sql/queries/report/segment/references.sql")
+        }
         "report/stock/components" => include_str!("../../sql/queries/report/stock/components.sql"),
         "report/stock/identity" => include_str!("../../sql/queries/report/stock/identity.sql"),
         "report/strain/identity" => include_str!("../../sql/queries/report/strain/identity.sql"),

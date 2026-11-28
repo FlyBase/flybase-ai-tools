@@ -3,6 +3,7 @@ pub mod aberration;
 pub mod allele;
 pub mod balancer;
 pub mod construct;
+mod curated_text;
 pub mod cvterm;
 pub mod disease;
 pub mod feature;
@@ -12,6 +13,7 @@ pub mod insertion;
 pub mod polypeptide;
 pub mod record;
 pub mod reference;
+pub mod segment;
 pub mod stock;
 pub mod transcript;
 
@@ -143,6 +145,7 @@ pub const PREFIX_LABELS: &[(&str, &str)] = &[
     ("FBog", "ortholog genes"),
     ("FBco", "split system combinations"),
     ("FBmc", "plasmids"),
+    ("FBms", "molecular segments"),
 ];
 
 pub fn for_id(id: &str) -> Option<Box<dyn ReportType>> {
@@ -156,6 +159,7 @@ pub fn for_id(id: &str) -> Option<Box<dyn ReportType>> {
         "FBst" => Some(Box::new(stock::Stock)),
         "FBti" => Some(Box::new(insertion::Insertion)),
         "FBtp" => Some(Box::new(construct::Construct)),
+        "FBms" => Some(Box::new(segment::MolecularSegment)),
         "FBtr" => Some(Box::new(transcript::Transcript)),
         "FBpp" => Some(Box::new(polypeptide::Polypeptide)),
         "FBab" => Some(Box::new(aberration::Aberration)),
