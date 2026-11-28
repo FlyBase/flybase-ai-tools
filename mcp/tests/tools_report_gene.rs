@@ -208,6 +208,8 @@ async fn reference_pages_cover_the_database_list() {
         for item in items {
             if item["id"] == "FBrf0056686" {
                 assert_eq!(item["is_obsolete"], true);
+            } else if item["id"] == "FBrf0217757" {
+                assert_eq!(item["is_obsolete"], false);
             }
         }
         ids.extend(
@@ -235,14 +237,39 @@ async fn reference_pages_cover_the_database_list() {
     ] {
         assert!(ids.iter().any(|id| id == cited), "missing {cited}");
     }
+    // This paper cites an incoming association that is absent from the gene bibliography.
+    assert!(!ids.iter().any(|id| id == "FBrf0213040"));
     let batch = call(
         &c,
         "batch_download",
-        json!({"ids":["FBgn0004647"], "fields":["references"]}),
+        json!({"ids":["FBgn0004647"], "fields":["references", "pubmed_ids"]}),
     )
     .await;
     let mut sorted = expected.clone();
     sorted.sort();
+    // Independent FB2026_03 Notch report, one distinct publication ID per line.
+    use sha2::{Digest, Sha256};
+    let digest = Sha256::digest(format!("{}\n", sorted.join("\n")));
+    assert_eq!(
+        format!("{digest:x}"),
+        "bb3941ba711206289fc90cfd345a225279cc4c1a3076752b7287f2cdc1d0f7c0"
+    );
+    let pmids: Vec<String> = db
+        .query(
+            "select distinct d.accession from pub p join pub_dbxref pd using(pub_id)
+         join dbxref d using(dbxref_id) join db using(db_id)
+         where lower(db.name)='pubmed' and p.uniquename=any($1) order by d.accession",
+            &[&sorted],
+        )
+        .await
+        .unwrap()
+        .iter()
+        .map(|r| r.get(0))
+        .collect();
+    assert_eq!(
+        batch["rows"][0]["pubmed_ids"],
+        format!("{} (+{} more)", pmids[..50].join("|"), pmids.len() - 50)
+    );
     let preview = format!("{} (+{} more)", sorted[..50].join("|"), sorted.len() - 50);
     assert_eq!(batch["rows"][0]["references"], preview);
 

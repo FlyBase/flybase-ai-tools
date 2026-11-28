@@ -194,7 +194,7 @@ pub fn test_sections_enabled() -> bool {
     std::env::var("FLYBASE_MCP_TEST_SECTIONS").is_ok_and(|v| v == "1")
 }
 
-/// `{id, citation, year, pubmed_id}` from any references query with columns uniquename, miniref, pyear, pmid.
+/// Build a citation, including the obsolete flag when supplied by a gene report.
 pub fn pub_row(r: &Row) -> Value {
     let mut item = json!({
         "id": r.get::<_, String>("uniquename"),
@@ -202,7 +202,7 @@ pub fn pub_row(r: &Row) -> Value {
         "year": r.get::<_, Option<String>>("pyear"),
         "pubmed_id": r.get::<_, Option<String>>("pmid"),
     });
-    if let Ok(obsolete) = r.try_get::<_, bool>("is_obsolete") {
+    if let Ok(Some(obsolete)) = r.try_get::<_, Option<bool>>("is_obsolete") {
         item["is_obsolete"] = json!(obsolete);
     }
     item
