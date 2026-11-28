@@ -1,0 +1,297 @@
+{
+  "release": "FB2026_03",
+  "image_count": 4,
+  "images": {
+    "FBim0000001": {
+      "name": "Wallace (1934) drawing of male and female",
+      "species": "Drosophila melanogaster",
+      "created": "2006-08-07",
+      "updated": "2006-08-07 18:15:50",
+      "caption": "The adult external. Dorsal aspect. Oriented anterior up. After drawing of male and female from Wallace (1934). E.M. Wallace. Drawing of Drosophila, September 1934. Courtesy of the Archives, California Institute of Technology. See http://archives.caltech.edu/.",
+      "caption_terms": [
+        {
+          "term_id": "FBbt:00004474",
+          "name": "adult external"
+        }
+      ],
+      "annotations": [
+        {
+          "category": "anatomy",
+          "term_id": "FBbt:00003004",
+          "name": "adult",
+          "has_region": false,
+          "reference_ids": []
+        },
+        {
+          "category": "anatomy",
+          "term_id": "FBbt:00004474",
+          "name": "adult external",
+          "has_region": false,
+          "reference_ids": []
+        },
+        {
+          "category": "anatomy",
+          "term_id": "FBbt:00004788",
+          "name": "adult external abdomen",
+          "has_region": true,
+          "reference_ids": []
+        },
+        {
+          "category": "anatomy",
+          "term_id": "FBbt:00004481",
+          "name": "adult external head",
+          "has_region": true,
+          "reference_ids": []
+        },
+        {
+          "category": "anatomy",
+          "term_id": "FBbt:00004551",
+          "name": "adult external thorax",
+          "has_region": true,
+          "reference_ids": []
+        },
+        {
+          "category": "imaging_method",
+          "term_id": "FBbi:00000239",
+          "name": "watercolor painted graphic",
+          "has_region": false,
+          "reference_ids": []
+        }
+      ],
+      "regions": [
+        {
+          "term_id": "FBbt:00004788",
+          "coordinates": "601,250 615,272 640,292 673,293 696,269 708,254 717,263 722,292 712,386 703,406 690,425 664,449 635,449 630,446 624,443 614,435 598,408 587,361 585,327 586,301 599,254 601,250",
+          "reference_id": null
+        },
+        {
+          "term_id": "FBbt:00004788",
+          "coordinates": "185,241 190,251 198,263 205,273 217,282 242,284 255,274 265,260 273,248 282,237 287,246 286,263 285,292 289,317 292,327 292,339 288,373 277,408 262,422 247,428 229,431 214,428 206,423 202,418 195,408 180,385 174,369 171,352 175,314 178,304 179,293 181,275 183,259 184,251 185,241",
+          "reference_id": null
+        },
+        {
+          "term_id": "FBbt:00004551",
+          "coordinates": "635,167 623,168 605,176 580,190 576,215 595,246 618,278 627,290 644,298 697,275 719,243 723,198 707,183 687,174 666,165 643,166 635,167",
+          "reference_id": null
+        },
+        {
+          "term_id": "FBbt:00004551",
+          "coordinates": "226,172 215,171 197,174 175,181 163,191 157,212 173,242 182,253 194,266 213,283 236,290 255,278 273,260 292,230 298,213 291,192 280,182 269,176 226,172",
+          "reference_id": null
+        },
+        {
+          "term_id": "FBbt:00004481",
+          "coordinates": "654,106 648,105 645,100 639,93 630,88 610,82 589,96 597,109 608,115 594,124 582,148 586,176 600,182 614,176 629,170 661,165 690,178 701,183 709,182 710,173 713,162 711,144 700,128 688,123 694,122 715,115 730,103 724,83 703,84 690,87 682,89 661,103 654,106",
+          "reference_id": null
+        },
+        {
+          "term_id": "FBbt:00004481",
+          "coordinates": "168,152 179,135 186,128 191,121 171,114 165,107 174,98 193,94 211,93 222,98 228,108 255,90 293,91 304,102 299,114 284,118 271,121 282,127 290,143 292,162 286,174 259,176 237,173 198,175 179,178 171,174 167,165 168,152",
+          "reference_id": null
+        }
+      ],
+      "references": []
+    },
+    "FBim0000133": {
+      "name": "Strasburger (1932) Table 11 Figure 1",
+      "species": "Drosophila melanogaster",
+      "created": "2006-08-07",
+      "updated": "2006-08-07 18:15:50",
+      "caption": "The larval excretory system and larval digestive system in the second instar larva. Dorsal aspect. Oriented anterior up. After Table 11 Figure 1 from Strasburger (1932). M. Strasburger. Bau, Funktion und Variabilitat des Darmtractus von Drosophila melanogaster Meigen. Zeitschrift fur wissenschaftliche Zoologie, 140:539-649, 1932.",
+      "caption_terms": [
+        {
+          "term_id": "FBbt:00005718",
+          "name": "larval excretory system"
+        },
+        {
+          "term_id": "FBbt:00005764",
+          "name": "larval digestive system"
+        },
+        {
+          "term_id": "FBbt:00005338",
+          "name": "second instar larva"
+        }
+      ],
+      "annotations": [
+        {
+          "category": "anatomy",
+          "term_id": "FBbt:00001727",
+          "name": "larva",
+          "has_region": false,
+          "reference_ids": [
+            "FBrf0002495"
+          ]
+        },
+        {
+          "category": "anatomy",
+          "term_id": "FBbt:00005764",
+          "name": "larval digestive system",
+          "has_region": false,
+          "reference_ids": [
+            "FBrf0002495"
+          ]
+        },
+        {
+          "category": "anatomy",
+          "term_id": "FBbt:00005718",
+          "name": "larval excretory system",
+          "has_region": false,
+          "reference_ids": [
+            "FBrf0002495"
+          ]
+        },
+        {
+          "category": "anatomy",
+          "term_id": "FBbt:00005338",
+          "name": "second instar larva",
+          "has_region": false,
+          "reference_ids": [
+            "FBrf0002495"
+          ]
+        },
+        {
+          "category": "imaging_method",
+          "term_id": "FBbi:00000230",
+          "name": "line art graphic",
+          "has_region": false,
+          "reference_ids": [
+            "FBrf0002495"
+          ]
+        },
+        {
+          "category": "process",
+          "term_id": "GO:0002168",
+          "name": "instar larval development",
+          "has_region": false,
+          "reference_ids": [
+            "FBrf0002495"
+          ]
+        }
+      ],
+      "regions": [],
+      "references": [
+        {
+          "id": "FBrf0002495",
+          "citation": "Strasburger, 1932, Z. wiss. Zool. 140: 539--649"
+        }
+      ]
+    },
+    "FBim0000858": {
+      "name": "Hertweck (1931) Figure 1",
+      "species": "Drosophila melanogaster",
+      "created": "2007-03-27",
+      "updated": "2007-03-27 14:24:34",
+      "caption": "The larval nervous system. After Figure 1 on page 565 from Hertweck (1931). H. Hertweck. Anatomie und Variabilitat des Nervensystems und der Sinnesorgane von Drosophila melanogaster (Meigen). Zeitschrift fur wissenschaftliche Zoologie, 139:560--663, 1931.",
+      "caption_terms": [
+        {
+          "term_id": "FBbt:00005719",
+          "name": "larval nervous system"
+        }
+      ],
+      "annotations": [
+        {
+          "category": "anatomy",
+          "term_id": "FBbt:00001727",
+          "name": "larva",
+          "has_region": false,
+          "reference_ids": [
+            "FBrf0002274"
+          ]
+        },
+        {
+          "category": "anatomy",
+          "term_id": "FBbt:00005719",
+          "name": "larval nervous system",
+          "has_region": false,
+          "reference_ids": [
+            "FBrf0002274"
+          ]
+        },
+        {
+          "category": "anatomy",
+          "term_id": "FBbt:00001728",
+          "name": "larval tagma",
+          "has_region": false,
+          "reference_ids": [
+            "FBrf0002274"
+          ]
+        },
+        {
+          "category": "anatomy",
+          "term_id": "FBbt:00001971",
+          "name": "larval ventral ganglion",
+          "has_region": true,
+          "reference_ids": [
+            "FBrf0002274"
+          ]
+        },
+        {
+          "category": "anatomy",
+          "term_id": "FBbt:00005093",
+          "name": "nervous system",
+          "has_region": false,
+          "reference_ids": [
+            "FBrf0002274"
+          ]
+        },
+        {
+          "category": "developmental_stage",
+          "term_id": "FBdv:00005336",
+          "name": "larval stage",
+          "has_region": false,
+          "reference_ids": [
+            "FBrf0002274"
+          ]
+        },
+        {
+          "category": "imaging_method",
+          "term_id": "FBbi:00000231",
+          "name": "charcoal pencil graphic",
+          "has_region": false,
+          "reference_ids": [
+            "FBrf0002274"
+          ]
+        }
+      ],
+      "regions": [
+        {
+          "term_id": "FBbt:00001971",
+          "coordinates": "122,136 113,131 100,138 100,145 102,152 105,157 109,159 111,163 111,168 113,180 119,191 122,194 124,197 131,184 134,168 135,160 138,155 144,146 143,138 133,131 123,136 122,136",
+          "reference_id": "FBrf0002274"
+        }
+      ],
+      "references": [
+        {
+          "id": "FBrf0002274",
+          "citation": "Hertweck, 1931, Z. wiss. Zool. 139: 560--663"
+        }
+      ]
+    },
+    "FBim0000997": {
+      "name": "Lindsley and Zimm (1992) Antp[LC]: Antennapedia of Le Calvez",
+      "species": "Drosophila melanogaster",
+      "created": "2008-02-15",
+      "updated": "2008-02-15 22:38:58",
+      "caption": "The phenotype of the Antp[LC] allele. Dorsal aspect. Oriented anterior up. After Antp[LC]: Antennapedia of Le Calvez on page 32 from Lindsley and Zimm (1992). D. L. Lindsley and G. G. Zimm. The Genome of Drosophila melanogaster. Academic Press, San Diego, CA, 1992. ISBN 0124509908.",
+      "caption_terms": [],
+      "annotations": [
+        {
+          "category": "imaging_method",
+          "term_id": "FBbi:00000234",
+          "name": "pen and ink graphic",
+          "has_region": false,
+          "reference_ids": [
+            "FBrf0066905"
+          ]
+        }
+      ],
+      "regions": [],
+      "references": [
+        {
+          "id": "FBrf0066905",
+          "citation": "Lindsley and Zimm, 1992, The Genome of Drosophila melanogaster."
+        }
+      ]
+    }
+  }
+}

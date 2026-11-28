@@ -3,7 +3,10 @@ use crate::{
     error::{ToolError, ToolResult},
     limits::clamp_limit,
     output::{Envelope, complete, cv_term_link, report_link},
-    report::{cvterm::canonical_term_id, for_id, jbrowse_link, section_error},
+    report::{
+        cvterm::{canonical_term_id, parse_term_id},
+        for_id, jbrowse_link, section_error,
+    },
     server::FlyBaseServer,
     tools::resolve::{normalize_fb_prefix, resolve_ids},
 };
@@ -23,7 +26,7 @@ pub struct ReportParams {
     pub sections: Option<Vec<String>>,
     /// Max items per list section (default 25, max 100).
     pub limit_per_section: Option<u32>,
-    /// Rows to skip when requesting only the references section. Use its next_offset to continue.
+    /// Rows to skip when requesting references, image annotations, or image regions alone. Use next_offset to continue.
     pub offset: Option<u32>,
     /// If true, return only the section names available for this ID's type.
     pub list_options: Option<bool>,
@@ -33,7 +36,7 @@ pub struct ReportParams {
 impl FlyBaseServer {
     #[tool(
         name = "get_report",
-        description = "Return the data shown on a FlyBase report page for an ID. Supported: genes, alleles, insertions, constructs, transcripts, polypeptides, aberrations, balancers, stocks, references, gene groups, disease models, cell lines, strains, libraries, vocabulary terms (GO, FBbt, FBcv, FBdv, FBsv, DOID, SO, MI, FBbi, CHEBI), clones, sequence features, natural transposons, chemicals, ortholog genes, split system combinations, plasmids, molecular segments. Choose sections to keep responses small; use list_options=true to see section names. To retrieve every available reference, request sections=[\"references\"] and repeat with the returned next_offset until null. Other list sections return the first page only, up to limit_per_section items with has_more. Use resolve first if you only have a symbol."
+        description = "Return the data shown on a FlyBase report page for an ID. Supported: genes, alleles, insertions, constructs, transcripts, polypeptides, aberrations, balancers, stocks, references, gene groups, disease models, cell lines, strains, libraries, vocabulary terms (GO, FBbt, FBcv, FBdv, FBsv, DOID, SO, MI, FBbi, CHEBI), clones, sequence features, natural transposons, chemicals, ortholog genes, split system combinations, plasmids, molecular segments, images. Choose sections to keep responses small; use list_options=true to see section names. To retrieve every available reference, request sections=[\"references\"] and repeat with the returned next_offset until null. For images, annotations and regions also support next_offset when requested alone. Other list sections return the first page only, up to limit_per_section items with has_more. Use resolve first if you only have a symbol."
     )]
     pub async fn get_report(
         &self,
@@ -99,11 +102,16 @@ impl FlyBaseServer {
                 });
             }
         }
-        if p.offset.is_some() && wanted.as_slice() != ["references"] {
+        if p.offset.is_some()
+            && !matches!(wanted.as_slice(), [section] if rt.offset_sections().contains(&section.as_str()))
+        {
             return Err(ToolError::InvalidInput {
                 tool: T,
                 arg: "offset",
-                message: "request only the references section when paging".into(),
+                message: format!(
+                    "request one of these sections alone when paging: {}",
+                    rt.offset_sections().join(", ")
+                ),
             });
         }
         let (id, resolved_from) = if rt.resolves_feature_id() {
@@ -174,10 +182,10 @@ impl FlyBaseServer {
                 }
             }
         }
-        let link = if rt.resolves_feature_id() {
-            report_link(id)
-        } else {
+        let link = if parse_term_id(id).is_some() {
             cv_term_link(id)
+        } else {
+            report_link(id)
         };
         let mut env = Envelope::new(T, &self.release).link("report", link);
         match location {
@@ -223,14 +231,18 @@ impl FlyBaseServer {
         if let Some(from) = resolved_from {
             env = env.field("resolved_from", json!(from));
         }
-        Ok(env.finish_with_truncation(|body| repair_reference_page(body, ctx.offset)))
+        Ok(env.finish_with_truncation(|body| {
+            for section in rt.offset_sections() {
+                if let Some(page) = body["sections"].get_mut(section) {
+                    repair_page(page, ctx.offset);
+                }
+            }
+        }))
     }
 }
 
-fn repair_reference_page(body: &mut Value, offset: i64) {
-    if let Some(page) = body.pointer_mut("/sections/references")
-        && let Some(items) = page["items"].as_array()
-    {
+fn repair_page(page: &mut Value, offset: i64) {
+    if let Some(items) = page["items"].as_array() {
         let shown = items.len() as i64;
         if page["count_shown"].as_i64() != Some(shown) {
             page["count_shown"] = json!(shown);
@@ -251,7 +263,7 @@ mod tests {
         let items = vec![json!({"id":"FBrf0000001","citation":"x".repeat(50_000)}); 10];
         let result = crate::output::Envelope::new("get_report", "test")
             .field("sections", json!({"references":{"items":items,"count_shown":10,"has_more":false,"next_offset":null}}))
-            .finish_with_truncation(|body| super::repair_reference_page(body, 20));
+            .finish_with_truncation(|body| super::repair_page(&mut body["sections"]["references"], 20));
         let body = result.structured_content.unwrap();
         let page = &body["sections"]["references"];
         let shown = page["items"].as_array().unwrap().len();
@@ -271,7 +283,12 @@ mod tests {
             .expect("get_report registered");
         let desc = t.description.as_deref().unwrap_or("");
         for (prefix, label) in PREFIX_LABELS {
-            let implemented = for_id(&format!("{prefix}000001")).is_some();
+            let suffix = if prefix.contains(':') {
+                "000001"
+            } else {
+                "0000001"
+            };
+            let implemented = for_id(&format!("{prefix}{suffix}")).is_some();
             assert_eq!(
                 desc.contains(label),
                 implemented,

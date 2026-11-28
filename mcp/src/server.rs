@@ -1,7 +1,7 @@
 use crate::{
     backends::{
-        blast::BlastClient, cache::Caches, chado::Chado, release_terms::ReleaseTerms,
-        wiki::WikiClient,
+        blast::BlastClient, cache::Caches, chado::Chado, release_images::ReleaseImages,
+        release_terms::ReleaseTerms, wiki::WikiClient,
     },
     config::Config,
     limits::Limits,
@@ -143,6 +143,7 @@ pub struct FlyBaseServer {
     pub blast: Option<Arc<BlastClient>>,
     /// None when WIKI_BASE_URL is unset; the wiki tools then answer backend_unavailable.
     pub wiki: Option<Arc<Wiki>>,
+    pub(crate) release_images: Option<Arc<ReleaseImages>>,
     pub(crate) release_terms: Option<Arc<ReleaseTerms>>,
     tool_router: ToolRouter<Self>,
 }
@@ -186,6 +187,7 @@ impl FlyBaseServer {
             caches,
             blast,
             wiki,
+            release_images: None,
             release_terms: None,
             tool_router: Self::all_tool_routers(),
         }
@@ -205,6 +207,12 @@ pub fn app(cfg: &Config, chado: Chado) -> anyhow::Result<Router> {
         .release_terms_path
         .as_deref()
         .map(|path| ReleaseTerms::load(path, &cfg.release))
+        .transpose()?
+        .map(Arc::new);
+    let release_images = cfg
+        .release_images_path
+        .as_deref()
+        .map(|path| ReleaseImages::load(path, &cfg.release))
         .transpose()?
         .map(Arc::new);
     let limits = Limits::new();
@@ -253,6 +261,7 @@ pub fn app(cfg: &Config, chado: Chado) -> anyhow::Result<Router> {
             blast.clone(),
             wiki.clone(),
         );
+        server.release_images = release_images.clone();
         server.release_terms = release_terms.clone();
         Ok(server)
     };

@@ -171,3 +171,22 @@ deployment image. Set `FLYBASE_MCP_RELEASE_TERMS_PATH` to the file's path in the
 server loads it at startup and rejects incomplete projections or a release that differs from
 `FLYBASE_RELEASE`. With the path unset, FBbi and ChEBI term lookups return `backend_unavailable`.
 Regenerate the file from the same website release each time you update `FLYBASE_RELEASE`.
+
+### Image reports
+
+Use `get_report` with an exact FBim ID, such as `FBim0000001`. The image report includes species and
+record dates, the caption and full-size and thumbnail links, anatomy and other ontology annotations,
+and public source references. Use the optional `regions` section for anatomy polygons in original
+image pixels. The `annotations`, `regions`, and `references` sections support `next_offset` when
+requested individually.
+
+Export the data from a completed FlyBase website release tree with Python 3.10 or later. The
+exporter reads the image report XML and checks it against the rendered report and image archives.
+
+```sh
+python3 scripts/export_release_images.py /path/to/flybase-server FB2026_03 > release-images.json
+```
+
+After the exporter succeeds, mount the file read-only and point `FLYBASE_MCP_RELEASE_IMAGES_PATH`
+at it. The server requires the projection to match `FLYBASE_RELEASE` and returns
+`backend_unavailable` for image reports when the path is unset. Regenerate the file for each release.
