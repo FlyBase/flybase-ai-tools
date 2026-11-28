@@ -46,7 +46,10 @@ left join lateral (
     'molecule_type', gf.ftype,
     'role', role.name,
     'gene_ids', array(
-      select distinct g.uniquename
+      select f.uniquename
+      where f.uniquename ~ '^FBgn[0-9]{7}$' and not f.is_obsolete
+      union
+      select g.uniquename
       from feature_relationship fr
       join cvterm rt on rt.cvterm_id = fr.type_id and rt.name = 'associated_with'
       join feature parent on parent.feature_id = fr.object_id
@@ -55,7 +58,7 @@ left join lateral (
       join feature g on g.feature_id = parent.feature_id
         or (prt.cvterm_id is not null and g.feature_id = parent_rel.object_id)
       where fr.subject_id = f.feature_id and g.uniquename ~ '^FBgn[0-9]{7}$' and not g.is_obsolete
-      order by g.uniquename
+      order by uniquename
     ),
     'reported_as', coalesce(props.reported_as, '{}'),
     'notes', coalesce(props.notes, '{}'),

@@ -30,8 +30,8 @@ echo "schema: $((SECONDS - t0))s"
 
 IDS=$(paste -sd, ids.txt | sed "s/\([^,]*\)/'\1'/g")
 SO="(select cv_id from cv where name = 'SO')"
-# Keep the complete curated records for these two physical interaction reports and one obsolete ID.
-FBIG_GROUPS="(select interaction_group_id from interaction_group where uniquename in ('FBig0000000059', 'FBig0000104993', 'FBig0000000001'))"
+# Keep the complete curated records for the selected physical interaction reports.
+FBIG_GROUPS="(select interaction_group_id from interaction_group where uniquename in ('FBig0000000059', 'FBig0000040694', 'FBig0000104993', 'FBig0000113090', 'FBig0000000001'))"
 FBIG_RECORDS="(select distinct fi.interaction_id from interaction_group_feature_interaction j
   join feature_interaction fi using (feature_interaction_id) where j.interaction_group_id in $FBIG_GROUPS)"
 GP="(select cvterm_id from cvterm where name = 'golden_path' and cv_id = $SO)"
@@ -63,7 +63,10 @@ FIDS=$(q "with seed as (select feature_id, uniquename from feature where uniquen
      join feature_interaction fo on fo.interaction_id = fi.interaction_id where fo.feature_id <> xp.feature_id)),
  interaction_report_features as (
    select feature_id from feature_interaction where interaction_id in $FBIG_RECORDS
-   union select feature_id from feature where uniquename in ('FBgn0001085', 'FBgn0284084', 'FBgn0016691', 'FBgn0038224')),
+   union select f.feature_id
+   from interaction_group g cross join lateral unnest(string_to_array(g.description, '-')) as member(id)
+   join feature f on f.uniquename = member.id
+   where g.interaction_group_id in $FBIG_GROUPS and not g.is_obsolete),
  domains as (select fl.feature_id from featureloc fl where fl.srcfeature_id in (select feature_id from seed where uniquename like 'FBpp%')),
  clones as (select lf.feature_id from library_feature lf where lf.library_id = (select library_id from library where uniquename = 'FBlc0000001') order by lf.library_feature_id limit 5000),
  bands as (select feature_id from feature where type_id = (select cvterm_id from cvterm where name = 'chromosome_band' and cv_id = $SO)

@@ -1,5 +1,5 @@
-use super::{ReportType, SectionCtx, paged, reference_page, rows_to_json, strip_markup};
-use crate::{error::ToolResult, output::report_link};
+use super::{ReportType, SectionCtx, paged, reference_page, rows_to_json};
+use crate::{backends::wiki::decode_entities, error::ToolResult, output::report_link};
 use serde_json::{Value, json};
 
 pub struct PhysicalInteraction;
@@ -63,7 +63,7 @@ impl ReportType for PhysicalInteraction {
                                 for value in participant[field].as_array_mut().expect("text array")
                                 {
                                     if let Some(text) = value.as_str() {
-                                        *value = json!(strip_markup(text));
+                                        *value = json!(plain_text(text));
                                     }
                                 }
                             }
@@ -98,6 +98,116 @@ impl ReportType for PhysicalInteraction {
 
 fn strip_field(item: &mut Value, field: &str) {
     if let Some(text) = item[field].as_str() {
-        item[field] = json!(strip_markup(text));
+        item[field] = json!(plain_text(text));
+    }
+}
+
+/// Render the FlyBase inline notation while preserving literal comparison operators in experimental notes.
+fn plain_text(input: &str) -> String {
+    let mut out = String::with_capacity(input.len());
+    let mut rest = input;
+    while let Some(pos) = rest.find(['@', '<', '&']) {
+        out.push_str(&rest[..pos]);
+        rest = &rest[pos..];
+        match rest.as_bytes()[0] {
+            b'@' => {
+                if let Some(end) = rest[1..].find('@').map(|i| i + 1) {
+                    let link = &rest[1..end];
+                    // A FlyBase link can include an identifier before the display text.
+                    let label = match link.split_once(':') {
+                        Some((id, label))
+                            if id.as_bytes().first().is_some_and(u8::is_ascii_uppercase)
+                                && !id.trim_end_matches(|c: char| c.is_ascii_digit()).eq(id) =>
+                        {
+                            label
+                        }
+                        _ => link,
+                    };
+                    out.push_str(&plain_text(label));
+                    rest = &rest[end + 1..];
+                    continue;
+                }
+            }
+            b'<' => {
+                if let Some((tag, replacement)) = [
+                    ("<up>", "["),
+                    ("</up>", "]"),
+                    ("<down>", "["),
+                    ("</down>", "]"),
+                    ("<i>", ""),
+                    ("</i>", ""),
+                    ("<b>", ""),
+                    ("</b>", ""),
+                ]
+                .into_iter()
+                .find(|(tag, _)| rest.starts_with(tag))
+                {
+                    out.push_str(replacement);
+                    rest = &rest[tag.len()..];
+                    continue;
+                }
+            }
+            b'&' => {
+                if let Some(end) = rest.as_bytes().iter().take(12).position(|b| *b == b';') {
+                    let entity = &rest[1..end];
+                    if !entity.contains('&') {
+                        if let Some(greek) = greek_entity(entity) {
+                            out.push(greek);
+                        } else {
+                            out.push_str(&decode_entities(&rest[..=end]));
+                        }
+                        rest = &rest[end + 1..];
+                        continue;
+                    }
+                }
+            }
+            _ => unreachable!(),
+        }
+        out.push(char::from(rest.as_bytes()[0]));
+        rest = &rest[1..];
+    }
+    out.push_str(rest);
+    out
+}
+
+fn greek_entity(entity: &str) -> Option<char> {
+    let key = entity.strip_suffix("gr")?;
+    let upper = key.bytes().all(|b| b.is_ascii_uppercase());
+    // ISO Greek entity names in FlyBase's symbol display, in Greek alphabet order.
+    let letters = [
+        "a", "b", "g", "d", "e", "z", "ee", "th", "i", "k", "l", "m", "n", "x", "o", "p", "r", "s",
+        "t", "u", "ph", "kh", "ps", "oh",
+    ];
+    let index = letters
+        .iter()
+        .position(|letter| key.eq_ignore_ascii_case(letter))?;
+    let alphabet = if upper {
+        "ΑΒΓΔΕΖΗΘΙΚΛΜΝΞΟΠΡΣΤΥΦΧΨΩ"
+    } else {
+        "αβγδεζηθικλμνξοπρστυφχψω"
+    };
+    alphabet.chars().nth(index)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::plain_text;
+
+    #[test]
+    fn renders_flybase_markup_without_losing_literal_inequalities() {
+        assert_eq!(
+            plain_text("Only interactions at 21oC with Kd < 5000 nm were curated by FlyBase."),
+            "Only interactions at 21oC with Kd < 5000 nm were curated by FlyBase."
+        );
+        assert_eq!(
+            plain_text("score > 50; a single small peptide (<10 residues)."),
+            "score > 50; a single small peptide (<10 residues)."
+        );
+        assert_eq!(
+            plain_text(
+                "@FBgn0000000:&agr;Tub<up>1</up>@, @mt:CoI@, &THgr; &gt; 2 & unknown &bogus;"
+            ),
+            "αTub[1], mt:CoI, Θ > 2 & unknown &bogus;"
+        );
     }
 }

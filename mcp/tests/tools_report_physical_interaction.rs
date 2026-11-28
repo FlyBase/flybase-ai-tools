@@ -142,3 +142,50 @@ async fn fbig_paginates_records_and_citations() {
     assert_eq!(refs["items"][2]["id"], "FBrf0089594");
     assert_eq!(refs["next_offset"], Value::Null);
 }
+
+#[tokio::test]
+async fn fbig_preserves_comparison_operators_in_comments() {
+    let c = client().await;
+    let s = call(
+        &c,
+        "get_report",
+        json!({"id": "FBig0000040694", "sections": ["reported_interactions"]}),
+    )
+    .await;
+    let records = s["sections"]["reported_interactions"]["items"]
+        .as_array()
+        .unwrap();
+    let study = records
+        .iter()
+        .find(|record| record["record_id"] == "FBrf0227576-49.FRET")
+        .unwrap();
+    assert!(study["comments"].as_array().unwrap().iter().any(|comment| {
+        comment["text"]
+            .as_str()
+            .unwrap()
+            .contains("Kd < 5000 nm were curated by FlyBase.")
+    }));
+}
+
+#[tokio::test]
+async fn fbig_resolves_participants_stored_as_genes() {
+    let c = client().await;
+    let s = call(
+        &c,
+        "get_report",
+        json!({"id": "FBig0000113090", "sections": ["reported_interactions"], "limit_per_section": 1}),
+    )
+    .await;
+    let first = &s["sections"]["reported_interactions"]["items"][0];
+    assert_eq!(first["record_id"], "FBrf0180423-6.coIP.WB");
+    assert!(
+        first["participants"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|participant| {
+                participant["feature_id"] == "FBgn0260397"
+                    && participant["gene_ids"] == json!(["FBgn0260397"])
+            })
+    );
+}
