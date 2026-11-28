@@ -84,6 +84,7 @@ cp_ "select * from synonym where synonym_id in (select synonym_id from feature_s
      union select synonym_id from cell_line_synonym union select synonym_id from strain_synonym union select synonym_id from library_synonym
      union select synonym_id from grp_synonym union select synonym_id from humanhealth_synonym)" synonym
 cp_ "select * from featureprop where $(in_ feature_id "$FIDS")" featureprop
+cp_ "select pp.* from featureprop_pub pp join featureprop fp using(featureprop_id) where $(in_ fp.feature_id "$FIDS")" featureprop_pub
 cp_ "select * from feature_dbxref where $(in_ feature_id "$FIDS")" feature_dbxref
 cp_ "select * from feature_cvterm where $(in_ feature_id "$FIDS")" feature_cvterm
 cp_ "select * from feature_cvtermprop where feature_cvterm_id in (select feature_cvterm_id from feature_cvterm where $(in_ feature_id "$FIDS"))" feature_cvtermprop

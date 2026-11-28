@@ -196,12 +196,16 @@ pub fn test_sections_enabled() -> bool {
 
 /// `{id, citation, year, pubmed_id}` from any references query with columns uniquename, miniref, pyear, pmid.
 pub fn pub_row(r: &Row) -> Value {
-    json!({
+    let mut item = json!({
         "id": r.get::<_, String>("uniquename"),
         "citation": r.get::<_, Option<String>>("miniref"),
         "year": r.get::<_, Option<String>>("pyear"),
         "pubmed_id": r.get::<_, Option<String>>("pmid"),
-    })
+    });
+    if let Ok(obsolete) = r.try_get::<_, bool>("is_obsolete") {
+        item["is_obsolete"] = json!(obsolete);
+    }
+    item
 }
 
 /// Identity of any feature: `{id, symbol, name, species, type, length}`; NotFound when the ID is not a current feature.

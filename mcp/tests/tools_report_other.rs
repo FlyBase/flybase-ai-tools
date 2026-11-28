@@ -96,6 +96,7 @@ async fn optional_sections() {
     assert_eq!(sec["insertions"]["items"][0]["id"], "FBti0014164");
     assert!(sec["transgenic_product_class"].is_array());
     assert!(sec["constructs"]["items"].is_array());
+    assert!(sec["references"]["items"][0].get("is_obsolete").is_none());
     assert!(
         sec["references"]["items"][0]["id"]
             .as_str()

@@ -188,8 +188,8 @@ async fn reference_pages_cover_the_database_list() {
     tokio::spawn(connection);
     let expected: Vec<String> = db
         .query(
-            "select p.uniquename from feature f join feature_pub fp using(feature_id)
-         join pub p using(pub_id) where f.uniquename = $1 and not p.is_obsolete
+            "select p.uniquename from feature f cross join lateral mcp.feature_publications(f.feature_id,true) refs
+         join pub p on p.pub_id=refs.pub_id where f.uniquename = $1
          order by p.pyear desc nulls last, p.uniquename",
             &[&"FBgn0004647"],
         )
@@ -205,6 +205,11 @@ async fn reference_pages_cover_the_database_list() {
         let response = call(&c, "get_report", args.clone()).await;
         let page = &response["sections"]["references"];
         let items = page["items"].as_array().unwrap();
+        for item in items {
+            if item["id"] == "FBrf0056686" {
+                assert_eq!(item["is_obsolete"], true);
+            }
+        }
         ids.extend(
             items
                 .iter()
@@ -220,6 +225,26 @@ async fn reference_pages_cover_the_database_list() {
         args["offset"] = page["next_offset"].clone();
     }
     assert_eq!(ids, expected);
+    assert!(ids.iter().all(|id| id.starts_with("FBrf")));
+    for cited in [
+        "FBrf0056686",
+        "FBrf0056723",
+        "FBrf0125129",
+        "FBrf0206131",
+        "FBrf0217757",
+    ] {
+        assert!(ids.iter().any(|id| id == cited), "missing {cited}");
+    }
+    let batch = call(
+        &c,
+        "batch_download",
+        json!({"ids":["FBgn0004647"], "fields":["references"]}),
+    )
+    .await;
+    let mut sorted = expected.clone();
+    sorted.sort();
+    let preview = format!("{} (+{} more)", sorted[..50].join("|"), sorted.len() - 50);
+    assert_eq!(batch["rows"][0]["references"], preview);
 
     args["sections"] = json!(["references", "identity"]);
     let invalid = call_raw(&c, "get_report", args).await.unwrap();
