@@ -222,3 +222,29 @@ async fn experimental_tool_insertion_links_and_sparse_sections() {
     }
     assert_eq!(sections["external_links"], json!([]));
 }
+
+#[tokio::test]
+async fn experimental_tool_current_symbol_keeps_all_synonym_citations() {
+    let c = client().await;
+    let report = call(
+        &c,
+        "get_report",
+        json!({"id": "FBto0000097", "sections": ["synonyms"]}),
+    )
+    .await;
+    let current_symbol: Vec<_> = report["sections"]["synonyms"]["items"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter(|item| item["name"] == "mTagBFP2" && item["kind"] == "symbol")
+        .collect();
+    assert_eq!(
+        current_symbol,
+        vec![&json!({
+            "name": "mTagBFP2",
+            "kind": "symbol",
+            "is_current": true,
+            "reference_ids": ["FBrf0105495", "FBrf0238070"]
+        })]
+    );
+}

@@ -232,34 +232,28 @@ impl FlyBaseServer {
             env = env.field("resolved_from", json!(from));
         }
         Ok(env.finish_with_truncation(|body| {
-            for section in rt.offset_sections() {
-                if let Some(page) = body["sections"].get_mut(section) {
-                    repair_page(page, ctx.offset);
-                }
-            }
-            repair_reported_interactions_page(body);
+            repair_pages(body, rt.offset_sections(), ctx.offset);
         }))
     }
 }
 
-fn repair_page(page: &mut Value, offset: i64) {
-    if let Some(items) = page["items"].as_array() {
-        let shown = items.len() as i64;
-        if page["count_shown"].as_i64() != Some(shown) {
+fn repair_pages(body: &mut Value, offset_sections: &[&str], offset: i64) {
+    let Some(sections) = body["sections"].as_object_mut() else {
+        return;
+    };
+    for (name, page) in sections {
+        if let Some(items) = page["items"].as_array()
+            && let Some(count) = page["count_shown"].as_u64()
+            && page["has_more"].is_boolean()
+            && items.len() as u64 != count
+        {
+            let shown = items.len();
             page["count_shown"] = json!(shown);
             page["has_more"] = json!(true);
-            page["next_offset"] = json!(offset + shown);
+            if offset_sections.contains(&name.as_str()) {
+                page["next_offset"] = json!(offset + shown as i64);
+            }
         }
-    }
-}
-
-fn repair_reported_interactions_page(body: &mut Value) {
-    if let Some(page) = body.pointer_mut("/sections/reported_interactions")
-        && let Some(items) = page["items"].as_array()
-        && page["count_shown"].as_u64() != Some(items.len() as u64)
-    {
-        page["count_shown"] = json!(items.len());
-        page["has_more"] = json!(true);
     }
 }
 
@@ -274,7 +268,7 @@ mod tests {
         let items = vec![json!({"id":"FBrf0000001","citation":"x".repeat(50_000)}); 10];
         let result = crate::output::Envelope::new("get_report", "test")
             .field("sections", json!({"references":{"items":items,"count_shown":10,"has_more":false,"next_offset":null}}))
-            .finish_with_truncation(|body| super::repair_page(&mut body["sections"]["references"], 20));
+            .finish_with_truncation(|body| super::repair_pages(body, &["references"], 20));
         let body = result.structured_content.unwrap();
         let page = &body["sections"]["references"];
         let shown = page["items"].as_array().unwrap().len();
@@ -282,6 +276,25 @@ mod tests {
         assert_eq!(page["count_shown"], shown);
         assert_eq!(page["has_more"], true);
         assert_eq!(page["next_offset"], 20 + shown);
+    }
+
+    #[test]
+    fn byte_limited_first_page_reports_the_rows_returned() {
+        use serde_json::json;
+        let items = vec![json!({"id":"FBto0000001","symbol":"x".repeat(50_000)}); 10];
+        let result = crate::output::Envelope::new("get_report", "test")
+            .field(
+                "sections",
+                json!({"related_tools": {"items": items, "count_shown": 10, "has_more": false}}),
+            )
+            .finish_with_truncation(|body| super::repair_pages(body, &["references"], 0));
+        let body = result.structured_content.unwrap();
+        let page = &body["sections"]["related_tools"];
+        let shown = page["items"].as_array().unwrap().len();
+        assert!(shown > 0 && shown < 10);
+        assert_eq!(page["count_shown"], shown);
+        assert_eq!(page["has_more"], true);
+        assert!(page.get("next_offset").is_none());
     }
 
     /// The description names a type exactly when `for_id` dispatches its prefix (Plan 1 deferred minor).
