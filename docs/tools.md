@@ -315,7 +315,7 @@ Submit a BLAST search of a nucleotide or protein sequence against FlyBase databa
 
 ## `convert_coordinates`
 
-Convert genome coordinates between D. melanogaster releases 5 and 6 using the published June 2014 map in both directions. The legacy website back-converter uses an older map and can differ at inverted blocks. Each input gets a status: mapped (both ends convert to one scaffold; a range that spans regions of change is still mapped, but its length can change, so compare from_length with to_length and check regions_spanned), partial (an end falls in a region of change, the two ends land on different scaffolds or strands, or the blocks between them are not in order in the target; the mapped blocks are listed), unmapped, or invalid. Use when a paper or dataset gives release 5 (pre-2014) coordinates and you need current ones; use list_options=true to see supported pairs.
+Convert genome coordinates between D. melanogaster releases 5 and 6 using the published June 2014 map in both directions. The legacy website back-converter uses the April 2014 map and can differ by one base in inverted blocks or return a different scaffold at overlapping boundaries. Each input gets a status: mapped (both ends convert to one scaffold; a range that spans regions of change is still mapped, but its length can change, so compare from_length with to_length and check regions_spanned), partial (an end falls in a region of change, the two ends land on different scaffolds or strands, or the blocks between them are not in order in the target; the mapped blocks are listed), unmapped, or invalid. For release 6 to release 5, set from_release=6 and to_release=5. Use list_options=true to see supported pairs.
 
 ```json
 {

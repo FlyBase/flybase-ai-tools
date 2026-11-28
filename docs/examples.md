@@ -236,7 +236,7 @@ length but is flagged as spanning 1 region of change.
 {"name": "convert_coordinates", "arguments": {"from_release": 6, "to_release": 5, "coordinates": ["3R:1300000"]}}
 ```
 
-The June 2014 map places this base at `3RHet:134383` on the opposite strand. Converting it forward returns `3R:1300000`.
+The June 2014 map places this base at `3RHet:134383` on the opposite strand. Converting it forward returns `3R:1300000`. The legacy website back-converter uses the April 2014 map and returns `3RHet:134384` for this position.
 
 ## Controlled vocabularies
 
