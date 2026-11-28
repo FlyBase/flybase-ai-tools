@@ -1,5 +1,8 @@
 use super::{ReportType, SectionCtx, SectionSource, offset_page};
-use crate::{error::ToolResult, output::report_link};
+use crate::{
+    error::ToolResult,
+    output::{cv_term_link, report_link},
+};
 use serde_json::{Value, json};
 
 pub struct Image;
@@ -47,7 +50,7 @@ impl ReportType for Image {
             }),
             "annotations" => page(ctx, &image.annotations, |a| {
                 let mut item = json!(a);
-                item["url"] = json!(report_link(&a.term_id));
+                item["url"] = json!(cv_term_link(&a.term_id));
                 item
             }),
             "regions" => page(ctx, &image.regions, |region| json!(region)),

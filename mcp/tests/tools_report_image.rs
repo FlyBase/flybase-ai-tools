@@ -69,12 +69,14 @@ async fn image_report_returns_release_data_and_pages_annotations() {
 
     let annotations = sections["annotations"]["items"].as_array().unwrap();
     assert_eq!(annotations.len(), 6);
+    let abdomen = annotations
+        .iter()
+        .find(|a| a["term_id"] == "FBbt:00004788")
+        .unwrap();
+    assert_eq!(abdomen["has_region"], true);
     assert_eq!(
-        annotations
-            .iter()
-            .find(|a| a["term_id"] == "FBbt:00004788")
-            .unwrap()["has_region"],
-        true
+        abdomen["url"],
+        "https://flybase.org/cgi-bin/cvreport.pl?id=FBbt:00004788"
     );
     assert_eq!(
         annotations
@@ -113,6 +115,10 @@ async fn image_report_returns_release_data_and_pages_annotations() {
     assert_eq!(
         process["sections"]["references"]["items"][0]["id"],
         "FBrf0002495"
+    );
+    assert_eq!(
+        process["sections"]["references"]["items"][0]["url"],
+        "https://flybase.org/reports/FBrf0002495"
     );
     assert_eq!(
         process["sections"]["references"]["items"][0]["citation"],
