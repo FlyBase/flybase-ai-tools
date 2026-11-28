@@ -134,7 +134,7 @@ impl FlyBaseServer {
             }
         };
         let ctx = SectionCtx {
-            conn: self.chado.get(T).await?,
+            source: crate::report::SectionSource::Chado(self.chado.get(T).await?),
             tool: T,
             id: id.clone(),
             limit,

@@ -60,7 +60,7 @@ pub struct EntitiesParams {
 impl FlyBaseServer {
     #[tool(
         name = "entities_for_term",
-        description = "List the genes, alleles, disease models, or gene groups annotated to a vocabulary term (GO process, anatomy FBbt phenotype, DOID disease, ...), optionally including its descendant terms, with evidence or qualifier summaries and reference counts. For FBsv stock terms, use get_term for stock counts and its FlyBase report link for stock lists. Use after search_vocabulary or get_term; use get_report on a hit for details."
+        description = "List the genes, alleles, disease models, or gene groups annotated to a vocabulary term (GO process, anatomy FBbt phenotype, DOID disease, ...), optionally including its descendant terms, with evidence or qualifier summaries and reference counts. For FBsv stock terms, use get_term for stock counts and its FlyBase report link for stock lists. For other Chado vocabularies, use after search_vocabulary or get_term; use get_report on a hit for details."
     )]
     pub async fn entities_for_term(
         &self,
@@ -93,6 +93,13 @@ impl FlyBaseServer {
                     p.term_id.trim()
                 ),
             })?;
+        if let Some(vocabulary) = crate::backends::release_terms::vocabulary(&term_id) {
+            return Err(ToolError::InvalidInput {
+                tool: T,
+                arg: "term_id",
+                message: format!("annotation lookup is unsupported for {vocabulary} terms"),
+            });
+        }
         let (db, acc) = parse_term_id(&term_id).expect("canonical");
         if db == "FBsv" {
             return Err(ToolError::InvalidInput {

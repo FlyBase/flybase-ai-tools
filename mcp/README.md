@@ -149,3 +149,24 @@ tool's name, description, or parameters change.
     docker build -t flybase-mcp .
 
 See [`docs/deployment.md`](../docs/deployment.md) for the environment, migrations, and nginx.
+
+### Imaging Methods and ChEBI term reports
+
+`get_term` and `get_report` support exact FBbi and ChEBI term IDs when the server has
+the matching FlyBase release projection. Reports include definitions, synonyms, and direct parents and
+children. ChEBI alternate IDs from the release resolve to their canonical IDs. Annotation counts,
+`entities_for_term`, and `search_vocabulary` are available for Chado vocabularies.
+
+Export the projection from a completed FlyBase website release tree. The exporter reads the
+site's GOBO indexes and release ontology downloads using Perl's `DB_File` and
+`IO::Uncompress::Gunzip` modules.
+
+```sh
+perl scripts/export_release_terms.pl /path/to/flybase-server FB2026_03 > release-terms.json
+```
+
+After the exporter succeeds, mount the JSON file read-only in your container, or copy it into your
+deployment image. Set `FLYBASE_MCP_RELEASE_TERMS_PATH` to the file's path in the container. The
+server loads it at startup and rejects incomplete projections or a release that differs from
+`FLYBASE_RELEASE`. With the path unset, FBbi and ChEBI term lookups return `backend_unavailable`.
+Regenerate the file from the same website release each time you update `FLYBASE_RELEASE`.

@@ -1,5 +1,8 @@
 use crate::{
-    backends::{blast::BlastClient, cache::Caches, chado::Chado, wiki::WikiClient},
+    backends::{
+        blast::BlastClient, cache::Caches, chado::Chado, release_terms::ReleaseTerms,
+        wiki::WikiClient,
+    },
     config::Config,
     limits::Limits,
     tools::wiki::Wiki,
@@ -140,6 +143,7 @@ pub struct FlyBaseServer {
     pub blast: Option<Arc<BlastClient>>,
     /// None when WIKI_BASE_URL is unset; the wiki tools then answer backend_unavailable.
     pub wiki: Option<Arc<Wiki>>,
+    pub(crate) release_terms: Option<Arc<ReleaseTerms>>,
     tool_router: ToolRouter<Self>,
 }
 
@@ -182,6 +186,7 @@ impl FlyBaseServer {
             caches,
             blast,
             wiki,
+            release_terms: None,
             tool_router: Self::all_tool_routers(),
         }
     }
@@ -195,7 +200,13 @@ impl ServerHandler for FlyBaseServer {
     }
 }
 
-pub fn app(cfg: &Config, chado: Chado) -> Router {
+pub fn app(cfg: &Config, chado: Chado) -> anyhow::Result<Router> {
+    let release_terms = cfg
+        .release_terms_path
+        .as_deref()
+        .map(|path| ReleaseTerms::load(path, &cfg.release))
+        .transpose()?
+        .map(Arc::new);
     let limits = Limits::new();
     let release = cfg.release.clone();
     let caches = Arc::new(Caches::new(cfg.response_cache_bytes));
@@ -234,14 +245,16 @@ pub fn app(cfg: &Config, chado: Chado) -> Router {
         wiki: wiki.clone(),
     };
     let factory = move || {
-        Ok(FlyBaseServer::new(
+        let mut server = FlyBaseServer::new(
             chado.clone(),
             limits.clone(),
             release.clone(),
             caches.clone(),
             blast.clone(),
             wiki.clone(),
-        ))
+        );
+        server.release_terms = release_terms.clone();
+        Ok(server)
     };
     let mcp_cfg = StreamableHttpServerConfig::default()
         .with_allowed_hosts(cfg.allowed_hosts())
@@ -252,7 +265,7 @@ pub fn app(cfg: &Config, chado: Chado) -> Router {
     let mcp =
         StreamableHttpService::new(factory, Arc::new(NeverSessionManager::default()), mcp_cfg);
     let prom = prometheus();
-    Router::new()
+    Ok(Router::new()
         .nest_service("/mcp", mcp)
         .route("/health", get(move || health(health_state.clone())))
         .route(
@@ -261,15 +274,16 @@ pub fn app(cfg: &Config, chado: Chado) -> Router {
                 let prom = prom.clone();
                 async move { prom.map(|h| h.render()).unwrap_or_default() }
             }),
-        )
+        ))
 }
 
 pub async fn run(cfg: Config) -> anyhow::Result<()> {
     let chado = Chado::connect(&cfg).await?;
     chado.startup_check(&crate::migrate::names()).await?;
+    let app = app(&cfg, chado)?;
     let listener = tokio::net::TcpListener::bind(cfg.bind).await?;
     tracing::info!(bind = %cfg.bind, release = %cfg.release, "flybase-mcp listening");
-    axum::serve(listener, app(&cfg, chado))
+    axum::serve(listener, app)
         .with_graceful_shutdown(shutdown_signal())
         .await?;
     tracing::info!("flybase-mcp stopped");

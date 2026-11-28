@@ -1,5 +1,5 @@
 use anyhow::Context;
-use std::net::SocketAddr;
+use std::{net::SocketAddr, path::PathBuf};
 use url::Url;
 
 pub const DEFAULT_WIKI_HOST: &str = "wiki.flybase.org";
@@ -10,6 +10,8 @@ pub struct Config {
     pub public_url: Url,
     pub release: String,
     pub chado_url: String,
+    /// Offline FBbi and ChEBI term projection for this release, if configured.
+    pub release_terms_path: Option<PathBuf>,
     pub pool_size: usize,
     pub blast_base_url: Option<Url>,
     pub blast_token: Option<String>,
@@ -37,6 +39,9 @@ impl Config {
                 .context("FLYBASE_MCP_PUBLIC_URL")?,
             release: req("FLYBASE_RELEASE")?,
             chado_url: req("CHADO_URL")?,
+            release_terms_path: get("FLYBASE_MCP_RELEASE_TERMS_PATH")
+                .filter(|v| !v.trim().is_empty())
+                .map(PathBuf::from),
             pool_size: get("CHADO_POOL_SIZE")
                 .map(|v| v.parse())
                 .transpose()
@@ -102,6 +107,7 @@ impl std::fmt::Debug for Config {
             .field("public_url", &self.public_url)
             .field("release", &self.release)
             .field("chado_url", &redact_url(&self.chado_url))
+            .field("release_terms_path", &self.release_terms_path)
             .field("pool_size", &self.pool_size)
             .field("blast_base_url", &self.blast_base_url)
             .field("blast_token", &self.blast_token.as_ref().map(|_| "***"))

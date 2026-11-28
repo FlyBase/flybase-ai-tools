@@ -463,7 +463,7 @@ Find genes, insertions, other features, and aberrations in a cytological locatio
 
 ## `entities_for_term`
 
-List the genes, alleles, disease models, or gene groups annotated to a vocabulary term (GO process, anatomy FBbt phenotype, DOID disease, ...), optionally including its descendant terms, with evidence or qualifier summaries and reference counts. For FBsv stock terms, use get_term for stock counts and its FlyBase report link for stock lists. Use after search_vocabulary or get_term; use get_report on a hit for details.
+List the genes, alleles, disease models, or gene groups annotated to a vocabulary term (GO process, anatomy FBbt phenotype, DOID disease, ...), optionally including its descendant terms, with evidence or qualifier summaries and reference counts. For FBsv stock terms, use get_term for stock counts and its FlyBase report link for stock lists. For other Chado vocabularies, use after search_vocabulary or get_term; use get_report on a hit for details.
 
 ```json
 {
@@ -726,7 +726,7 @@ Orthologs of a fly gene in human, mouse, rat, zebrafish, frog, worm, mosquito, y
 
 ## `get_report`
 
-Return the data shown on a FlyBase report page for an ID. Supported: genes, alleles, insertions, constructs, transcripts, polypeptides, aberrations, balancers, stocks, references, gene groups, disease models, cell lines, strains, libraries, vocabulary terms (GO, FBbt, FBcv, FBdv, FBsv, DOID, SO, MI), clones, sequence features, natural transposons, chemicals, ortholog genes, split system combinations, plasmids. Choose sections to keep responses small; use list_options=true to see section names. To retrieve every available reference, request sections=["references"] and repeat with the returned next_offset until null. Other list sections return the first page only, up to limit_per_section items with has_more. Use resolve first if you only have a symbol.
+Return the data shown on a FlyBase report page for an ID. Supported: genes, alleles, insertions, constructs, transcripts, polypeptides, aberrations, balancers, stocks, references, gene groups, disease models, cell lines, strains, libraries, vocabulary terms (GO, FBbt, FBcv, FBdv, FBsv, DOID, SO, MI, FBbi, CHEBI), clones, sequence features, natural transposons, chemicals, ortholog genes, split system combinations, plasmids. Choose sections to keep responses small; use list_options=true to see section names. To retrieve every available reference, request sections=["references"] and repeat with the returned next_offset until null. Other list sections return the first page only, up to limit_per_section items with has_more. Use resolve first if you only have a symbol.
 
 ```json
 {
@@ -972,7 +972,7 @@ Fly stocks available from stock centres (Bloomington, Kyoto, VDRC, NIG-Fly, Kore
 
 ## `get_term`
 
-Full report for one vocabulary term ID (GO:..., FBbt:..., FBcv:..., FBdv:..., FBsv:..., DOID:..., SO:..., MI:...): definition, synonyms, parents, children (100 per page; page with offset), and Chado annotation counts by data class. Use search_vocabulary first if you only have a term name. For FBsv, the FlyBase report link leads to stock lists. Use entities_for_term to list annotated genes or alleles.
+Full report for one vocabulary term ID (GO:..., FBbt:..., FBcv:..., FBdv:..., FBsv:..., DOID:..., SO:..., MI:..., FBbi:..., CHEBI:...): definition, synonyms, parents, children (100 per page; page with offset), and annotation counts by data class for Chado vocabularies. For Chado vocabularies, use search_vocabulary to find IDs and entities_for_term to list annotated genes or alleles. For FBsv, follow the FlyBase report link for stock lists.
 
 ```json
 {
@@ -989,7 +989,7 @@ Full report for one vocabulary term ID (GO:..., FBbt:..., FBcv:..., FBdv:..., FB
       ]
     },
     "term_id": {
-      "description": "A vocabulary term ID: GO:0007219, FBbt:00004729, FBcv:0000013, FBdv:00005289, FBsv:0000002, DOID:1289, SO:0000704.",
+      "description": "A vocabulary term ID: GO:0007219, FBbt:00004729, FBcv:0000013, FBdv:00005289, FBsv:0000002, DOID:1289, SO:0000704, FBbi:00000009, CHEBI:50906.",
       "type": "string"
     }
   },

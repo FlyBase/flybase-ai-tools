@@ -4,7 +4,7 @@ use crate::{
     limits::clamp_limit,
     output::{Envelope, complete, cv_term_link},
     report::{
-        ReportType, SectionCtx,
+        ReportType,
         cvterm::{CvTerm, canonical_term_id},
         section_error,
     },
@@ -104,7 +104,7 @@ pub struct SearchVocabularyParams {
 #[derive(Deserialize, Serialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct GetTermParams {
-    /// A vocabulary term ID: GO:0007219, FBbt:00004729, FBcv:0000013, FBdv:00005289, FBsv:0000002, DOID:1289, SO:0000704.
+    /// A vocabulary term ID: GO:0007219, FBbt:00004729, FBcv:0000013, FBdv:00005289, FBsv:0000002, DOID:1289, SO:0000704, FBbi:00000009, CHEBI:50906.
     pub term_id: String,
     /// Children to skip (the children list is paged 100 at a time); offset + 100 may not exceed 10,000.
     pub offset: Option<u32>,
@@ -217,7 +217,7 @@ impl FlyBaseServer {
 
     #[tool(
         name = "get_term",
-        description = "Full report for one vocabulary term ID (GO:..., FBbt:..., FBcv:..., FBdv:..., FBsv:..., DOID:..., SO:..., MI:...): definition, synonyms, parents, children (100 per page; page with offset), and Chado annotation counts by data class. Use search_vocabulary first if you only have a term name. For FBsv, the FlyBase report link leads to stock lists. Use entities_for_term to list annotated genes or alleles."
+        description = "Full report for one vocabulary term ID (GO:..., FBbt:..., FBcv:..., FBdv:..., FBsv:..., DOID:..., SO:..., MI:..., FBbi:..., CHEBI:...): definition, synonyms, parents, children (100 per page; page with offset), and annotation counts by data class for Chado vocabularies. For Chado vocabularies, use search_vocabulary to find IDs and entities_for_term to list annotated genes or alleles. For FBsv, follow the FlyBase report link for stock lists."
     )]
     pub async fn get_term(
         &self,
@@ -239,8 +239,7 @@ impl FlyBaseServer {
         Ok(complete(T, started, res))
     }
 
-    /// All five sections run concurrently on one connection; the term row is fetched once (the `OnceCell` in
-    /// `CvTerm`).
+    /// Chado-backed sections share one connection and a single fetch of the term row.
     async fn get_term_impl(&self, p: GetTermParams) -> ToolResult<CallToolResult> {
         const T: &str = "get_term";
         let input = p.term_id.trim();
@@ -259,15 +258,8 @@ impl FlyBaseServer {
                 message: format!("offset + 100 may not exceed {MAX_OFFSET}"),
             });
         }
-        let ctx = SectionCtx {
-            conn: self.chado.get(T).await?,
-            tool: T,
-            id: id.clone(),
-            limit: 100,
-            fetch: 101,
-            offset,
-        };
-        let rt = CvTerm::default();
+        let ctx = self.report_context(T, id.clone(), 100, offset).await?;
+        let rt = CvTerm::for_id(&ctx.id);
         let names: Vec<&str> = rt
             .default_sections()
             .iter()
@@ -305,15 +297,22 @@ impl FlyBaseServer {
         };
         let mut env = Envelope::new(T, &self.release)
             .summary(format!(
-                "{id} ({label}): definition, synonyms, parents, children, Chado annotation counts.{failed}"
+                "{} ({label}): {}.{failed}",
+                ctx.id,
+                names
+                    .join(", ")
+                    .replace("annotation_counts", "annotation counts"),
             ))
-            .link("report", cv_term_link(&id))
-            .field("id", json!(id))
+            .link("report", cv_term_link(&ctx.id))
+            .field("id", json!(ctx.id))
             .field("type", json!("cv_term"))
             .field("offset", json!(offset))
             .field("sections", Value::Object(sections));
         if !section_errors.is_empty() {
             env = env.field("section_errors", json!(section_errors));
+        }
+        if id != ctx.id {
+            env = env.field("resolved_from", json!(id));
         }
         Ok(env.finish())
     }

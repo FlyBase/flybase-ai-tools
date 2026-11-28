@@ -240,3 +240,118 @@ async fn stock_vocabulary_search_and_reports() {
     assert_eq!(count["class"], "stock");
     assert!(count["count"].as_u64().unwrap() > 0);
 }
+
+#[tokio::test]
+async fn released_ontology_terms_have_canonical_reports_and_hierarchy() {
+    let mut cfg = support::test_config();
+    cfg.release_terms_path = Some(
+        std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/release_terms.json"),
+    );
+    let c = support::server::client_at(&support::server::start(cfg)).await;
+    let imaging = call(&c, "get_report", json!({"id": "fbbi:00000009"})).await;
+    assert_eq!(imaging["type"], "cv_term");
+    assert_eq!(imaging["id"], "FBbi:00000009");
+    assert_eq!(
+        imaging["sections"]["definition"]["vocabulary"],
+        "Imaging Methods"
+    );
+    assert_eq!(
+        imaging["sections"]["synonyms"],
+        json!([{"name":"EGS","scope":null}])
+    );
+    assert_eq!(
+        imaging["sections"]["parents"][0]["term_id"],
+        "FBbi:00000008"
+    );
+
+    let alias = call(&c, "get_term", json!({"term_id": "chebi:23648"})).await;
+    assert_eq!(alias["id"], "CHEBI:27780");
+    assert_eq!(alias["resolved_from"], "CHEBI:23648");
+    assert_eq!(alias["sections"]["definition"]["id"], "CHEBI:27780");
+    assert_eq!(alias["sections"]["definition"]["name"], "detergent");
+    assert_eq!(
+        alias["sections"]["definition"]["vocabulary"],
+        "Application and Biological Role"
+    );
+    assert_eq!(alias["sections"]["synonyms"][0]["scope"], "exact");
+    assert_eq!(alias["sections"]["parents"][0]["name"], "surfactant");
+    assert_eq!(
+        alias["links"]["report"],
+        "https://flybase.org/cgi-bin/cvreport.pl?id=CHEBI:27780"
+    );
+    assert!(alias["sections"].get("annotation_counts").is_none());
+    let report_alias = call(&c, "get_report", json!({"id": "chebi:23648"})).await;
+    assert_eq!(alias["sections"], report_alias["sections"]);
+    assert_eq!(alias["resolved_from"], report_alias["resolved_from"]);
+
+    let page = call(
+        &c,
+        "get_term",
+        json!({"term_id": "FBbi:00000008", "offset": 1}),
+    )
+    .await;
+    assert_eq!(
+        page["sections"]["children"]["items"][0]["term_id"],
+        "FBbi:00000010"
+    );
+    assert_eq!(page["sections"]["children"]["count_shown"], 1);
+    let limited = call(
+        &c,
+        "get_report",
+        json!({"id": "FBbi:00000008", "limit_per_section": 1}),
+    )
+    .await;
+    assert_eq!(
+        limited["sections"]["children"]["items"][0]["term_id"],
+        "FBbi:00000009"
+    );
+    assert_eq!(limited["sections"]["children"]["has_more"], true);
+
+    let missing = call_raw(&c, "get_term", json!({"term_id": "CHEBI:15377"}))
+        .await
+        .unwrap()
+        .structured_content
+        .unwrap();
+    assert_eq!(missing["error"], "not_found");
+}
+
+#[tokio::test]
+async fn released_ontology_discovery_and_unsupported_operations() {
+    let c = client().await;
+    let opts = call(
+        &c,
+        "get_report",
+        json!({"id": "CHEBI:27780", "list_options": true}),
+    )
+    .await;
+    assert_eq!(
+        opts["default_sections"],
+        json!(["definition", "synonyms", "parents", "children"])
+    );
+    assert_eq!(opts["optional_sections"], json!([]));
+
+    for (tool, args, error) in [
+        (
+            "get_term",
+            json!({"term_id": "FBbi:00000009"}),
+            "backend_unavailable",
+        ),
+        (
+            "get_report",
+            json!({"id": "CHEBI:27780", "sections": ["annotation_counts"]}),
+            "invalid_input",
+        ),
+        (
+            "entities_for_term",
+            json!({"term_id": "CHEBI:27780", "data_class": "allele"}),
+            "invalid_input",
+        ),
+    ] {
+        let body = call_raw(&c, tool, args)
+            .await
+            .unwrap()
+            .structured_content
+            .unwrap();
+        assert_eq!(body["error"], error);
+    }
+}

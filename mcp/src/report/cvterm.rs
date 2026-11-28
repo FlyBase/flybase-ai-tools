@@ -1,5 +1,6 @@
-//! Controlled-vocabulary term report (GO, FBbt, FBcv, FBdv, FBsv, DOID, SO, PSI-MI), served by `get_report` and `get_term`.
-use super::{ReportType, SectionCtx, paged, rows_to_json};
+//! Controlled-vocabulary term report (GO, FBbt, FBcv, FBdv, FBsv, DOID, SO, PSI-MI, FBbi, ChEBI), served by `get_report` and `get_term`.
+use super::{ReportType, SectionCtx, SectionSource, paged, rows_to_json};
+use crate::backends::release_terms::{ReleaseTerm, vocabulary};
 use crate::error::{ToolError, ToolResult};
 use serde_json::{Value, json};
 use tokio_postgres::Row;
@@ -9,6 +10,7 @@ use tokio_postgres::Row;
 #[derive(Default)]
 pub struct CvTerm {
     term: tokio::sync::OnceCell<Row>,
+    from_release: bool,
 }
 
 pub const DEFAULT: &[&str] = &["definition", "synonyms", "parents", "children"];
@@ -17,7 +19,9 @@ pub const OPTIONAL: &[&str] = &["annotation_counts"];
 /// timeout).
 pub const MAX_DESCENDANTS: i64 = 5000;
 /// The db names (the part before the colon) this server treats as vocabulary term IDs; `DO` is accepted for `DOID`.
-pub const VOCAB_DBS: &[&str] = &["GO", "FBbt", "FBcv", "FBdv", "FBsv", "DOID", "SO", "MI"];
+pub const VOCAB_DBS: &[&str] = &[
+    "GO", "FBbt", "FBcv", "FBdv", "FBsv", "DOID", "SO", "MI", "FBbi", "CHEBI",
+];
 
 /// Split `GO:0007219` into `("GO", "0007219")` when the prefix is a known vocabulary (case-insensitive, `DO` meaning
 /// `DOID`) and the accession is digits.
@@ -57,6 +61,17 @@ async fn fetch_term(ctx: &SectionCtx) -> ToolResult<Row> {
 }
 
 impl CvTerm {
+    pub fn for_id(id: &str) -> Self {
+        let from_release = canonical_term_id(id)
+            .as_deref()
+            .and_then(vocabulary)
+            .is_some();
+        Self {
+            from_release,
+            ..Self::default()
+        }
+    }
+
     /// The term row, fetched on first use; concurrent sections of one call wait on the same fetch.
     async fn term_row(&self, ctx: &SectionCtx) -> ToolResult<&Row> {
         self.term.get_or_try_init(|| fetch_term(ctx)).await
@@ -80,13 +95,16 @@ impl ReportType for CvTerm {
         DEFAULT
     }
     fn optional_sections(&self) -> &'static [&'static str] {
-        OPTIONAL
+        if self.from_release { &[] } else { OPTIONAL }
     }
     fn resolves_feature_id(&self) -> bool {
         false
     }
 
     async fn section(&self, ctx: &SectionCtx, name: &str) -> ToolResult<Value> {
+        if let SectionSource::ReleaseTerm(term) = &ctx.source {
+            return release_section(term, ctx, name);
+        }
         let term = self.term_row(ctx).await?;
         let cvterm_id: i32 = term.get("cvterm_id");
         Ok(match name {
@@ -136,20 +154,67 @@ impl ReportType for CvTerm {
                     .collect();
                 json!({"descendants": descendants, "descendants_included": include, "counts": counts})
             }
-            other => {
-                return Err(ToolError::InvalidInput {
-                    tool: ctx.tool,
-                    arg: "sections",
-                    message: format!("unknown cv_term section '{other}'"),
-                });
-            }
+            other => return Err(invalid_section(ctx.tool, other)),
         })
     }
+}
+
+fn invalid_section(tool: &'static str, name: &str) -> ToolError {
+    ToolError::InvalidInput {
+        tool,
+        arg: "sections",
+        message: format!("unknown cv_term section '{name}'"),
+    }
+}
+
+fn release_section(term: &ReleaseTerm, ctx: &SectionCtx, section: &str) -> ToolResult<Value> {
+    Ok(match section {
+        "definition" => json!({
+            "id": ctx.id,
+            "name": term.name,
+            "vocabulary": vocabulary(&ctx.id),
+            "definition": term.definition,
+            "comment": term.comment,
+            "is_obsolete": term.is_obsolete,
+        }),
+        "synonyms" => json!(term.synonyms),
+        "parents" => json!(term.parents),
+        "children" => paged(
+            term.children
+                .iter()
+                .skip(ctx.offset as usize)
+                .take(ctx.fetch as usize)
+                .map(|child| json!(child))
+                .collect(),
+            ctx.limit,
+        ),
+        other => return Err(invalid_section(ctx.tool, other)),
+    })
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn release_term_keeps_synonyms_beyond_the_chado_limit() {
+        let term = std::sync::Arc::new(serde_json::from_value::<ReleaseTerm>(json!({
+            "name": "test term",
+            "is_obsolete": false,
+            "parents": [],
+            "synonyms": (0..201).map(|i| json!({"name": format!("synonym {i}")})).collect::<Vec<_>>(),
+        })).unwrap());
+        let ctx = SectionCtx {
+            source: SectionSource::ReleaseTerm(term.clone()),
+            tool: "get_term",
+            id: "CHEBI:1".into(),
+            limit: 100,
+            fetch: 101,
+            offset: 0,
+        };
+        let section = release_section(&term, &ctx, "synonyms").unwrap();
+        assert_eq!(section.as_array().unwrap().len(), 201);
+    }
+
     #[test]
     fn term_ids_parse() {
         assert_eq!(parse_term_id("GO:0007219"), Some(("GO", "0007219")));

@@ -1,0 +1,40 @@
+{
+  "release": "FB_TEST",
+  "term_counts": {"FBbi": 3, "CHEBI": 1},
+  "edge_count": 3,
+  "alias_count": 1,
+  "terms": {
+    "FBbi:00000008": {
+      "name": "crosslinking-fixative fixed tissue",
+      "is_obsolete": false,
+      "synonyms": [],
+      "parents": []
+    },
+    "FBbi:00000009": {
+      "name": "ethelene glycol-bis-succinimidyl succinate fixed tissue",
+      "is_obsolete": false,
+      "synonyms": [{"name": "EGS", "scope": null}],
+      "parents": [
+        {"relationship": "is_a", "term_id": "FBbi:00000008", "name": "crosslinking-fixative fixed tissue"}
+      ]
+    },
+    "FBbi:00000010": {
+      "name": "formaldehyde fixed tissue",
+      "is_obsolete": false,
+      "synonyms": [],
+      "parents": [
+        {"relationship": "is_a", "term_id": "FBbi:00000008", "name": "crosslinking-fixative fixed tissue"}
+      ]
+    },
+    "CHEBI:27780": {
+      "name": "detergent",
+      "definition": "A surfactant (or a mixture containing one or more surfactants) having cleaning properties in dilute solutions.",
+      "is_obsolete": false,
+      "synonyms": [{"name": "detergent", "scope": "exact"}],
+      "parents": [
+        {"relationship": "is_a", "term_id": "CHEBI:35195", "name": "surfactant"}
+      ]
+    }
+  },
+  "aliases": {"CHEBI:23648": "CHEBI:27780"}
+}
